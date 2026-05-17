@@ -9,7 +9,9 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "git:repo:create": "tsx src/git/create-repo.ts"
+    "git:repo:create": "tsx src/git/create-repo.ts",
+    "opencode:expose": "tsx src/opencode/web-expose.ts",
+    "opencode:oauth": "tsx src/opencode/setup-oauth.ts"
   },
   "dependencies": {
     "@clack/prompts": "^1.4.0",

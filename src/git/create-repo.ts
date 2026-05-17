@@ -57,11 +57,7 @@ export async function createRepo(config: RepoConfig): Promise<void> {
 
   s.start("GitHub リポジトリを作成・push 中...");
   try {
-    const args = [
-      "repo", "create", config.name,
-      `--${config.visibility}`,
-      "--source=.", "--push",
-    ];
+    const args = ["repo", "create", config.name, `--${config.visibility}`, "--source=.", "--push"];
     if (config.description) {
       args.push("--description", config.description);
     }

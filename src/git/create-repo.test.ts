@@ -45,7 +45,16 @@ describe("createRepo", () => {
     );
     expect(execa).toHaveBeenCalledWith(
       "gh",
-      ["repo", "create", "my-repo", "--private", "--source=.", "--push", "--description", "My project"],
+      [
+        "repo",
+        "create",
+        "my-repo",
+        "--private",
+        "--source=.",
+        "--push",
+        "--description",
+        "My project",
+      ],
       expect.objectContaining({ cwd: expect.stringContaining("my-repo") }),
     );
   });
@@ -66,10 +75,9 @@ describe("createRepo", () => {
     });
 
     const { mkdir } = await import("node:fs/promises");
-    expect(mkdir).toHaveBeenCalledWith(
-      expect.stringContaining("/doc/docs-repo"),
-      { recursive: true },
-    );
+    expect(mkdir).toHaveBeenCalledWith(expect.stringContaining("/doc/docs-repo"), {
+      recursive: true,
+    });
   });
 
   it("skips --description when description is empty", async () => {
