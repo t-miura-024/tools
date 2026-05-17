@@ -11,7 +11,8 @@
     "test:watch": "vitest",
     "git:repo:create": "tsx src/git/create-repo.ts",
     "opencode:expose": "tsx src/opencode/web-expose.ts",
-    "opencode:oauth": "tsx src/opencode/setup-oauth.ts"
+    "opencode:oauth": "tsx src/opencode/setup-oauth.ts",
+    "mt:init": "tsx src/cli/mt-init.ts"
   },
   "dependencies": {
     "@clack/prompts": "^1.4.0",
