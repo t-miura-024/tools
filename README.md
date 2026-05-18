@@ -1,54 +1,44 @@
-# @mt/tools
+# mt
 
-個人開発支援用の CLI ツール・スクリプト集。
+個人開発支援用の CLI ツール集（Rust）。
 
 ## Prerequisites
 
-- Node.js >= 26
-- pnpm
+- Rust 1.85+ (edition 2024)
+- 外部依存: `gh` (GitHub CLI), `ngrok`, `opencode`, `curl`, `ssh`
 
-## Setup
+## Install
 
 ```bash
-pnpm install
+cargo install --path .
 ```
 
-## Scripts
+## Subcommands
 
-| Command             | Description                  |
-| ------------------- | ---------------------------- |
-| `pnpm lint`         | oxlint で静的解析            |
-| `pnpm format`       | oxfmt でコードフォーマット   |
-| `pnpm format:check` | フォーマットチェックのみ     |
-| `pnpm typecheck`    | TypeScript 型チェック        |
-| `pnpm test`         | vitest でテスト実行          |
-| `pnpm test:watch`   | vitest を watch モードで実行 |
+| Command                        | Description                           |
+| ------------------------------ | ------------------------------------- |
+| `mt`                           | 対話型スクリプトセレクター            |
+| `mt init`                      | mt コマンドの初期セットアップ          |
+| `mt git repo create`           | GitHub リポジトリを対話的に作成        |
+| `mt opencode oauth setup`      | Google OAuth のセットアップ            |
+| `mt opencode web expose`       | OpenCode Web を ngrok で公開           |
+| `mt opencode web stop`         | OpenCode Web の公開を停止              |
 
 ## Project Structure
 
 ```
 src/
-  git/          # Git 関連のスクリプト
+  cli/          # init, launcher, style utilities
+  git/          # GitHub repository operations
+  opencode/     # OAuth setup, ngrok expose/stop
+  main.rs       # Entry point with clap subcommands
 ```
 
-## Adding a New Script
+## Development
 
-1. `src/<category>/<name>.ts` にスクリプトを作成
-2. 必要に応じて `<name>.test.ts` にテストを追加
-3. `pnpm typecheck && pnpm test` で動作確認
-
-## Tech Stack
-
-| Tool                                                      | Purpose                 |
-| --------------------------------------------------------- | ----------------------- |
-| [TypeScript](https://www.typescriptlang.org/)             | 言語                    |
-| [tsx](https://tsx.is/)                                    | TypeScript 実行ランナー |
-| [oxlint](https://oxc.rs/)                                 | Linter                  |
-| [oxfmt](https://oxc.rs/)                                  | Formatter               |
-| [vitest](https://vitest.dev/)                             | テストフレームワーク    |
-| [commander](https://github.com/tj/commander.js)           | CLI 引数パース          |
-| [consola](https://github.com/unjs/consola)                | ロガー                  |
-| [execa](https://github.com/sindresorhus/execa)            | 外部コマンド実行        |
-| [fs-extra](https://github.com/jprichardson/node-fs-extra) | ファイル操作            |
-| [globby](https://github.com/sindresorhus/globby)          | ファイルグロブ          |
-| [pathe](https://github.com/unjs/pathe)                    | パス操作ユーティリティ  |
+```bash
+cargo fmt           # Format code
+cargo clippy        # Lint
+cargo test          # Run tests
+cargo build         # Build
+```
