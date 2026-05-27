@@ -20,6 +20,15 @@ fn test_mt_git_repo_create_help() {
 }
 
 #[test]
+fn test_mt_git_worktree_select_help() {
+    let mut cmd = Command::cargo_bin("mt").unwrap();
+    cmd.args(["git", "worktree", "select", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Git worktree"));
+}
+
+#[test]
 fn test_mt_opencode_oauth_setup_help() {
     let mut cmd = Command::cargo_bin("mt").unwrap();
     cmd.args(["opencode", "oauth", "setup", "--help"])
