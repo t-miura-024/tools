@@ -6,6 +6,7 @@ use anyhow::Context;
 use crate::cli::style;
 use crate::git::{self, GitCommands, GitRepoCommands, GitWorktreeCommands};
 use crate::opencode::{self, OpencodeCommands, OpencodeOauthCommands, OpencodeWebCommands};
+use crate::tool::{self, ToolBrewCommands, ToolCommands};
 
 struct ScriptEntry {
     name: &'static str,
@@ -43,6 +44,21 @@ const SCRIPTS: &[ScriptEntry] = &[
         description: "OpenCode Web の公開を停止",
     },
     ScriptEntry {
+        name: "tool install",
+        category: "tool",
+        description: "manifest からツールをインストール",
+    },
+    ScriptEntry {
+        name: "tool verify",
+        category: "tool",
+        description: "Homebrew、mise、npm global の管理状態を検証",
+    },
+    ScriptEntry {
+        name: "tool brew upgrade",
+        category: "tool",
+        description: "Homebrew パッケージを更新",
+    },
+    ScriptEntry {
         name: "init",
         category: "config",
         description: "mt コマンドの初期セットアップ",
@@ -72,6 +88,9 @@ fn run_script(name: &str) -> anyhow::Result<()> {
         }
         "opencode web expose" => opencode::run(OpencodeCommands::Web(OpencodeWebCommands::Expose)),
         "opencode web stop" => opencode::run(OpencodeCommands::Web(OpencodeWebCommands::Stop)),
+        "tool install" => tool::run(ToolCommands::Install),
+        "tool verify" => tool::run(ToolCommands::Verify),
+        "tool brew upgrade" => tool::run(ToolCommands::Brew(ToolBrewCommands::Upgrade)),
         "init" => crate::cli::init::run(),
         _ => anyhow::bail!("Unknown script: {}", name),
     }
@@ -171,7 +190,7 @@ fn ensure_fzf() -> anyhow::Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::{format_script_header, format_script_row, SCRIPTS};
+    use super::{SCRIPTS, format_script_header, format_script_row};
 
     #[test]
     fn test_scripts_are_unique() {
@@ -202,6 +221,7 @@ mod tests {
         cats.dedup();
         assert!(cats.contains(&"git"));
         assert!(cats.contains(&"opencode"));
+        assert!(cats.contains(&"tool"));
         assert!(cats.contains(&"config"));
     }
 

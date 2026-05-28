@@ -4,6 +4,7 @@ mod cli;
 mod config;
 mod git;
 mod opencode;
+mod tool;
 
 #[derive(Parser)]
 #[command(name = "mt", about = "Personal CLI tools")]
@@ -22,6 +23,9 @@ enum Commands {
     /// opencode: OpenCode Web operations
     #[command(subcommand)]
     Opencode(opencode::OpencodeCommands),
+    /// tool: Homebrew and mise tool management
+    #[command(subcommand)]
+    Tool(tool::ToolCommands),
 }
 
 fn main() -> anyhow::Result<()> {
@@ -32,5 +36,6 @@ fn main() -> anyhow::Result<()> {
         Some(Commands::Init) => cli::init::run(),
         Some(Commands::Git(cmd)) => git::run(cmd),
         Some(Commands::Opencode(cmd)) => opencode::run(cmd),
+        Some(Commands::Tool(cmd)) => tool::run(cmd),
     }
 }

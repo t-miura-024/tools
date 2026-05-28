@@ -1,0 +1,3 @@
+agent-browser
+firecrawl
+pnpm

@@ -56,6 +56,33 @@ fn test_mt_opencode_web_stop_help() {
 }
 
 #[test]
+fn test_mt_tool_install_help() {
+    let mut cmd = Command::cargo_bin("mt").unwrap();
+    cmd.args(["tool", "install", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("repository manifests"));
+}
+
+#[test]
+fn test_mt_tool_verify_help() {
+    let mut cmd = Command::cargo_bin("mt").unwrap();
+    cmd.args(["tool", "verify", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Homebrew and mise"));
+}
+
+#[test]
+fn test_mt_tool_brew_upgrade_help() {
+    let mut cmd = Command::cargo_bin("mt").unwrap();
+    cmd.args(["tool", "brew", "upgrade", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Homebrew packages"));
+}
+
+#[test]
 fn test_mt_init_help() {
     let mut cmd = Command::cargo_bin("mt").unwrap();
     cmd.args(["init", "--help"])
