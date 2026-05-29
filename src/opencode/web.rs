@@ -273,7 +273,9 @@ fn wait_for_signal(
     let mut sigset = SigSet::empty();
     sigset.add(Signal::SIGINT);
     sigset.add(Signal::SIGTERM);
-    sigset.thread_block().context("シグナルマスクの設定に失敗しました")?;
+    sigset
+        .thread_block()
+        .context("シグナルマスクの設定に失敗しました")?;
 
     style::info("Ctrl+C で停止できます");
 

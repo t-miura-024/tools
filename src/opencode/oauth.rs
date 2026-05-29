@@ -46,7 +46,9 @@ pub fn setup() -> anyhow::Result<()> {
                 return Err("クライアント ID を入力してください".into());
             }
             if !input.ends_with(".apps.googleusercontent.com") {
-                return Err("クライアント ID は .apps.googleusercontent.com で終わる必要があります".into());
+                return Err(
+                    "クライアント ID は .apps.googleusercontent.com で終わる必要があります".into(),
+                );
             }
             Ok(())
         })
@@ -146,10 +148,7 @@ mod tests {
         assert!(json.contains("123.apps.googleusercontent.com"));
 
         let deserialized: config::OAuthConfig = serde_json::from_str(&json).unwrap();
-        assert_eq!(
-            deserialized.client_id,
-            "123.apps.googleusercontent.com"
-        );
+        assert_eq!(deserialized.client_id, "123.apps.googleusercontent.com");
         assert_eq!(deserialized.allowed_emails.len(), 2);
     }
 }
