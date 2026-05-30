@@ -25,8 +25,6 @@ brew "starship"
 
 cask "arc"
 cask "claude-code"
-cask "cursor"
-cask "cursor-cli"
 cask "docker-desktop"
 cask "font-fira-code"
 cask "google-chrome"
