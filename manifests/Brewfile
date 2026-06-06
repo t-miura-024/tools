@@ -40,6 +40,7 @@ cask "warp"
 cask "zed"
 
 mas "Kindle", id: 302584613
+mas "LINE", id: 539883307
 
 vscode "bierner.markdown-mermaid"
 vscode "cweijan.vscode-typora"
