@@ -27,6 +27,7 @@ fn test_script_categories_separated() {
     let mut cats: Vec<&str> = SCRIPTS.iter().map(|s| s.category).collect();
     cats.sort();
     cats.dedup();
+    assert!(cats.contains(&"agent"));
     assert!(cats.contains(&"git"));
     assert!(cats.contains(&"opencode"));
     assert!(cats.contains(&"tool"));
@@ -48,8 +49,8 @@ fn test_scripts_have_descriptions() {
 fn test_format_script_row_uses_padded_columns() {
     let row = format_script_row(&SCRIPTS[0]);
 
-    assert!(row.starts_with("git         git repo create"));
-    assert!(row.contains("  GitHub リポジトリを対話的に作成"));
+    assert!(row.starts_with("agent       agent-config sync"));
+    assert!(row.contains("  全プラットフォームに設定を同期"));
     assert!(!row.contains('\t'));
 }
 

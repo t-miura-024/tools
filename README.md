@@ -19,6 +19,9 @@ cargo install --path .
 | ------------------------------ | ------------------------------------- |
 | `mt`                           | fzf による対話型スクリプトセレクター   |
 | `mt init`                      | mt コマンドの初期セットアップ          |
+| `mt agent-config sync`         | Cursor/Claude/OpenCode に設定を同期    |
+| `mt agent-config hook --check` | 保護ディレクトリへの直接編集をブロック |
+| `mt agent-config bootstrap`    | 初期セットアップ（同期 + post-commit hook 設置） |
 | `mt git repo create`           | GitHub リポジトリを対話的に作成        |
 | `mt git worktree select`       | Git worktree を選択してパスを出力      |
 | `mt opencode oauth setup`      | Google OAuth のセットアップ            |
@@ -27,6 +30,28 @@ cargo install --path .
 | `mt tool install`              | manifest からツールをインストール      |
 | `mt tool verify`               | Homebrew、mise、npm global の管理状態を検証 |
 | `mt tool brew upgrade`         | Homebrew パッケージを更新              |
+
+## Agent Configuration Management
+
+`agent-configs/` ディレクトリは AI エージェント設定（Cursor/Claude/OpenCode）の Single Source of Truth です。
+
+初回セットアップ:
+
+```bash
+mt agent-config bootstrap
+```
+
+これにより以下が実行されます:
+- `agent-configs/` から各プラットフォームに設定を同期
+- `.git/hooks/post-commit` を設置（`agent-configs/` 変更時に自動同期）
+
+設定を変更したら:
+
+```bash
+mt agent-config sync
+```
+
+Cursor/Claude/OpenCode の設定ディレクトリ（`~/.cursor/`, `~/.claude/`, `~/.config/opencode/`）への直接編集は、hook によってブロックされます。必ず `agent-configs/` を編集してください。
 
 ## Tool Management
 
@@ -78,7 +103,12 @@ src/
   git/          # GitHub repository operations
   opencode/     # OAuth setup, ngrok expose/stop
   tool.rs       # Homebrew and mise tool management
+  agent_config/ # Cursor/Claude/OpenCode config sync
   main.rs       # Entry point with clap subcommands
+agent-configs/  # AI agent configs (Source of Truth)
+  agents/       # SubAgent definitions
+  skills/       # Skill definitions
+  AGENTS.md     # Core rules (synced to CLAUDE.md, etc.)
 manifests/      # Homebrew, mise, npm global manifests
 ```
 

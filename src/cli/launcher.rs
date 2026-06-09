@@ -3,6 +3,7 @@ use std::process::{Command, Stdio};
 
 use anyhow::Context;
 
+use crate::agent_config::{self, AgentConfigCommands};
 use crate::cli::style;
 use crate::git::{self, GitCommands, GitRepoCommands, GitWorktreeCommands};
 use crate::opencode::{self, OpencodeCommands, OpencodeOauthCommands, OpencodeWebCommands};
@@ -18,6 +19,16 @@ const CATEGORY_WIDTH: usize = 10;
 const COMMAND_WIDTH: usize = 24;
 
 const SCRIPTS: &[ScriptEntry] = &[
+    ScriptEntry {
+        name: "agent-config sync",
+        category: "agent",
+        description: "全プラットフォームに設定を同期",
+    },
+    ScriptEntry {
+        name: "agent-config bootstrap",
+        category: "agent",
+        description: "初期セットアップ（同期 + post-commit hook 設置）",
+    },
     ScriptEntry {
         name: "git repo create",
         category: "git",
@@ -81,6 +92,8 @@ pub fn run() -> anyhow::Result<()> {
 
 fn run_script(name: &str) -> anyhow::Result<()> {
     match name {
+        "agent-config sync" => agent_config::run(AgentConfigCommands::Sync),
+        "agent-config bootstrap" => agent_config::run(AgentConfigCommands::Bootstrap),
         "git repo create" => git::run(GitCommands::Repo(GitRepoCommands::Create)),
         "git worktree select" => git::run(GitCommands::Worktree(GitWorktreeCommands::Select)),
         "opencode oauth setup" => {

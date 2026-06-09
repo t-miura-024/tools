@@ -1,5 +1,6 @@
 use clap::{Parser, Subcommand};
 
+mod agent_config;
 mod cli;
 mod config;
 mod git;
@@ -26,6 +27,9 @@ enum Commands {
     /// tool: Homebrew and mise tool management
     #[command(subcommand)]
     Tool(tool::ToolCommands),
+    /// agent-config: AI agent configuration management
+    #[command(subcommand)]
+    AgentConfig(agent_config::AgentConfigCommands),
 }
 
 fn main() -> anyhow::Result<()> {
@@ -37,5 +41,6 @@ fn main() -> anyhow::Result<()> {
         Some(Commands::Git(cmd)) => git::run(cmd),
         Some(Commands::Opencode(cmd)) => opencode::run(cmd),
         Some(Commands::Tool(cmd)) => tool::run(cmd),
+        Some(Commands::AgentConfig(cmd)) => agent_config::run(cmd),
     }
 }
