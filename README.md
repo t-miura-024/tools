@@ -5,7 +5,7 @@
 ## Prerequisites
 
 - Rust 1.85+ (edition 2024)
-- 外部依存: `fzf`, `gh` (GitHub CLI), `ngrok`, `opencode`, `curl`, `ssh`, `brew`, `mise`
+- 外部依存: `fzf`, `gh` (GitHub CLI), `ngrok`, `opencode`, `curl`, `ssh`, `brew`, `mise`, `docker`
 
 ## Install
 
@@ -95,6 +95,30 @@ mt tool brew upgrade
 mise のツールバージョンを変える場合は `manifests/mise.toml` を編集してから `mt tool install` / `mt tool verify` を実行します。
 npm global package を変える場合は `manifests/npm-global.txt` を編集します。
 
+## SearXNG (ローカル検索エンジン)
+
+`mt-search-web` / `mt-deep-research` Skill は、ローカルの SearXNG インスタンスをメタ検索エンジンとして利用する。
+
+起動:
+
+```bash
+mise run docker-up
+```
+
+停止:
+
+```bash
+mise run docker-down
+```
+
+ログ確認:
+
+```bash
+mise run docker-logs
+```
+
+SearXNG は `localhost:8080` で JSON API を提供する。設定は `docker/searxng/settings.yml` で管理する。
+
 ## Project Structure
 
 ```
@@ -109,6 +133,8 @@ agent-configs/  # AI agent configs (Source of Truth)
   agents/       # SubAgent definitions
   skills/       # Skill definitions
   AGENTS.md     # Core rules (synced to CLAUDE.md, etc.)
+docker/         # Docker Compose services
+  searxng/      # SearXNG settings
 manifests/      # Homebrew, mise, npm global manifests
 ```
 

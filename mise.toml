@@ -1,0 +1,11 @@
+[tasks.docker-up]
+description = "Docker サービス群を起動"
+run = "docker compose -f docker/docker-compose.yml up -d"
+
+[tasks.docker-down]
+description = "Docker サービス群を停止"
+run = "docker compose -f docker/docker-compose.yml down"
+
+[tasks.docker-logs]
+description = "Docker サービス群のログを表示"
+run = "docker compose -f docker/docker-compose.yml logs -f"

@@ -6,7 +6,6 @@ tap "sst/tap"
 tap "steipete/tap"
 tap "yakitrak/yakitrak"
 
-brew "ddgr"
 brew "fzf"
 brew "gh"
 brew "git"

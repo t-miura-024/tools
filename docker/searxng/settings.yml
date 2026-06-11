@@ -1,0 +1,15 @@
+use_default_settings: true
+
+general:
+  instance_name: "mt-searxng"
+
+search:
+  formats:
+    - html
+    - json
+
+server:
+  secret_key: "475596bd4ce23c88a22751a1310985930e43b87998529618a48c5b125d6bcfb6"
+  limiter: false
+  port: 8080
+  bind_address: "0.0.0.0"
