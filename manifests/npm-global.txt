@@ -1,4 +1,3 @@
 agent-browser
 firecrawl
 pnpm
-oh-my-openagent
