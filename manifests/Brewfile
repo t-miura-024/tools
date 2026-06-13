@@ -36,6 +36,7 @@ cask "slack"
 cask "temurin@8"
 cask "visual-studio-code"
 cask "warp"
+cask "cmux"
 cask "zed"
 
 mas "Kindle", id: 302584613
