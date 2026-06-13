@@ -1,9 +1,9 @@
 ---
-name: mt-install-package
+name: install-package
 description: 管理されているマニフェスト（manifests/Brewfile / manifests/mise.toml / manifests/npm-global.txt）にパッケージを追記し、既存 Rust 実装の `mt tool install` を実行して Homebrew / Mise / npm のいずれかでインストールする。Homebrew / Mise / npm の各公式リファレンスを WebFetch で照会してツールごとの取扱可否を判定し、ユーザーの公式ドキュメント記載に従って推奨を提示する。「パッケージを入れたい」「ツールを追加して」「〇〇 を Homebrew で入れて」などと言われた時に使用する。
 ---
 
-# mt-install-package
+# install-package
 
 管理されているマニフェスト（`tools/manifests/` 配下）にパッケージを追記し、既存 Rust 実装の `mt tool install` 経由でインストールまで一気通貫で行う。公式リファレンスを参照してツールごとの取扱可否を判定し、ユーザーに候補を提示した上で安全に追記・実行する。
 
