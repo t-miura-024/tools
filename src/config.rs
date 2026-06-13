@@ -8,6 +8,8 @@ pub fn oauth_config_path() -> PathBuf {
     home_dir().join(".config/opencode/ngrok-oauth.json")
 }
 
+pub const REPO_ROOTS: &[&str] = &["doc", "src"];
+
 #[derive(serde::Serialize, serde::Deserialize)]
 pub struct OAuthConfig {
     pub client_id: String,

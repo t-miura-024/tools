@@ -35,6 +35,11 @@ const SCRIPTS: &[ScriptEntry] = &[
         description: "GitHub リポジトリを対話的に作成",
     },
     ScriptEntry {
+        name: "git repo select",
+        category: "git",
+        description: "~/doc, ~/src から Git リポジトリを選択してパスを出力",
+    },
+    ScriptEntry {
         name: "git worktree select",
         category: "git",
         description: "Git worktree を選択してパスを出力",
@@ -95,6 +100,7 @@ fn run_script(name: &str) -> anyhow::Result<()> {
         "agent-config sync" => agent_config::run(AgentConfigCommands::Sync),
         "agent-config bootstrap" => agent_config::run(AgentConfigCommands::Bootstrap),
         "git repo create" => git::run(GitCommands::Repo(GitRepoCommands::Create)),
+        "git repo select" => git::run(GitCommands::Repo(GitRepoCommands::Select)),
         "git worktree select" => git::run(GitCommands::Worktree(GitWorktreeCommands::Select)),
         "opencode oauth setup" => {
             opencode::run(OpencodeCommands::Oauth(OpencodeOauthCommands::Setup))

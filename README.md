@@ -23,6 +23,7 @@ cargo install --path .
 | `mt agent-config hook --check` | 保護ディレクトリへの直接編集をブロック |
 | `mt agent-config bootstrap`    | 初期セットアップ（同期 + post-commit hook 設置） |
 | `mt git repo create`           | GitHub リポジトリを対話的に作成        |
+| `mt git repo select`           | ~/doc, ~/src から Git リポジトリを選択してパスを出力 |
 | `mt git worktree select`       | Git worktree を選択してパスを出力      |
 | `mt opencode oauth setup`      | Google OAuth のセットアップ            |
 | `mt opencode web expose`       | OpenCode Web を ngrok で公開           |

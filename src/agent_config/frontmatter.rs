@@ -33,8 +33,8 @@ pub fn parse_markdown_frontmatter(content: &str) -> Result<(AgentFrontmatter, St
     let frontmatter_str = &content[4..4 + end];
     let body = &content[4 + end + 5..];
 
-    let frontmatter: AgentFrontmatter = serde_yaml::from_str(frontmatter_str)
-        .context("Failed to parse frontmatter YAML")?;
+    let frontmatter: AgentFrontmatter =
+        serde_yaml::from_str(frontmatter_str).context("Failed to parse frontmatter YAML")?;
 
     Ok((frontmatter, body.to_string()))
 }

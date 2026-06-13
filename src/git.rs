@@ -17,6 +17,8 @@ pub enum GitCommands {
 pub enum GitRepoCommands {
     /// Create a new GitHub repository interactively
     Create,
+    /// Select a Git repository under ~/doc or ~/src and print its path
+    Select,
 }
 
 #[derive(Subcommand)]
@@ -29,6 +31,7 @@ pub fn run(cmd: GitCommands) -> anyhow::Result<()> {
     match cmd {
         GitCommands::Repo(sub) => match sub {
             GitRepoCommands::Create => repo::create(),
+            GitRepoCommands::Select => repo::select(),
         },
         GitCommands::Worktree(sub) => match sub {
             GitWorktreeCommands::Select => worktree::select(),

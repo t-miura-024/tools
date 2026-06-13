@@ -14,7 +14,10 @@ fn test_sync_dir_with_delete_basic() {
 
     assert!(dest.path().join("file1.txt").exists());
     assert!(dest.path().join("file2.txt").exists());
-    assert_eq!(fs::read_to_string(dest.path().join("file1.txt")).unwrap(), "content1");
+    assert_eq!(
+        fs::read_to_string(dest.path().join("file1.txt")).unwrap(),
+        "content1"
+    );
 }
 
 #[test]

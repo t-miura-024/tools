@@ -2,7 +2,7 @@ use anyhow::Result;
 use std::fs;
 use std::path::Path;
 
-use super::frontmatter::{infer_claude_agent_color, parse_markdown_frontmatter, AgentFrontmatter};
+use super::frontmatter::{AgentFrontmatter, infer_claude_agent_color, parse_markdown_frontmatter};
 
 pub fn sync_claude(src_root: &Path, dest_root: &Path) -> Result<()> {
     sync_claude_agents(src_root, dest_root)?;

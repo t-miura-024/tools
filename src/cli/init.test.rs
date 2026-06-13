@@ -22,3 +22,9 @@ fn test_has_wt_bridge() {
     assert!(has_wt_bridge(WT_BRIDGE_ENTRY));
     assert!(!has_wt_bridge("wt() { cd /tmp; }"));
 }
+
+#[test]
+fn test_has_rp_bridge() {
+    assert!(has_rp_bridge(RP_BRIDGE_ENTRY));
+    assert!(!has_rp_bridge("rp() { cd /tmp; }"));
+}

@@ -15,6 +15,15 @@ wt() {
   cd -- "$target"
 }
 "#;
+const RP_BRIDGE_MARKER: &str = "# mt rp bridge";
+const RP_BRIDGE_ENTRY: &str = r#"# mt rp bridge
+rp() {
+  local target
+  target="$(mt git repo select)" || return
+  [[ -n "$target" ]] || return
+  cd -- "$target"
+}
+"#;
 
 pub fn run() -> anyhow::Result<()> {
     style::intro("mt コマンドセットアップ");
@@ -57,7 +66,22 @@ pub fn run() -> anyhow::Result<()> {
         if add {
             append_block(&mut content, WT_BRIDGE_ENTRY.trim_end());
             changed = true;
-            style::success("~/.zshrc に wt ブリッジを追加します");
+            style::success("~/.zshrc に wt ブリッジ設定を追加します");
+        }
+    }
+
+    if has_rp_bridge(&content) {
+        style::info("rp ブリッジは既に ~/.zshrc に含まれています");
+    } else {
+        let add = Confirm::new()
+            .with_prompt("~/.zshrc に rp ブリッジを追加しますか？")
+            .default(true)
+            .interact()?;
+
+        if add {
+            append_block(&mut content, RP_BRIDGE_ENTRY.trim_end());
+            changed = true;
+            style::success("~/.zshrc に rp ブリッジ設定を追加します");
         }
     }
 
@@ -87,6 +111,10 @@ fn path_contains(path: &str, target: &str) -> bool {
 
 fn has_wt_bridge(content: &str) -> bool {
     content.contains(WT_BRIDGE_MARKER)
+}
+
+fn has_rp_bridge(content: &str) -> bool {
+    content.contains(RP_BRIDGE_MARKER)
 }
 
 #[cfg(test)]

@@ -2,7 +2,7 @@ use anyhow::Result;
 use std::fs;
 use std::path::Path;
 
-use super::frontmatter::{infer_claude_agent_color, parse_markdown_frontmatter, AgentFrontmatter};
+use super::frontmatter::{AgentFrontmatter, infer_claude_agent_color, parse_markdown_frontmatter};
 
 pub fn sync_opencode(src_root: &Path, dest_root: &Path) -> Result<()> {
     sync_opencode_agents(src_root, dest_root)?;
@@ -80,12 +80,12 @@ fn normalize_opencode_agent_frontmatter(source: &AgentFrontmatter) -> AgentFront
     if let Some(perm) = permission {
         let mut perm_map = serde_yaml::Mapping::new();
         for (k, v) in perm {
-            perm_map.insert(
-                serde_yaml::Value::String(k),
-                serde_yaml::Value::String(v),
-            );
+            perm_map.insert(serde_yaml::Value::String(k), serde_yaml::Value::String(v));
         }
-        extra.insert("permission".to_string(), serde_yaml::Value::Mapping(perm_map));
+        extra.insert(
+            "permission".to_string(),
+            serde_yaml::Value::Mapping(perm_map),
+        );
     }
 
     AgentFrontmatter {
@@ -154,7 +154,15 @@ fn normalize_opencode_agent_color(raw: &str) -> String {
     }
 
     let lower = trimmed.to_lowercase();
-    let valid_tokens = ["primary", "secondary", "accent", "success", "warning", "error", "info"];
+    let valid_tokens = [
+        "primary",
+        "secondary",
+        "accent",
+        "success",
+        "warning",
+        "error",
+        "info",
+    ];
     if valid_tokens.contains(&lower.as_str()) {
         return lower;
     }
@@ -208,9 +216,18 @@ fn stringify_opencode_frontmatter(frontmatter: &AgentFrontmatter) -> String {
 
 fn get_field_value(frontmatter: &AgentFrontmatter, key: &str) -> Option<serde_yaml::Value> {
     match key {
-        "description" => frontmatter.description.as_ref().map(|s| serde_yaml::Value::String(s.clone())),
-        "model" => frontmatter.model.as_ref().map(|s| serde_yaml::Value::String(s.clone())),
-        "color" => frontmatter.color.as_ref().map(|s| serde_yaml::Value::String(s.clone())),
+        "description" => frontmatter
+            .description
+            .as_ref()
+            .map(|s| serde_yaml::Value::String(s.clone())),
+        "model" => frontmatter
+            .model
+            .as_ref()
+            .map(|s| serde_yaml::Value::String(s.clone())),
+        "color" => frontmatter
+            .color
+            .as_ref()
+            .map(|s| serde_yaml::Value::String(s.clone())),
         _ => frontmatter.extra.get(key).cloned(),
     }
 }
@@ -222,7 +239,11 @@ fn format_yaml_line(key: &str, value: &serde_yaml::Value) -> String {
             format!("{}: |\n{}", key, lines.join("\n"))
         }
         serde_yaml::Value::String(s) => {
-            format!("{}: {}", key, serde_json::to_string(s).unwrap_or_else(|_| format!("\"{}\"", s)))
+            format!(
+                "{}: {}",
+                key,
+                serde_json::to_string(s).unwrap_or_else(|_| format!("\"{}\"", s))
+            )
         }
         serde_yaml::Value::Bool(b) => {
             format!("{}: {}", key, b)
@@ -242,7 +263,9 @@ fn format_yaml_line(key: &str, value: &serde_yaml::Value) -> String {
             for (k, v) in map {
                 if let Some(key_str) = k.as_str() {
                     let val_str = match v {
-                        serde_yaml::Value::String(s) => serde_json::to_string(s).unwrap_or_else(|_| format!("\"{}\"", s)),
+                        serde_yaml::Value::String(s) => {
+                            serde_json::to_string(s).unwrap_or_else(|_| format!("\"{}\"", s))
+                        }
                         serde_yaml::Value::Bool(b) => b.to_string(),
                         serde_yaml::Value::Number(n) => n.to_string(),
                         _ => format!("{:?}", v),

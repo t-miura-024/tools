@@ -44,7 +44,7 @@
 
 | ディレクトリ | サブコマンド | ファイル |
 |---|---|---|
-| `src/git/` | `git repo`（→ `create`） | `repo.rs` |
+| `src/git/` | `git repo`（→ `create` / `select`） | `repo.rs` |
 | `src/git/` | `git worktree`（→ `select`） | `worktree.rs` |
 | `src/opencode/` | `opencode oauth`（→ `setup`） | `oauth.rs` |
 | `src/opencode/` | `opencode web`（→ `expose` / `stop`） | `web.rs` |

@@ -34,7 +34,10 @@ pub fn run() -> Result<()> {
 
     if let Some(content) = &existing_content {
         if content.contains(marker) {
-            println!("Post-commit hook already installed at {}", post_commit_path.display());
+            println!(
+                "Post-commit hook already installed at {}",
+                post_commit_path.display()
+            );
             return Ok(());
         }
 
@@ -48,7 +51,10 @@ pub fn run() -> Result<()> {
     perms.set_mode(0o755);
     fs::set_permissions(&post_commit_path, perms)?;
 
-    println!("Installed post-commit hook at {}", post_commit_path.display());
+    println!(
+        "Installed post-commit hook at {}",
+        post_commit_path.display()
+    );
 
     Ok(())
 }
