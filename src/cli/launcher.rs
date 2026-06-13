@@ -4,6 +4,7 @@ use std::process::{Command, Stdio};
 use anyhow::Context;
 
 use crate::agent_config::{self, AgentConfigCommands};
+use crate::cli::self_cmd::{self, SelfCommands};
 use crate::cli::style;
 use crate::git::{self, GitCommands, GitRepoCommands, GitWorktreeCommands};
 use crate::opencode::{self, OpencodeCommands, OpencodeOauthCommands, OpencodeWebCommands};
@@ -75,9 +76,9 @@ const SCRIPTS: &[ScriptEntry] = &[
         description: "Homebrew パッケージを更新",
     },
     ScriptEntry {
-        name: "init",
+        name: "self install",
         category: "config",
-        description: "mt コマンドの初期セットアップ",
+        description: "mt バイナリのビルドとシェル環境整備",
     },
 ];
 
@@ -110,7 +111,7 @@ fn run_script(name: &str) -> anyhow::Result<()> {
         "tool install" => tool::run(ToolCommands::Install),
         "tool verify" => tool::run(ToolCommands::Verify),
         "tool brew upgrade" => tool::run(ToolCommands::Brew(ToolBrewCommands::Upgrade)),
-        "init" => crate::cli::init::run(),
+        "self install" => self_cmd::run(SelfCommands::Install),
         _ => anyhow::bail!("Unknown script: {}", name),
     }
 }

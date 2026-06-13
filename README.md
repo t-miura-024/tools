@@ -18,7 +18,7 @@ cargo install --path .
 | Command                        | Description                           |
 | ------------------------------ | ------------------------------------- |
 | `mt`                           | fzf による対話型スクリプトセレクター   |
-| `mt init`                      | mt コマンドの初期セットアップ          |
+| `mt self install`              | mt バイナリを cargo install + zshrc 環境整備 |
 | `mt agent-config sync`         | Cursor/Claude/OpenCode に設定を同期    |
 | `mt agent-config hook --check` | 保護ディレクトリへの直接編集をブロック |
 | `mt agent-config bootstrap`    | 初期セットアップ（同期 + post-commit hook 設置） |
@@ -124,7 +124,7 @@ SearXNG は `localhost:8080` で JSON API を提供する。設定は `docker/se
 
 ```
 src/
-  cli/          # init, launcher, style utilities
+  cli/          # self_cmd (install), launcher, style utilities
   git/          # GitHub repository operations
   opencode/     # OAuth setup, ngrok expose/stop
   tool.rs       # Homebrew and mise tool management

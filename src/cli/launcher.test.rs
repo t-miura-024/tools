@@ -12,13 +12,11 @@ fn test_scripts_are_unique() {
 #[test]
 fn test_script_name_format() {
     for entry in SCRIPTS {
-        if entry.name != "init" {
-            assert!(
-                entry.name.chars().any(|c| c == ' '),
-                "Script name '{}' should contain spaces (subcommand path)",
-                entry.name
-            );
-        }
+        assert!(
+            entry.name.chars().any(|c| c == ' '),
+            "Script name '{}' should contain spaces (subcommand path)",
+            entry.name
+        );
     }
 }
 

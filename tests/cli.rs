@@ -83,10 +83,10 @@ fn test_mt_tool_brew_upgrade_help() {
 }
 
 #[test]
-fn test_mt_init_help() {
+fn test_mt_self_install_help() {
     let mut cmd = Command::cargo_bin("mt").unwrap();
-    cmd.args(["init", "--help"])
+    cmd.args(["self", "install", "--help"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("cargo/bin"));
+        .stdout(predicate::str::contains("cargo install"));
 }

@@ -1,4 +1,7 @@
 use std::fs;
+use std::io;
+use std::path::{Path, PathBuf};
+use std::process::{Command, Stdio};
 
 use anyhow::Context;
 use dialoguer::Confirm;
@@ -26,7 +29,7 @@ rp() {
 "#;
 
 pub fn run() -> anyhow::Result<()> {
-    style::intro("mt コマンドセットアップ");
+    style::intro("mt self install");
 
     let home = std::env::var("HOME").context("HOME 環境変数が設定されていません")?;
     let cargo_bin = format!("{}/.cargo/bin", home);
@@ -88,12 +91,86 @@ pub fn run() -> anyhow::Result<()> {
     if changed {
         fs::write(&zshrc_path, content).context("~/.zshrc の書き込みに失敗しました")?;
         style::info("ターミナルを再起動するか、source ~/.zshrc を実行してください");
-        style::outro("セットアップが完了しました");
-    } else {
-        style::outro("変更はありません");
     }
 
+    install_via_cargo()?;
+
+    style::outro("セットアップが完了しました");
     Ok(())
+}
+
+fn install_via_cargo() -> anyhow::Result<()> {
+    let repo_root = find_repo_root()?;
+
+    let run = Confirm::new()
+        .with_prompt("cargo install --path . を実行して mt バイナリをビルド・配置しますか？")
+        .default(true)
+        .interact()?;
+
+    if !run {
+        style::info("cargo install はスキップしました");
+        return Ok(());
+    }
+
+    style::info(&format!(
+        "実行: cargo install --path {}",
+        repo_root.display()
+    ));
+
+    let mut command = Command::new("cargo");
+    command
+        .arg("install")
+        .arg("--path")
+        .arg(&repo_root)
+        .current_dir(&repo_root)
+        .stdin(Stdio::inherit())
+        .stdout(Stdio::inherit())
+        .stderr(Stdio::inherit());
+
+    let status = match command.status() {
+        Ok(status) => status,
+        Err(err) if err.kind() == io::ErrorKind::NotFound => {
+            style::warn(
+                "cargo コマンドが見つかりません。`mt tool install` を先に実行して mise で Rust を導入してください",
+            );
+            return Ok(());
+        }
+        Err(err) => {
+            return Err(err).context("cargo install の起動に失敗しました");
+        }
+    };
+
+    if !status.success() {
+        anyhow::bail!("cargo install が失敗しました");
+    }
+
+    style::success("cargo install が完了しました（~/.cargo/bin/mt に配置されました）");
+    Ok(())
+}
+
+fn find_repo_root() -> anyhow::Result<PathBuf> {
+    let current_dir = std::env::current_dir().context("カレントディレクトリを取得できません")?;
+
+    if let Some(root) = find_manifest_root_from(&current_dir) {
+        return Ok(root);
+    }
+
+    let build_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    if build_root.join("Cargo.toml").is_file() {
+        return Ok(build_root);
+    }
+
+    anyhow::bail!("mt リポジトリのルートを特定できませんでした")
+}
+
+fn find_manifest_root_from(start: &Path) -> Option<PathBuf> {
+    start.ancestors().find_map(|dir| {
+        if dir.join("Cargo.toml").is_file() && dir.join("src/main.rs").is_file() {
+            Some(dir.to_path_buf())
+        } else {
+            None
+        }
+    })
 }
 
 fn append_block(content: &mut String, block: &str) {
@@ -118,5 +195,5 @@ fn has_rp_bridge(content: &str) -> bool {
 }
 
 #[cfg(test)]
-#[path = "init.test.rs"]
+#[path = "install.test.rs"]
 mod tests;

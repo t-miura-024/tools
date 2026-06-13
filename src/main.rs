@@ -16,8 +16,9 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
-    /// Check ~/.cargo/bin PATH and set up mt command
-    Init,
+    /// self: operations on the mt binary itself
+    #[command(name = "self", subcommand)]
+    SelfCmd(cli::self_cmd::SelfCommands),
     /// git: GitHub repository operations
     #[command(subcommand)]
     Git(git::GitCommands),
@@ -37,7 +38,7 @@ fn main() -> anyhow::Result<()> {
 
     match cli.command {
         None => cli::launcher::run(),
-        Some(Commands::Init) => cli::init::run(),
+        Some(Commands::SelfCmd(cmd)) => cli::self_cmd::run(cmd),
         Some(Commands::Git(cmd)) => git::run(cmd),
         Some(Commands::Opencode(cmd)) => opencode::run(cmd),
         Some(Commands::Tool(cmd)) => tool::run(cmd),
