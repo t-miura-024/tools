@@ -38,6 +38,7 @@ pub fn check() -> Result<()> {
         format!("{}/.claude/agents", home),
         format!("{}/.config/opencode/skills", home),
         format!("{}/.config/opencode/agents", home),
+        format!("{}/.config/opencode/plugins", home),
     ];
 
     let file_path = hook_input

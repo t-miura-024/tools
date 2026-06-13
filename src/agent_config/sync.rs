@@ -97,6 +97,28 @@ pub fn sync_dir_with_delete(src: &Path, dest: &Path) -> Result<()> {
     Ok(())
 }
 
+pub fn sync_dir_additive(src: &Path, dest: &Path) -> Result<()> {
+    if !dest.exists() {
+        fs::create_dir_all(dest)?;
+    }
+
+    for entry in fs::read_dir(src)? {
+        let entry = entry?;
+        let src_path = entry.path();
+        let file_name = entry.file_name();
+        let dest_path = dest.join(&file_name);
+
+        if src_path.is_dir() {
+            fs::create_dir_all(&dest_path)?;
+            sync_dir_additive(&src_path, &dest_path)?;
+        } else {
+            fs::copy(&src_path, &dest_path)?;
+        }
+    }
+
+    Ok(())
+}
+
 #[cfg(test)]
 #[path = "sync.test.rs"]
 mod tests;

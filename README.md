@@ -54,6 +54,41 @@ mt agent-config sync
 
 Cursor/Claude/OpenCode の設定ディレクトリ（`~/.cursor/`, `~/.claude/`, `~/.config/opencode/`）への直接編集は、hook によってブロックされます。必ず `agent-configs/` を編集してください。
 
+### ディレクトリ構成
+
+`agent-configs/` 直下の `agents/` と `skills/` と `AGENTS.md` はプラットフォーム間で共有されます。opencode 固有のファイル（プラグインなど）は `agent-configs/opencode/` 配下に置きます。
+
+```
+agent-configs/
+├── AGENTS.md                # 全エージェント共通の指示
+├── agents/                  # Cursor/Claude/OpenCode 共通の SubAgent 定義
+├── skills/                  # Cursor/Claude/OpenCode 共通の Skill 定義
+└── opencode/                # opencode 固有のファイル
+    ├── README.md
+    └── plugins/             # ~/.config/opencode/plugins/ へデプロイ
+        └── cmux-notify.ts   # cmux 通知プラグイン
+```
+
+### OpenCode × cmux 統合
+
+`agent-configs/opencode/plugins/cmux-notify.ts` は opencode のプラグインで、opencode のセッション状態変化を cmux に通知し、サイドバータブに status バッジを出します。
+
+購読イベント:
+- `session.status` (`busy`) → ⚡️ 青色バッジ "Running" + 進捗インジケータ
+- `session.status` (`retry`) → ↻ 橙色バッジ "Retrying"
+- `session.status` (`idle`) → バッジクリア
+- `session.idle` → バッジクリア + 通知 "Task complete"
+- `session.error` → ❌ 赤色バッジ "Error" + 通知 "Error"
+- `permission.updated` → 通知 "Waiting for input"
+
+`mt agent-config sync` で `~/.config/opencode/plugins/cmux-notify.ts` へデプロイされ、opencode 起動時に自動ロードされます。`cmux` バイナリが PATH にない場合は no-op で安全（クラッシュしません）。
+
+必要要件:
+- [cmux](https://cmux.app/) をインストールし PATH へ追加（`export PATH="/Applications/cmux.app/Contents/MacOS:$PATH"`）
+- `mt agent-config sync` を 1 回実行
+
+通知挙動をカスタマイズしたい場合は `agent-configs/opencode/plugins/cmux-notify.ts` を編集して `mt agent-config sync` で反映してください。`~/.config/opencode/plugins/` 配下を直接編集すると `mt agent-config hook --check` によってブロックされます。
+
 ## Tool Management
 
 このリポジトリでは `manifests/Brewfile`、`manifests/mise.toml`、`manifests/npm-global.txt` を PC ツール管理の Single Source of Truth として扱います。
@@ -133,6 +168,7 @@ src/
 agent-configs/  # AI agent configs (Source of Truth)
   agents/       # SubAgent definitions
   skills/       # Skill definitions
+  opencode/     # opencode 固有ファイル（plugins/ など）
   AGENTS.md     # Core rules (synced to CLAUDE.md, etc.)
 docker/         # Docker Compose services
   searxng/      # SearXNG settings
