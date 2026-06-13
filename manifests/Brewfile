@@ -38,6 +38,7 @@ cask "visual-studio-code"
 cask "warp"
 cask "cmux"
 cask "zed"
+cask "displaylink"
 
 mas "Kindle", id: 302584613
 mas "LINE", id: 539883307
