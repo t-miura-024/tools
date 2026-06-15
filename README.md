@@ -25,6 +25,8 @@ cargo install --path .
 | `mt git repo create`           | GitHub リポジトリを対話的に作成        |
 | `mt git repo select`           | ~/doc, ~/src から Git リポジトリを選択してパスを出力 |
 | `mt git worktree select`       | Git worktree を選択してパスを出力      |
+| `mt git worktree create`       | Git worktree と新規ブランチを対話的に作成 |
+| `mt git worktree delete`       | Git worktree を対話的に削除（多段ガード + 復旧ヒント） |
 | `mt opencode oauth setup`      | Google OAuth のセットアップ            |
 | `mt opencode web expose`       | OpenCode Web を ngrok で公開           |
 | `mt opencode web stop`         | OpenCode Web の公開を停止              |

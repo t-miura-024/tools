@@ -25,6 +25,14 @@ pub enum GitRepoCommands {
 pub enum GitWorktreeCommands {
     /// Select a Git worktree and print its path
     Select,
+    /// Create a new Git worktree and branch interactively
+    Create,
+    /// Delete a Git worktree interactively (with safety checks)
+    Delete {
+        /// Skip all safety checks and force removal
+        #[arg(long)]
+        force: bool,
+    },
 }
 
 pub fn run(cmd: GitCommands) -> anyhow::Result<()> {
@@ -35,6 +43,8 @@ pub fn run(cmd: GitCommands) -> anyhow::Result<()> {
         },
         GitCommands::Worktree(sub) => match sub {
             GitWorktreeCommands::Select => worktree::select(),
+            GitWorktreeCommands::Create => worktree::create(),
+            GitWorktreeCommands::Delete { force } => worktree::delete(force),
         },
     }
 }

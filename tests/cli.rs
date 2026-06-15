@@ -29,6 +29,24 @@ fn test_mt_git_worktree_select_help() {
 }
 
 #[test]
+fn test_mt_git_worktree_create_help() {
+    let mut cmd = Command::cargo_bin("mt").unwrap();
+    cmd.args(["git", "worktree", "create", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Create a new Git worktree"));
+}
+
+#[test]
+fn test_mt_git_worktree_delete_help() {
+    let mut cmd = Command::cargo_bin("mt").unwrap();
+    cmd.args(["git", "worktree", "delete", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Delete a Git worktree"));
+}
+
+#[test]
 fn test_mt_opencode_oauth_setup_help() {
     let mut cmd = Command::cargo_bin("mt").unwrap();
     cmd.args(["opencode", "oauth", "setup", "--help"])

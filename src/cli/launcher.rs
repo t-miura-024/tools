@@ -46,6 +46,16 @@ const SCRIPTS: &[ScriptEntry] = &[
         description: "Git worktree を選択してパスを出力",
     },
     ScriptEntry {
+        name: "git worktree create",
+        category: "git",
+        description: "Git worktree と新規ブランチを対話的に作成",
+    },
+    ScriptEntry {
+        name: "git worktree delete",
+        category: "git",
+        description: "Git worktree を対話的に削除（多段ガード + 復旧ヒント）",
+    },
+    ScriptEntry {
         name: "opencode oauth setup",
         category: "opencode",
         description: "Google OAuth のセットアップ",
@@ -103,6 +113,8 @@ fn run_script(name: &str) -> anyhow::Result<()> {
         "git repo create" => git::run(GitCommands::Repo(GitRepoCommands::Create)),
         "git repo select" => git::run(GitCommands::Repo(GitRepoCommands::Select)),
         "git worktree select" => git::run(GitCommands::Worktree(GitWorktreeCommands::Select)),
+        "git worktree create" => git::run(GitCommands::Worktree(GitWorktreeCommands::Create)),
+        "git worktree delete" => git::run(GitCommands::Worktree(GitWorktreeCommands::Delete { force: false })),
         "opencode oauth setup" => {
             opencode::run(OpencodeCommands::Oauth(OpencodeOauthCommands::Setup))
         }
