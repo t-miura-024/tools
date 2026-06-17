@@ -6,6 +6,7 @@ mod config;
 mod git;
 mod opencode;
 mod tool;
+mod vector;
 
 #[derive(Parser)]
 #[command(name = "mt", about = "Personal CLI tools")]
@@ -31,6 +32,9 @@ enum Commands {
     /// agent-config: AI agent configuration management
     #[command(subcommand)]
     AgentConfig(agent_config::AgentConfigCommands),
+    /// vector: local vector search over markdown
+    #[command(subcommand)]
+    Vector(vector::VectorCommands),
 }
 
 fn main() -> anyhow::Result<()> {
@@ -43,5 +47,6 @@ fn main() -> anyhow::Result<()> {
         Some(Commands::Opencode(cmd)) => opencode::run(cmd),
         Some(Commands::Tool(cmd)) => tool::run(cmd),
         Some(Commands::AgentConfig(cmd)) => agent_config::run(cmd),
+        Some(Commands::Vector(cmd)) => vector::run(cmd),
     }
 }

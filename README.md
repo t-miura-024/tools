@@ -33,6 +33,8 @@ cargo install --path .
 | `mt tool install`              | manifest からツールをインストール      |
 | `mt tool verify`               | Homebrew、mise、npm global の管理状態を検証 |
 | `mt tool brew upgrade`         | Homebrew パッケージを更新              |
+| `mt vector ingest`             | Markdown 群を Qdrant に投入（設定ファイル駆動）|
+| `mt vector search`             | Qdrant コレクションをベクトル検索        |
 
 ## Agent Configuration Management
 
@@ -133,29 +135,56 @@ mt tool brew upgrade
 mise のツールバージョンを変える場合は `manifests/mise.toml` を編集してから `mt tool install` / `mt tool verify` を実行します。
 npm global package を変える場合は `manifests/npm-global.txt` を編集します。
 
-## SearXNG (ローカル検索エンジン)
+## Docker サービス群
 
-`mt-search-web` / `mt-deep-research` Skill は、ローカルの SearXNG インスタンスをメタ検索エンジンとして利用する。
-
-起動:
+`mise run docker-*` タスクは `scripts/docker.sh` 経由で `docker/*/docker-compose.yml` をすべて検出し、`docker compose -f ... -f ...` に連結して実行する。新サービスを追加するときは `docker/<service>/docker-compose.yml` を 1 つ置くだけで良い。
 
 ```bash
+mise run docker-up    # SearXNG + Qdrant を起動
+mise run docker-down  # すべて停止
+mise run docker-logs  # ログを追尾
+scripts/docker.sh ps  # 状態表示
+```
+
+| Service  | Port  | 用途                          | 設定ファイル                    |
+| -------- | ----- | ----------------------------- | ------------------------------- |
+| SearXNG  | 8080  | メタ検索エンジン              | `docker/searxng/settings.yml`   |
+| Qdrant   | 6333  | ベクトル DB（REST コンソール）| `docker/qdrant/docker-compose.yml` |
+| Qdrant   | 6334  | ベクトル DB（gRPC）           | 同上                            |
+
+## Vector Search (Markdown ベクトル検索)
+
+`mt vector` はローカルの Markdown 群を Qdrant に投入し、ベクトル検索する。設定は `vector.config.toml` 1 つで完結し、Qdrant の URL や埋め込みモデル、チャンク戦略を切り替えられる。
+
+```bash
+# Qdrant を起動（SearXNG と並列）
 mise run docker-up
+
+# Markdown を Qdrant に投入
+mt vector ingest --config ./vector.config.toml
+
+# 類似検索（結果は JSON）
+mt vector search --config ./vector.config.toml --query "恐竜の定義"
 ```
 
-停止:
+`vector.config.toml` の例:
 
-```bash
-mise run docker-down
+```toml
+collection_name = "paleo_blog"
+doc_dir = "doc"
+
+# 任意項目（デフォルトで十分なら省略可）
+# qdrant_url = "http://localhost:6333"
+# vector_dim = 384
+# chunk_pattern = "^#{1,3}\\s+"
+# batch_size = 32
+# top_k = 20
+# embed_model = "dummy-sha256"
+# title_key = "title"
+# source_key = "source"
 ```
 
-ログ確認:
-
-```bash
-mise run docker-logs
-```
-
-SearXNG は `localhost:8080` で JSON API を提供する。設定は `docker/searxng/settings.yml` で管理する。
+埋め込みは Phase 1 では SHA-256 ベースのダミー実装で、ONNX ランタイム統合は別計画で取り組む。
 
 ## Project Structure
 
@@ -166,14 +195,17 @@ src/
   opencode/     # OAuth setup, ngrok expose/stop
   tool.rs       # Homebrew and mise tool management
   agent_config/ # Cursor/Claude/OpenCode config sync
+  vector/       # Markdown ベクトル検索（config / chunk / embed / qdrant / ingest / search）
   main.rs       # Entry point with clap subcommands
 agent-configs/  # AI agent configs (Source of Truth)
   agents/       # SubAgent definitions
   skills/       # Skill definitions
   opencode/     # opencode 固有ファイル（plugins/ など）
   AGENTS.md     # Core rules (synced to CLAUDE.md, etc.)
-docker/         # Docker Compose services
-  searxng/      # SearXNG settings
+docker/         # Docker Compose services (1 サブディレクトリ = 1 サービス)
+  searxng/      # SearXNG (settings.yml, docker-compose.yml)
+  qdrant/       # Qdrant (docker-compose.yml)
+scripts/        # docker.sh (docker compose ラッパー)
 manifests/      # Homebrew, mise, npm global manifests
 ```
 

@@ -160,10 +160,7 @@ fn make_temp_git_repo(branch: &str) -> (tempfile::TempDir, PathBuf) {
     let tmp = tempfile::tempdir().expect("tempdir 作成失敗");
     let path = tmp.path().to_path_buf();
     run_git(&path, &["init", "-q", "-b", branch]);
-    run_git(
-        &path,
-        &["config", "user.email", "test@test.local"],
-    );
+    run_git(&path, &["config", "user.email", "test@test.local"]);
     run_git(&path, &["config", "user.name", "test"]);
     std::fs::write(path.join("README.md"), "hello\n").unwrap();
     run_git(&path, &["add", "."]);
@@ -188,10 +185,9 @@ fn test_check_worktree_safety_dirty() {
 
     let issues = check_worktree_safety(&path).unwrap();
     assert!(
-        issues.iter().any(|i| matches!(
-            i.kind,
-            SafetyKind::Uncommitted
-        )),
+        issues
+            .iter()
+            .any(|i| matches!(i.kind, SafetyKind::Uncommitted)),
         "未コミット変更が検出されるはず: {issues:?}"
     );
 }
@@ -204,14 +200,13 @@ fn test_check_worktree_safety_unpushed() {
     run_git(&path, &["add", "."]);
     run_git(&path, &["commit", "-qm", "feature commit"]);
     // main を upstream として設定（push はしない）
-    run_git(
-        &path,
-        &["branch", "--set-upstream-to=main", "feature"],
-    );
+    run_git(&path, &["branch", "--set-upstream-to=main", "feature"]);
 
     let issues = check_worktree_safety(&path).unwrap();
     assert!(
-        issues.iter().any(|i| matches!(i.kind, SafetyKind::Unpushed)),
+        issues
+            .iter()
+            .any(|i| matches!(i.kind, SafetyKind::Unpushed)),
         "未 push commit が検出されるはず: {issues:?}"
     );
 }
@@ -233,7 +228,24 @@ fn test_check_worktree_safety_unmerged() {
     let issues = check_worktree_safety(&path).unwrap();
     // ここでは main 自体が base に該当する branch なので、unmerged には挙がらない想定
     assert!(
-        !issues.iter().any(|i| matches!(i.kind, SafetyKind::Unmerged)),
+        !issues
+            .iter()
+            .any(|i| matches!(i.kind, SafetyKind::Unmerged)),
         "main 自体は unmerged 扱いされないはず: {issues:?}"
     );
+}
+
+#[test]
+fn test_branch_exists_true() {
+    let (_tmp, path) = make_temp_git_repo("main");
+    run_git(&path, &["checkout", "-q", "-b", "feature-branch"]);
+    run_git(&path, &["checkout", "-q", "main"]);
+
+    assert!(branch_exists(&path, "feature-branch"));
+}
+
+#[test]
+fn test_branch_exists_false() {
+    let (_tmp, path) = make_temp_git_repo("main");
+    assert!(!branch_exists(&path, "nonexistent"));
 }

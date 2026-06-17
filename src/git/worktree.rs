@@ -249,7 +249,12 @@ pub fn create() -> anyhow::Result<()> {
     let main_repo = resolve_main_repo_path()?;
     let parent_dir = main_repo
         .parent()
-        .ok_or_else(|| anyhow::anyhow!("main repo の親ディレクトリが取得できません: {}", main_repo.display()))?
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "main repo の親ディレクトリが取得できません: {}",
+                main_repo.display()
+            )
+        })?
         .to_path_buf();
     let main_name = main_repo
         .file_name()
@@ -265,16 +270,27 @@ pub fn create() -> anyhow::Result<()> {
     let new_path = parent_dir.join(&new_name);
 
     if new_path.exists() {
-        style::error(&format!("ターゲットパスが既に存在します: {}", new_path.display()));
+        style::error(&format!(
+            "ターゲットパスが既に存在します: {}",
+            new_path.display()
+        ));
         style::outro("中止しました");
         return Ok(());
     }
 
     let base = resolve_base_branch().unwrap_or_else(|_| "HEAD".to_string());
+    let current_repo = command_output("git", &["rev-parse", "--show-toplevel"])?;
+    let attach_to_existing = branch_exists(Path::new(&current_repo), &new_name);
 
     style::info(&format!("worktree パス: {}", new_path.display()));
-    style::info(&format!("新規 branch  : {new_name}"));
-    style::info(&format!("派生元       : {base}"));
+    if attach_to_existing {
+        style::info(&format!(
+            "branch       : {new_name} (既存 branch に attach)"
+        ));
+    } else {
+        style::info(&format!("新規 branch  : {new_name}"));
+        style::info(&format!("派生元       : {base}"));
+    }
 
     let confirm = Confirm::new()
         .with_prompt("この内容で作成しますか？")
@@ -287,11 +303,19 @@ pub fn create() -> anyhow::Result<()> {
     }
 
     let spinner = style::spinner("worktree を作成中...");
-    let result = Command::new("git")
-        .args(["worktree", "add", "-b", &new_name])
-        .arg(&new_path)
-        .arg(&base)
-        .status();
+    let result = if attach_to_existing {
+        Command::new("git")
+            .args(["worktree", "add"])
+            .arg(&new_path)
+            .arg(&new_name)
+            .status()
+    } else {
+        Command::new("git")
+            .args(["worktree", "add", "-b", &new_name])
+            .arg(&new_path)
+            .arg(&base)
+            .status()
+    };
     match result {
         Ok(status) if status.success() => {
             spinner.finish_with_message("worktree を作成しました");
@@ -380,11 +404,13 @@ pub fn delete(force: bool) -> anyhow::Result<()> {
         }
     }
 
-    if is_current
-        && let Some(parent) = target_path.parent()
-    {
-        std::env::set_current_dir(parent)
-            .with_context(|| format!("現在のディレクトリの変更に失敗しました: {}", parent.display()))?;
+    if is_current && let Some(parent) = target_path.parent() {
+        std::env::set_current_dir(parent).with_context(|| {
+            format!(
+                "現在のディレクトリの変更に失敗しました: {}",
+                parent.display()
+            )
+        })?;
     }
 
     let mut args: Vec<&str> = vec!["worktree", "remove"];
@@ -462,7 +488,9 @@ fn resolve_base_branch() -> anyhow::Result<String> {
     if command_status("git", &["rev-parse", "--verify", "--quiet", "master"]) {
         return Ok("master".to_string());
     }
-    bail!("派生元の branch を特定できませんでした (origin/HEAD, main, master のいずれも見つかりません)")
+    bail!(
+        "派生元の branch を特定できませんでした (origin/HEAD, main, master のいずれも見つかりません)"
+    )
 }
 
 fn command_status(command: &str, args: &[&str]) -> bool {
@@ -473,6 +501,23 @@ fn command_status(command: &str, args: &[&str]) -> bool {
         .status()
         .map(|s| s.success())
         .unwrap_or(false)
+}
+
+fn branch_exists(repo_path: &Path, branch: &str) -> bool {
+    let Some(repo_str) = repo_path.to_str() else {
+        return false;
+    };
+    command_status(
+        "git",
+        &[
+            "-C",
+            repo_str,
+            "rev-parse",
+            "--verify",
+            "--quiet",
+            &format!("refs/heads/{branch}"),
+        ],
+    )
 }
 
 #[derive(Debug)]
@@ -528,7 +573,8 @@ fn check_worktree_safety(path: &Path) -> anyhow::Result<Vec<SafetyIssue>> {
         let upstream = upstream.trim().to_string();
         if !upstream.is_empty() {
             let range = format!("{upstream}..HEAD");
-            if let Ok(commits) = command_output("git", &["-C", path_str, "log", "--oneline", &range])
+            if let Ok(commits) =
+                command_output("git", &["-C", path_str, "log", "--oneline", &range])
                 && !commits.is_empty()
             {
                 let count = commits.lines().count();
@@ -540,14 +586,20 @@ fn check_worktree_safety(path: &Path) -> anyhow::Result<Vec<SafetyIssue>> {
         }
     }
 
-    if let Ok(branch) = command_output("git", &["-C", path_str, "rev-parse", "--abbrev-ref", "HEAD"]) {
+    if let Ok(branch) = command_output(
+        "git",
+        &["-C", path_str, "rev-parse", "--abbrev-ref", "HEAD"],
+    ) {
         let branch = branch.trim();
         if !branch.is_empty() && branch != "HEAD" {
             for base in ["main", "master"] {
                 if branch == base {
                     continue;
                 }
-                if command_status("git", &["-C", path_str, "rev-parse", "--verify", "--quiet", base]) {
+                if command_status(
+                    "git",
+                    &["-C", path_str, "rev-parse", "--verify", "--quiet", base],
+                ) {
                     let merged = Command::new("git")
                         .args(["-C", path_str, "merge-base", "--is-ancestor", branch, base])
                         .stdout(Stdio::null())

@@ -29,6 +29,7 @@ fn test_script_categories_separated() {
     assert!(cats.contains(&"git"));
     assert!(cats.contains(&"opencode"));
     assert!(cats.contains(&"tool"));
+    assert!(cats.contains(&"vector"));
     assert!(cats.contains(&"config"));
 }
 

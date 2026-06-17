@@ -17,6 +17,12 @@ nix = { version = "0.29", features = ["signal", "process"] }
 indicatif = "0.17"
 console = "0.15"
 rand = "0.8"
+ureq = { version = "2.10", default-features = false, features = ["json"] }
+toml = "0.8"
+sha2 = "0.10"
+walkdir = "2"
+regex = "1"
+uuid = { version = "1", features = ["v4"] }
 
 [dev-dependencies]
 assert_cmd = "2"

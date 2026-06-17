@@ -1,7 +1,9 @@
 use std::io::Write;
+use std::path::PathBuf;
 use std::process::{Command, Stdio};
 
 use anyhow::Context;
+use dialoguer::Input;
 
 use crate::agent_config::{self, AgentConfigCommands};
 use crate::cli::self_cmd::{self, SelfCommands};
@@ -9,6 +11,7 @@ use crate::cli::style;
 use crate::git::{self, GitCommands, GitRepoCommands, GitWorktreeCommands};
 use crate::opencode::{self, OpencodeCommands, OpencodeOauthCommands, OpencodeWebCommands};
 use crate::tool::{self, ToolBrewCommands, ToolCommands};
+use crate::vector::{self, VectorCommands};
 
 struct ScriptEntry {
     name: &'static str,
@@ -86,6 +89,16 @@ const SCRIPTS: &[ScriptEntry] = &[
         description: "Homebrew パッケージを更新",
     },
     ScriptEntry {
+        name: "vector ingest",
+        category: "vector",
+        description: "Markdown ファイルを Qdrant に投入",
+    },
+    ScriptEntry {
+        name: "vector search",
+        category: "vector",
+        description: "Qdrant コレクションをベクトル検索",
+    },
+    ScriptEntry {
         name: "self install",
         category: "config",
         description: "mt バイナリのビルドとシェル環境整備",
@@ -114,7 +127,9 @@ fn run_script(name: &str) -> anyhow::Result<()> {
         "git repo select" => git::run(GitCommands::Repo(GitRepoCommands::Select)),
         "git worktree select" => git::run(GitCommands::Worktree(GitWorktreeCommands::Select)),
         "git worktree create" => git::run(GitCommands::Worktree(GitWorktreeCommands::Create)),
-        "git worktree delete" => git::run(GitCommands::Worktree(GitWorktreeCommands::Delete { force: false })),
+        "git worktree delete" => git::run(GitCommands::Worktree(GitWorktreeCommands::Delete {
+            force: false,
+        })),
         "opencode oauth setup" => {
             opencode::run(OpencodeCommands::Oauth(OpencodeOauthCommands::Setup))
         }
@@ -123,6 +138,8 @@ fn run_script(name: &str) -> anyhow::Result<()> {
         "tool install" => tool::run(ToolCommands::Install),
         "tool verify" => tool::run(ToolCommands::Verify),
         "tool brew upgrade" => tool::run(ToolCommands::Brew(ToolBrewCommands::Upgrade)),
+        "vector ingest" => run_vector_ingest(),
+        "vector search" => run_vector_search(),
         "self install" => self_cmd::run(SelfCommands::Install),
         _ => anyhow::bail!("Unknown script: {}", name),
     }
@@ -218,6 +235,47 @@ fn ensure_fzf() -> anyhow::Result<()> {
     }
 
     Ok(())
+}
+
+fn default_vector_config_path() -> PathBuf {
+    PathBuf::from("vector.config.toml")
+}
+
+fn run_vector_ingest() -> anyhow::Result<()> {
+    let config = default_vector_config_path();
+    if !config.exists() {
+        anyhow::bail!(
+            "vector.config.toml が見つかりません（cwd: {}）。`mt vector ingest --config <path>` を直接実行するか、リポジトリルートで vector.config.toml を作成してください",
+            config
+                .canonicalize()
+                .unwrap_or_else(|_| config.clone())
+                .display()
+        );
+    }
+    vector::run(VectorCommands::Ingest { config })
+}
+
+fn run_vector_search() -> anyhow::Result<()> {
+    let config = default_vector_config_path();
+    if !config.exists() {
+        anyhow::bail!(
+            "vector.config.toml が見つかりません（cwd: {}）。`mt vector search --config <path> --query <text>` を直接実行するか、リポジトリルートで vector.config.toml を作成してください",
+            config
+                .canonicalize()
+                .unwrap_or_else(|_| config.clone())
+                .display()
+        );
+    }
+    let query: String = Input::new()
+        .with_prompt("検索クエリ")
+        .interact_text()
+        .context("検索クエリの入力に失敗しました")?;
+    let query = query.trim().to_string();
+    if query.is_empty() {
+        style::info("クエリが空のため検索をスキップしました");
+        return Ok(());
+    }
+    vector::run(VectorCommands::Search { config, query })
 }
 
 #[cfg(test)]
