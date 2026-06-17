@@ -1,12 +1,16 @@
+use std::path::PathBuf;
+
 use anyhow::Context;
 
 use dialoguer::Select;
 
 use crate::cli::style;
 use crate::git::common::{
-    command_output, current_branch, ensure_inside_git_repo, generate_commit_message,
-    is_protected_branch, resolve_target_branch, snapshot_git_state,
+    command_output, command_output_in, current_branch, ensure_inside_git_repo,
+    generate_commit_message, is_protected_branch, resolve_target_branch, snapshot_git_state,
+    worktree_has_uncommitted_changes,
 };
+use crate::git::worktree::find_worktree_for_branch;
 
 pub fn ship(target: Option<String>, message: Option<String>) -> anyhow::Result<()> {
     ensure_inside_git_repo()?;
@@ -28,12 +32,49 @@ pub fn ship(target: Option<String>, message: Option<String>) -> anyhow::Result<(
     style::info(&format!("feature: {current}"));
     style::info(&format!("target : {target_branch}"));
 
+    let current_cwd = std::env::current_dir()?;
+    let target_worktree = find_worktree_for_branch(&target_branch);
+    let has_conflict = target_worktree
+        .as_ref()
+        .map(|p| p != &current_cwd)
+        .unwrap_or(false);
+
+    if has_conflict {
+        let target_wt = target_worktree.as_ref().expect("has_conflict implies Some");
+        if worktree_has_uncommitted_changes(target_wt) {
+            style::error(&format!(
+                "対象ブランチ {target_branch} を保持する worktree ({}) に未コミットの変更があります。\n手動で commit / stash / 破棄を行ってから再実行してください。",
+                target_wt.display()
+            ));
+            anyhow::bail!("dirty worktree のため中断");
+        }
+        style::warn(&format!(
+            "対象ブランチ {target_branch} は別 worktree ({}) でチェックアウトされています。\nその worktree 内で pull / merge / push を実行します。",
+            target_wt.display()
+        ));
+    }
+
+    let target_cwd: PathBuf = if has_conflict {
+        target_worktree.expect("has_conflict implies Some")
+    } else {
+        current_cwd.clone()
+    };
+
     style::info(&format!("ステップ 1/5: {target_branch} を最新化"));
-    if !checkout_branch(&target_branch, &current)? {
+    if has_conflict {
+        style::info(&format!(
+            "checkout 不要 ({} で既に checkout 済み)",
+            target_cwd.display()
+        ));
+    } else if !checkout_branch(&target_branch, &current)? {
         return Ok(());
     }
     let spinner = style::spinner(&format!("git pull --ff-only origin {target_branch}"));
-    if let Err(e) = command_output("git", &["pull", "--ff-only", "origin", &target_branch]) {
+    if let Err(e) = command_output_in(
+        &target_cwd,
+        "git",
+        &["pull", "--ff-only", "origin", &target_branch],
+    ) {
         spinner.finish_with_message("pull 失敗");
         handle_failure(
             "pull target",
@@ -45,17 +86,22 @@ pub fn ship(target: Option<String>, message: Option<String>) -> anyhow::Result<(
     spinner.finish_with_message("pull 完了");
 
     style::info(&format!("ステップ 2/5: feature ({current}) に戻る"));
-    if !checkout_branch(&current, &current)? {
+    if has_conflict {
+        style::info(&format!(
+            "feature は {} にいるので checkout 不要",
+            current_cwd.display()
+        ));
+    } else if !checkout_branch(&current, &current)? {
         return Ok(());
     }
 
     style::info("ステップ 3/5: 変更をステージングしてコミット");
-    let added = add_changed_files()?;
+    let added = add_changed_files_in(&current_cwd)?;
     let commit_message = match &message {
         Some(m) if !m.is_empty() => m.clone(),
         _ => {
-            let stat =
-                command_output("git", &["diff", "--staged", "--shortstat"]).unwrap_or_default();
+            let stat = command_output_in(&current_cwd, "git", &["diff", "--staged", "--shortstat"])
+                .unwrap_or_default();
             generate_commit_message(&stat)
         }
     };
@@ -65,7 +111,8 @@ pub fn ship(target: Option<String>, message: Option<String>) -> anyhow::Result<(
         style::info(&format!("{} ファイルを add", added.len()));
         style::info(&format!("commit: {commit_message}"));
         let spinner = style::spinner("git commit");
-        if let Err(e) = command_output("git", &["commit", "-m", &commit_message]) {
+        if let Err(e) = command_output_in(&current_cwd, "git", &["commit", "-m", &commit_message])
+        {
             spinner.finish_with_message("commit 失敗");
             handle_failure("commit", &e.to_string(), &current)?;
             return Ok(());
@@ -75,7 +122,7 @@ pub fn ship(target: Option<String>, message: Option<String>) -> anyhow::Result<(
 
     style::info("ステップ 4/5: feature を push");
     let spinner = style::spinner("git push -u origin HEAD");
-    if let Err(e) = command_output("git", &["push", "-u", "origin", "HEAD"]) {
+    if let Err(e) = command_output_in(&current_cwd, "git", &["push", "-u", "origin", "HEAD"]) {
         spinner.finish_with_message("push 失敗");
         handle_failure("push feature", &e.to_string(), &current)?;
         return Ok(());
@@ -85,17 +132,18 @@ pub fn ship(target: Option<String>, message: Option<String>) -> anyhow::Result<(
     style::info(&format!(
         "ステップ 5/5: {target_branch} に --no-ff マージして push"
     ));
-    if !checkout_branch(&target_branch, &current)? {
+    if !has_conflict && !checkout_branch(&target_branch, &current)? {
         return Ok(());
     }
     let spinner = style::spinner(&format!("git merge --no-ff {current}"));
     let merge_result = if message.as_ref().is_some_and(|m| !m.is_empty()) {
-        command_output(
+        command_output_in(
+            &target_cwd,
             "git",
             &["merge", "--no-ff", "-m", &commit_message, &current],
         )
     } else {
-        command_output("git", &["merge", "--no-ff", &current])
+        command_output_in(&target_cwd, "git", &["merge", "--no-ff", &current])
     };
     if let Err(e) = merge_result {
         spinner.finish_with_message("merge 失敗");
@@ -109,7 +157,7 @@ pub fn ship(target: Option<String>, message: Option<String>) -> anyhow::Result<(
     spinner.finish_with_message("merge 完了");
 
     let spinner = style::spinner(&format!("git push origin {target_branch}"));
-    if let Err(e) = command_output("git", &["push", "origin", &target_branch]) {
+    if let Err(e) = command_output_in(&target_cwd, "git", &["push", "origin", &target_branch]) {
         spinner.finish_with_message("push 失敗");
         handle_failure(
             "push target",
@@ -120,7 +168,9 @@ pub fn ship(target: Option<String>, message: Option<String>) -> anyhow::Result<(
     }
     spinner.finish_with_message("push 完了");
 
-    let _ = restore_original_branch(&current);
+    if !has_conflict {
+        let _ = restore_original_branch(&current);
+    }
 
     style::outro(&format!(
         "✅ ship 完了: {current} → {target_branch} にマージ済み、リモートに push 済み"
@@ -160,8 +210,8 @@ fn checkout_branch(target: &str, original: &str) -> anyhow::Result<bool> {
     Ok(true)
 }
 
-fn add_changed_files() -> anyhow::Result<Vec<String>> {
-    let status = command_output("git", &["status", "--porcelain"])?;
+fn add_changed_files_in(cwd: &std::path::Path) -> anyhow::Result<Vec<String>> {
+    let status = command_output_in(cwd, "git", &["status", "--porcelain"])?;
     let mut added = Vec::new();
     for line in status.lines() {
         if line.len() < 4 {
@@ -173,7 +223,7 @@ fn add_changed_files() -> anyhow::Result<Vec<String>> {
         } else {
             path
         };
-        command_output("git", &["add", "--", actual_path])
+        command_output_in(cwd, "git", &["add", "--", actual_path])
             .with_context(|| format!("git add {actual_path} に失敗"))?;
         added.push(actual_path.to_string());
     }

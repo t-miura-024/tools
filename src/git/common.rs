@@ -236,6 +236,12 @@ pub fn snapshot_git_state_in(cwd: &Path) -> String {
     lines.join("\n")
 }
 
+pub fn worktree_has_uncommitted_changes(path: &Path) -> bool {
+    let status = command_output_in(path, "git", &["status", "--porcelain"])
+        .unwrap_or_default();
+    !status.is_empty()
+}
+
 pub fn generate_commit_message(shortstat: &str) -> String {
     use regex::Regex;
 

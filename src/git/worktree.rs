@@ -187,6 +187,16 @@ fn parse_worktree_porcelain(output: &str) -> Vec<WorktreeEntry> {
     entries
 }
 
+pub fn find_worktree_for_branch(branch: &str) -> Option<PathBuf> {
+    let output = command_output("git", &["worktree", "list", "--porcelain"]).ok()?;
+    for entry in parse_worktree_porcelain(&output) {
+        if entry.branch.as_deref() == Some(branch) {
+            return Some(PathBuf::from(entry.path));
+        }
+    }
+    None
+}
+
 fn format_worktree_rows(entries: &[WorktreeEntry], current: &str) -> String {
     let max_name_width = entries
         .iter()
