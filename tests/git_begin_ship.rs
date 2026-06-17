@@ -31,6 +31,12 @@ struct TestRepo {
     bare: PathBuf,
 }
 
+impl TestRepo {
+    fn tmp_path(&self) -> &Path {
+        self._tmp.path()
+    }
+}
+
 fn setup_test_repo() -> TestRepo {
     let tmp = tempfile::tempdir().expect("tempdir");
     let repo = tmp.path().join("repo");
@@ -280,4 +286,97 @@ fn test_mt_git_ship_self_target_errors() {
         .current_dir(&repo.repo)
         .assert()
         .failure();
+}
+
+#[test]
+fn test_mt_git_ship_works_when_target_checked_out_in_other_worktree_clean() {
+    let repo = setup_test_repo();
+
+    // feature branch を作成 & push
+    run_git(&repo.repo, &["checkout", "-q", "-b", "feature"]);
+    std::fs::write(repo.repo.join("feature.txt"), "feature work\n").unwrap();
+    run_git(&repo.repo, &["add", "."]);
+    run_git(&repo.repo, &["commit", "-qm", "feature commit"]);
+    run_git(&repo.repo, &["push", "-u", "-q", "origin", "feature"]);
+
+    // main を別 worktree に追加（衝突する状態を作る）
+    let main_wt = repo.tmp_path().join("main-wt");
+    let main_wt_str = main_wt.to_str().unwrap();
+    run_git(
+        repo.tmp_path(),
+        &["-C", repo.repo.to_str().unwrap(), "worktree", "add", main_wt_str, "main"],
+    );
+
+    // feature branch の作業ディレクトリから ship を実行
+    let mut cmd = Command::cargo_bin("mt").unwrap();
+    cmd.arg("git")
+        .arg("ship")
+        .arg("--target")
+        .arg("main")
+        .arg("--message")
+        .arg("ship from worktree test")
+        .current_dir(&repo.repo)
+        .assert()
+        .success();
+
+    // 別 worktree の main に feature の変更がマージされているはず
+    let log = run_git_output(&main_wt, &["log", "--oneline"]);
+    assert!(
+        log.contains("feature commit"),
+        "別 worktree の main に feature の変更がマージされていない: {log}"
+    );
+    assert!(
+        log.contains("ship from worktree test"),
+        "別 worktree の main に ship コミットが見つからない: {log}"
+    );
+
+    // リモート bare にも push されているはず
+    let remote_log = run_git_output(&repo.bare, &["log", "--oneline", "main"]);
+    assert!(
+        remote_log.contains("feature commit"),
+        "リモート main に feature の変更が push されていない: {remote_log}"
+    );
+}
+
+#[test]
+fn test_mt_git_ship_aborts_when_target_worktree_is_dirty() {
+    let repo = setup_test_repo();
+
+    // feature branch を作成 & push
+    run_git(&repo.repo, &["checkout", "-q", "-b", "feature"]);
+    std::fs::write(repo.repo.join("feature.txt"), "feature work\n").unwrap();
+    run_git(&repo.repo, &["add", "."]);
+    run_git(&repo.repo, &["commit", "-qm", "feature commit"]);
+    run_git(&repo.repo, &["push", "-u", "-q", "origin", "feature"]);
+
+    // main を別 worktree に追加
+    let main_wt = repo.tmp_path().join("main-wt");
+    let main_wt_str = main_wt.to_str().unwrap();
+    run_git(
+        repo.tmp_path(),
+        &["-C", repo.repo.to_str().unwrap(), "worktree", "add", main_wt_str, "main"],
+    );
+
+    // 別 worktree を dirty にする（未 commit の新規ファイル）
+    std::fs::write(main_wt.join("dirty.txt"), "dirty\n").unwrap();
+
+    // ship は失敗するはず
+    let mut cmd = Command::cargo_bin("mt").unwrap();
+    cmd.arg("git")
+        .arg("ship")
+        .arg("--target")
+        .arg("main")
+        .arg("--message")
+        .arg("should fail")
+        .current_dir(&repo.repo)
+        .assert()
+        .failure()
+        .stderr(predicates::str::contains("未コミットの変更"));
+
+    // main には feature の変更がマージされていないはず
+    let log = run_git_output(&main_wt, &["log", "--oneline", "main"]);
+    assert!(
+        !log.contains("feature commit"),
+        "dirty 状態なのに main に feature の変更がマージされてしまった: {log}"
+    );
 }
