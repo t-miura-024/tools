@@ -62,3 +62,16 @@ fn test_format_script_header_uses_padded_columns() {
     assert!(header.ends_with("説明"));
     assert!(!header.contains('\t'));
 }
+
+#[test]
+fn test_scripts_include_git_begin_and_ship() {
+    let names: Vec<&str> = SCRIPTS.iter().map(|s| s.name).collect();
+    assert!(
+        names.contains(&"git begin"),
+        "git begin がランチャーに登録されているべき: {names:?}"
+    );
+    assert!(
+        names.contains(&"git ship"),
+        "git ship がランチャーに登録されているべき: {names:?}"
+    );
+}

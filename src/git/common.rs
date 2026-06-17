@@ -137,7 +137,10 @@ pub fn resolve_default_branch_in(cwd: &Path) -> anyhow::Result<String> {
         &["symbolic-ref", "--short", "refs/remotes/origin/HEAD"],
     ) && !target.is_empty()
     {
-        return Ok(target);
+        // `git symbolic-ref --short refs/remotes/origin/HEAD` は
+        // `refs/remotes/` を除くが `origin/` は残るため、純粋なブランチ名に揃える
+        let stripped = target.trim_start_matches("origin/");
+        return Ok(stripped.to_string());
     }
 
     if let Ok(remote_show) = command_output_in(cwd, "git", &["remote", "show", "origin"]) {

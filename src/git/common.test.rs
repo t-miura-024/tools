@@ -1,6 +1,6 @@
 use super::*;
 use std::path::PathBuf;
-use std::process::Command;
+use std::process::{Command, Command as StdCommand};
 
 fn run_git(cwd: &Path, args: &[&str]) {
     let status = Command::new("git")
@@ -145,14 +145,50 @@ fn test_resolve_default_branch_origin_head_fallback() {
     );
     run_git(
         &path,
-        &[
-            "symbolic-ref",
-            "refs/remotes/origin/HEAD",
-            "refs/heads/develop",
-        ],
+        &["symbolic-ref", "refs/remotes/origin/HEAD", "refs/heads/develop"],
     );
     let branch = resolve_default_branch_in(&path).expect("origin/HEAD を検出できるはず");
     assert_eq!(branch, "develop");
+}
+
+#[test]
+fn test_resolve_default_branch_strips_origin_prefix() {
+    // git symbolic-ref --short は環境によって "origin/main" を返すことがある
+    // （refs/remotes/ は除かれるが origin/ は残る）。実装側で除去する必要がある。
+    // bare リポジトリで origin/HEAD を手動設定し、ローカル clone を作成して検証する。
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let bare = tmp.path().join("bare.git");
+    run_git(
+        tmp.path(),
+        &["init", "--bare", "-q", "-b", "main", bare.to_str().unwrap()],
+    );
+
+    let clone = tmp.path().join("clone");
+    run_git(tmp.path(), &["clone", "-q", bare.to_str().unwrap(), clone.to_str().unwrap()]);
+    run_git(&clone, &["config", "user.email", "test@test.local"]);
+    run_git(&clone, &["config", "user.name", "test"]);
+    // origin/HEAD を手動設定（remote show で確認可能な状態にする）
+    run_git(
+        &clone,
+        &["symbolic-ref", "refs/remotes/origin/HEAD", "refs/heads/main"],
+    );
+
+    // origin/HEAD が clone 時に設定されているはず
+    let symbolic = StdCommand::new("git")
+        .args(["symbolic-ref", "--short", "refs/remotes/origin/HEAD"])
+        .current_dir(&clone)
+        .output()
+        .expect("git");
+    let symbolic_stdout = String::from_utf8_lossy(&symbolic.stdout)
+        .trim_end()
+        .to_string();
+    // git のバージョンによって出力が "origin/main" か "main" か異なる
+    // 実装はどちらでも純粋なブランチ名 ("main") を返すべき
+    let branch = resolve_default_branch_in(&clone).expect("origin/HEAD を検出できるはず");
+    assert_eq!(
+        branch, "main",
+        "symbolic-ref の出力が {symbolic_stdout:?} でも純粋なブランチ名を返すべき"
+    );
 }
 
 #[test]

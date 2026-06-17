@@ -59,6 +59,16 @@ const SCRIPTS: &[ScriptEntry] = &[
         description: "Git worktree を対話的に削除（多段ガード + 復旧ヒント）",
     },
     ScriptEntry {
+        name: "git begin",
+        category: "git",
+        description: "現在のブランチを upstream 同期 + target を pull で取り込み",
+    },
+    ScriptEntry {
+        name: "git ship",
+        category: "git",
+        description: "自身のブランチで commit & push → target に no-ff マージ & push",
+    },
+    ScriptEntry {
         name: "opencode oauth setup",
         category: "opencode",
         description: "Google OAuth のセットアップ",
@@ -130,6 +140,11 @@ fn run_script(name: &str) -> anyhow::Result<()> {
         "git worktree delete" => git::run(GitCommands::Worktree(GitWorktreeCommands::Delete {
             force: false,
         })),
+        "git begin" => git::run(GitCommands::Begin { target: None }),
+        "git ship" => git::run(GitCommands::Ship {
+            target: None,
+            message: None,
+        }),
         "opencode oauth setup" => {
             opencode::run(OpencodeCommands::Oauth(OpencodeOauthCommands::Setup))
         }
