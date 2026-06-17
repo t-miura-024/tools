@@ -47,6 +47,26 @@ fn test_mt_git_worktree_delete_help() {
 }
 
 #[test]
+fn test_mt_git_begin_help() {
+    let mut cmd = Command::cargo_bin("mt").unwrap();
+    cmd.args(["git", "begin", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "Sync current branch with upstream",
+        ));
+}
+
+#[test]
+fn test_mt_git_ship_help() {
+    let mut cmd = Command::cargo_bin("mt").unwrap();
+    cmd.args(["git", "ship", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Stage, commit, push, and merge"));
+}
+
+#[test]
 fn test_mt_opencode_oauth_setup_help() {
     let mut cmd = Command::cargo_bin("mt").unwrap();
     cmd.args(["opencode", "oauth", "setup", "--help"])

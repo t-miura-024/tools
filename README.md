@@ -22,6 +22,8 @@ cargo install --path .
 | `mt agent-config sync`         | Cursor/Claude/OpenCode に設定を同期    |
 | `mt agent-config hook --check` | 保護ディレクトリへの直接編集をブロック |
 | `mt agent-config bootstrap`    | 初期セットアップ（同期 + post-commit hook 設置） |
+| `mt git begin`                 | 現在のブランチを upstream 同期 + target を pull で取り込み |
+| `mt git ship`                  | 自身のブランチで commit & push → target に no-ff マージ & push |
 | `mt git repo create`           | GitHub リポジトリを対話的に作成        |
 | `mt git repo select`           | ~/doc, ~/src から Git リポジトリを選択してパスを出力 |
 | `mt git worktree select`       | Git worktree を選択してパスを出力      |
@@ -185,6 +187,79 @@ doc_dir = "doc"
 ```
 
 埋め込みは Phase 1 では SHA-256 ベースのダミー実装で、ONNX ランタイム統合は別計画で取り組む。
+
+## Worktree Workflow
+
+Git worktree での一連の作業を `mt git` の 4 ステップで標準化します。
+
+| ステップ | コマンド | 責務 |
+| --- | --- | --- |
+| 1. 環境構築 | `mt git worktree create` | 新しい worktree と feature branch を対話的に作成 |
+| 2. 最新化 | `mt git begin [--target <branch>]` | 現在のブランチを upstream に同期し、target の変更を取り込み |
+| 3. 作業 | （お好みのエディタ） | 通常の開発作業 |
+| 4. マージ & プッシュ | `mt git ship [--target <branch>] [-m <message>]` | コミット → push → target に no-ff マージ → push |
+
+### `mt git begin`
+
+worktree に入った直後に実行する「最新化」コマンドです。
+
+- 現在のブランチを `git fetch` + `git merge --ff-only origin/<current>` で upstream に同期
+- `--target <branch>` を明示、または未指定なら fzf でローカルブランチから選択（デフォルトブランチが先頭ソート）
+- target ブランチの変更を現在のブランチへ `git pull --no-rebase origin <target>` で取り込み
+
+```bash
+# target を明示して begin
+mt git begin --target main
+
+# 引数なし: fzf で target を選択（デフォルトブランチが先頭）
+mt git begin
+```
+
+### `mt git ship`
+
+worktree を出る直前に実行する「マージ & プッシュ」コマンドです。
+
+- target ブランチ（デフォルトブランチ）を `git pull --ff-only` で最新化
+- 現在のブランチで `git add` + `git commit`（`-m` 引数がなければ `git diff --staged --shortstat` から軽量自動生成）
+- `git push -u origin HEAD`
+- target に `git merge --no-ff <feature>` でマージコミット作成 → `git push origin <target>`
+- 元のブランチに戻る
+
+```bash
+# コミットメッセージを指定して ship
+mt git ship --target main -m "fix: handle edge case"
+
+# 自動生成されたコミットメッセージで ship（-m 未指定）
+mt git ship --target main
+```
+
+### ワークフロー例
+
+```bash
+# 1. 環境構築
+mt git worktree create
+# → ~/src/tools-wt-1-wt-3 が新規 worktree として作成される
+
+# 2. 最新化（main の変更を取り込んでから作業開始）
+cd ~/src/tools-wt-1-wt-3
+mt git begin --target main
+
+# 3. 作業
+vim src/main.rs
+git add -p   # 個別に確認しながらステージング
+# あるいは mt git ship が自動で git add するので、ここでは省略可
+
+# 4. マージ & プッシュ
+mt git ship --target main -m "feat: add new command"
+# → 変更を commit → push → main に no-ff マージ → push
+```
+
+### 安全性
+
+- デフォルトブランチ（`main` / `master`）上での `begin` / `ship` はエラーで中断
+- 任意の git 操作が失敗したら即座に中断し、現在の git 状態スナップショット（HEAD / 未コミット変更 / stash）を表示
+- リカバリ選択肢（abort / rebase 手順 / force 手順）から選んで次のアクションを決定
+- 対話入力ができない環境（CI 等）では自動的に abort 扱いで exit 1
 
 ## Project Structure
 
