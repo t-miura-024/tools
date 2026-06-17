@@ -1,10 +1,28 @@
 use clap::Subcommand;
 
+pub mod begin;
+pub mod common;
 pub mod repo;
+pub mod ship;
 pub mod worktree;
 
 #[derive(Subcommand)]
 pub enum GitCommands {
+    /// Sync current branch with upstream and pull target branch into it
+    Begin {
+        /// Target branch to pull into the current branch (default: detected default branch)
+        #[arg(long)]
+        target: Option<String>,
+    },
+    /// Stage, commit, push, and merge the current branch into the target branch
+    Ship {
+        /// Target branch to merge into (default: detected default branch)
+        #[arg(long)]
+        target: Option<String>,
+        /// Commit message (default: auto-generated from staged diff)
+        #[arg(long)]
+        message: Option<String>,
+    },
     /// GitHub repository operations
     #[command(subcommand)]
     Repo(GitRepoCommands),
@@ -37,6 +55,8 @@ pub enum GitWorktreeCommands {
 
 pub fn run(cmd: GitCommands) -> anyhow::Result<()> {
     match cmd {
+        GitCommands::Begin { target } => begin::begin(target),
+        GitCommands::Ship { target, message } => ship::ship(target, message),
         GitCommands::Repo(sub) => match sub {
             GitRepoCommands::Create => repo::create(),
             GitRepoCommands::Select => repo::select(),
