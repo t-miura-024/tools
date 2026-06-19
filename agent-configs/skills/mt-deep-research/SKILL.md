@@ -1,15 +1,13 @@
 ---
 name: mt-deep-research
-description: ローカル SearXNG、curl、pandoc、jq を使い、Planner/Researcher/Writer/Reviewer の SubAgent オーケストレーションで自律的な多段探索（Deep Research）を行う。Researcher は Planner が提示する主要な問いごとに、Reviewer はレビュー観点ごとに並列化する。調査の制約・スコープのヒアリングは省略し、Planner が計画書で提案する。最終レポートは tmp/research/yyyymmdd-[topic]/report.md に出力する。
+description: ローカル SearXNG、curl、pandoc、jq を使い、Planner / Researcher / Writer / Reviewer / Auditor の SubAgent オーケストレーションで自律的な多段探索（Deep Research）を行う。Researcher は問いごと、Reviewer は観点ごとに並列化する。中間生成物は SQLite（research.db）に保存し、人間が読むのは plan.md と report.md のみ。各フェーズ・サイクル後に監査 SubAgent を実行し、plan.md / report.md 作成時は lint + mermaid 構文チェックを通す。
 ---
 
 # mt-deep-research
 
-ローカル SearXNG インスタンス、`curl`、`pandoc`、`jq` を使い、**Planner / Researcher / Writer / Reviewer** の 4 つの SubAgent をオーケストレーションして、自律的な多段探索（Deep Research）を行う。
+ローカル SearXNG インスタンス、`curl`、`pandoc`、`jq`、**TypeScript + bun** を使い、**Planner / Researcher / Writer / Reviewer / Auditor** の 5 つの SubAgent をオーケストレーションして、自律的な多段探索（Deep Research）を行う。
 
-調査開始前にユーザーから背景・目的・前提知識を引き出し、Planner が軽い事前調査をもとに主要な問い、制約・スコープ、研究計画を提案する。計画に承認を得たら、**Researcher を主要な問いごとに並列**で起動して情報を収集し、Writer がレポートを作成、**Reviewer をレビュー観点ごとに並列**で起動してレビューするというサイクルを回す。
-
-調査成果物は `tmp/research/yyyymmdd-[topic]/` ディレクトリにまとめる。レポートはチェックポイントを経て随時更新するが、セッション上に全文を出力することはなく、常にファイルを参照してもらう。
+調査成果物は **`tmp/research/yyyymmdd-[topic]/research.db`**（SQLite）に集約する。人間に見せるのは **`plan.md` と `report.md` のみ**。evidence / reviews / audits / iterations / logs などの**中間生成物はすべて SQLite に閉じる**。
 
 ## 🧠 前提知識
 
@@ -17,10 +15,12 @@ description: ローカル SearXNG、curl、pandoc、jq を使い、Planner/Resea
 
 | ツール | 役割 |
 | --- | --- |
-| SearXNG (localhost:8080) | ローカルで動作するメタ検索エンジン。JSON API で構造化結果を返す |
-| `curl` | SearXNG API の呼び出し、および公開 URL の HTML 取得に使用 |
-| `jq` | SearXNG API の JSON レスポンスを整形・抽出する |
-| `pandoc` | 取得した HTML を Markdown に変換する |
+| SearXNG (localhost:8080) | ローカルで動作するメタ検索エンジン |
+| `curl` | SearXNG API の呼び出し、公開 URL の HTML 取得 |
+| `jq` | SearXNG API の JSON レスポンス整形 |
+| `pandoc` | 取得した HTML を Markdown に変換 |
+| `bun` | 補助スクリプトの実行環境（`scripts/db.ts` / `audit.ts` / `lint.ts`） |
+| `bun:sqlite` | 中間生成物を保存する組み込み SQLite |
 
 ### SearXNG の起動
 
@@ -28,11 +28,6 @@ SearXNG は Docker Compose で管理する。リポジトリの `docker/` ディ
 
 ```bash
 mise run docker-up
-```
-
-停止:
-
-```bash
 mise run docker-down
 ```
 
@@ -42,355 +37,337 @@ mise run docker-down
 curl -s -o /dev/null -w "%{http_code}" "http://localhost:8080/search?q=test&format=json"
 ```
 
-HTTP 200 が返らない場合は、SearXNG が起動していない。ユーザーに起動を促し、Skill を中断する。
-
-`jq` と `pandoc` の確認:
+`jq` / `pandoc` / `bun` の確認:
 
 ```bash
 command -v jq
 command -v pandoc
+command -v bun
 ```
 
-未インストールの場合は、環境に応じてインストールを案内する。
+`bun` が無い場合は `brew install oven-sh/bun/bun`（macOS）または `mise use bun` で導入する。
 
-macOS の例:
+### bun 依存パッケージのセットアップ
 
-```bash
-brew install jq pandoc
-```
+`scripts/` 配下には `package.json` が存在する。初回実行時に `node_modules` が無ければ `scripts/` ディレクトリで `bun install` を自動実行する。**Skill 実行ごとにグローバル環境を汚さない**ように、依存は `scripts/` 内に閉じる。
 
 ### 外部通信の扱い
 
-この Skill は SearXNG 経由で Web 検索したり、公開 URL を取得したりするために外部サイトへ GET リクエストを送る。
-実行前の短い宣言として、ユーザーへ以下を明示する。
-最終結果にも、実際に送信した検索クエリまたは URL を再掲する。
+この Skill は SearXNG 経由で Web 検索し、公開 URL を取得する。実行前に以下を必ず宣言する。
 
-- 送信先: ローカル SearXNG（内部で複数の検索エンジンへリクエスト）、または取得対象の公開 URL
+- 送信先: ローカル SearXNG、または取得対象の公開 URL
 - 送信データ: 検索クエリ、または指定 URL
 - 目的: 検索結果取得、またはページ本文取得
 
-ファイルアップロード、外部 POST / PUT、認証情報を含むリクエストは行わない。
-社内情報、顧客情報、秘密情報を検索クエリや URL パラメータに含める必要がある場合は、実行せず中断する。
+ファイルアップロード、外部 POST / PUT、認証付きリクエストは行わない。社内情報・顧客情報・秘密情報をクエリや URL に含めない。
 
-### 出力ディレクトリと命名
+## 📂 出力ディレクトリと命名
 
-調査の成果物は、対象プロジェクトの `tmp/research/yyyymmdd-[topic]/` 配下に保存する。
+```
+tmp/research/yyyymmdd-[topic]/
+├── plan.md                 # Planner が作成（人間が見る）
+├── report.md               # Writer が作成（人間が見る）
+├── research.db             # 中間生成物を格納する SQLite
+└── ...                     # その他のファイルは research.db 内に閉じる
+```
+
 同日・同テーマで既にディレクトリが存在する場合は、連番を付与する。
 
-例:
-
-- `tmp/research/20260115-rust-async/`
-- `tmp/research/20260115-rust-async-2/`
-
-ディレクトリ内のファイル:
+### 人間が見るファイル
 
 | ファイル | 作成者 | 用途 |
 | --- | --- | --- |
-| `plan.md` | Planner | 研究計画書 |
-| `evidence-q{N}.md` | Researcher | 各主要な問いに対する調査エビデンス |
-| `evidence-q{N}-{M}.md` | Researcher | 追加調査ラウンドのエビデンス（`M` はラウンド番号） |
-| `report.md` | Writer | 最終レポート |
-| `review-{aspect}.md` | Reviewer | 各レビュー観点のレビュー結果 |
-| `review-{aspect}-{M}.md` | Reviewer | 改善ループ時のレビュー結果（`M` はループ番号） |
+| `plan.md` | Planner | 研究計画書（mermaid を含む） |
+| `report.md` | Writer | 最終レポート（mermaid を含む） |
 
-レビュー観点の識別子:
+### SQLite に閉じる中間生成物
 
-| 番号 | 観点 | 識別子 |
-| --- | --- | --- |
-| 1 | 主要な問いへの回答度 | `coverage` |
-| 2 | 情報源の網羅性と信頼性 | `sources` |
-| 3 | 事実の正確性と誇張の有無 | `accuracy` |
-| 4 | 論理構成と読みやすさ | `structure` |
-| 5 | 引用形式の正確さ | `citations` |
+| テーブル | 主な用途 |
+| --- | --- |
+| `questions` | Planner が提案する主要な問い |
+| `evidence_rounds` | 各問いの調査ラウンド |
+| `sources` | 情報源 |
+| `facts` | 抽出事実 |
+| `off_topic_questions` | 目的外問い |
+| `reviews` | 観点ごとのレビュー結果 |
+| `review_findings` | must_fix / research_needed / suggestions |
+| `audits` | 監査結果 |
+| `audit_checks` | 個別監査チェック |
+| `iterations` | 改善ループ履歴 |
+| `execution_logs` | スクリプト実行ログ |
 
-## 🏃 ステップ
+## 🏃 フェーズ別ワークフロー
 
-### 1. 前提チェック
-
-SearXNG が `localhost:8080` で応答するか確認する。
-応答しない場合は、`mise run docker-up` で起動するようユーザーに案内する。
-`jq` と `pandoc` が利用可能かも確認し、不足している場合はインストール案内を出す。
-
-### 2. 事前ヒアリング
-
-調査を開始する前に、ユーザーから以下の情報を引き出すための対話的ヒアリングを行う。
-質問は一度に 1 つずつ行い、ユーザーの回答に基づいて次の質問を調整する。
-
-#### ヒアリング項目
-
-1. **調査の背景・目的**: なぜこの調査が必要か、何に使いたいか
-2. **既に知っている前提知識**: 既知の情報、過去に調査した内容
-
-**主要な問いはただ聞かない**。Planner が軽い事前調査をもとに提案するため、ここでは背景・目的・前提知識を引き出すことに集中する。
-
-**制約・スコープのヒアリングは行わない**。制約・スコープは Planner が計画書で提案し、ユーザーは計画書全体として承認する。
-
-#### ヒアリングの進め方
-
-- ユーザーが明示的に「十分」と宣言するまで質問を継続する
-- 質問回数に固定上限を設けない
-- 認識が不十分なまま調査を開始しない
-
-### 3. ディレクトリ作成
-
-ヒアリング完了後、`tmp/research/yyyymmdd-[topic]/` ディレクトリを作成する。
+### Phase 0: 前提チェック
 
 ```bash
-mkdir -p "tmp/research/20260115-rust-async"
+curl -s -o /dev/null -w "%{http_code}" "http://localhost:8080/search?q=test&format=json"
+command -v jq && command -v pandoc && command -v bun
+ls agent-configs/skills/mt-deep-research/scripts/node_modules 2>/dev/null || \
+  (cd agent-configs/skills/mt-deep-research/scripts && bun install)
 ```
 
-### 4. 計画立案（Planner）
+SearXNG / `jq` / `pandoc` / `bun` のいずれかが無ければ中断して案内する。
 
-Planner SubAgent を呼び出し、軽い事前調査を経て `plan.md` を作成させる。
+### Phase 1: 事前ヒアリング
 
-#### 計画書に含める内容
+ユーザーから以下を引き出す。質問は 1 つずつ。
 
-- 背景・目的
-- 前提知識
-- **Planner が提案する制約・スコープ**
-- Planner が提案する主要な問い（3〜7 個を目安とし、最大 5 個まで推奨）
-- 検索戦略（キーワードや重視する情報源の種別）
-- 期待されるレポート構成
-- 調査終了の判定基準
+1. **調査の背景・目的**: なぜこの調査が必要か、何に使うか
+2. **既に知っている前提知識**: 既知の情報、過去に調べた内容
 
-主要な問いは、並列化した Researcher SubAgent の単位になる。各問いは独立して調査でき、かつ全体として調査目的を網羅する粒度にする。
+**主要な問いは Planner に任せる**。制約・スコープも Planner の plan.md で提案させる。
 
-#### ユーザー承認
-
-オーケストレーターは `plan.md` の要約（背景・目的、主要な問い、制約・スコープ、検索戦略）をユーザーに提示し、承認を得る。
-承認されない場合は、フィードバックを Planner に渡して改訂を依頼する。改訂は最大 3 回までとし、それでも合意に至らなければユーザーに「範囲を狭める」「このまま進める」「中断する」を選択してもらう。
-
-### 5. 調査（Researcher）
-
-Planner の計画書に基づき、**主要な問いごとに Researcher SubAgent を並列で呼び出す**。同時起動数の上限は 5 つとし、問いが 5 つを超える場合はバッチ化する。
-
-#### 並列起動の例
-
-主要な問いが 3 つの場合:
-
-- `mt-deep-research-researcher` × 3（問い 1、問い 2、問い 3）を同時に起動
-- 各 SubAgent は担当する問いと `plan.md` を入力として受け取る
-- 各 SubAgent は `evidence-q1.md`, `evidence-q2.md`, `evidence-q3.md` を作成する
-
-#### 調査ループ
-
-各 Researcher SubAgent は以下のループを自律的に実行する（最大 3 ループ）。
-
-1. **検索クエリの生成**: 担当する問いと計画書に基づき、最適な検索クエリを生成する
-2. **検索実行**: SearXNG JSON API で検索し、結果を取得する
-3. **結果の分析**: 検索結果から、最も関連性の高い URL を選定する
-4. **本文取得**: 選定した URL の本文を `curl` と `pandoc` で取得する
-5. **情報抽出**: 本文から主要な情報を抽出し、作業領域に蓄積する
-6. **次のアクションの決定**: 担当する問いに対する調査が十分か、追加の検索が必要かを判断する
-
-#### 検索実行
-
-SearXNG JSON API を使用する:
+### Phase 2: ディレクトリ作成 + DB 初期化
 
 ```bash
-curl -s "http://localhost:8080/search?q=%E6%A4%9C%E7%B4%A2%E3%82%AF%E3%82%A8%E3%83%AA&format=json" \
-  | jq -r '.results[:8][] | "- [" + .title + "](" + .url + ") - " + (.content // "")'
+WORK=tmp/research/yyyymmdd-[topic]
+mkdir -p "$WORK"
+bun run agent-configs/skills/mt-deep-research/scripts/db.ts init \
+  --db-path "$WORK/research.db"
 ```
 
-検索クエリは URL エンコードする。`jq` で `results` 配列から上位 8 件を抽出し、タイトル・URL・概要を整形する。
-Shell ツールで実行する場合は、必要に応じて `timeout 20s` などを併用し、検索コマンドを長時間待ち続けない。
-Shell ツールで実行する場合は SearXNG 経由で外部の検索エンジンへ通信が発生するため、必要に応じて `required_permissions: ["full_network"]` を付与する。
+`node_modules` が無ければ先に `bun install` を `scripts/` 内で実行する。
 
-SearXNG が HTTP エラーを返す、JSON が空、または関連候補が出ない場合は失敗扱いにする。
-その場合はクエリの短縮、公式ドメイン指定の追加、`categories=general` の明示など、1 回ずつ理由を変えて再試行する。
-再試行しても不足する場合は、検索結果として断定せず「取得不足」として次の安全な確認方法を示す。
+### Phase 3: 計画立案（Planner）
 
-#### URL 本文取得
+`mt-deep-research-planner` を 1 つ起動する。
+
+**入力**: 背景・目的・前提知識・制約
+
+**期待する成果物**:
+
+1. `questions` テーブルへの問い登録（3〜7 個、5 個までを推奨）
+2. `plan.md` の作成（`templates/plan.md` 構成に従う）
+
+**オーケストレーターの処理**:
 
 ```bash
-curl -L --fail --silent --show-error --max-time 20 \
-  --user-agent "Mozilla/5.0" \
-  "https://example.com/article" \
-  | pandoc -f html -t gfm
+# Planner 完了後、ファイル lint + 機械監査を実行
+bun run scripts/lint.ts --file "$WORK/plan.md"
+bun run scripts/audit.ts phase --phase planner \
+  --db-path "$WORK/research.db" --plan-path "$WORK/plan.md"
 ```
 
-#### エビデンスファイルの作成
+監査 NG の場合は Planner にフィードバックして**最大 3 回**まで再委譲する。3 回を超えても NG の場合は人間に「範囲を狭める」「このまま進める」「中断する」を提示する。
 
-Researcher は担当する問いに対して `evidence-q{N}.md` を作成する。ファイルには以下を含める。
+`plan.md` の要約（背景・目的・問い・制約・検索戦略）をユーザーに提示し、承認を得る。承認後:
 
-- 調査の対象とした主要な問い
-- ソース一覧（番号・タイトル・URL・種類・アクセス日）
-- 番号引用付きの抽出事実
-- カバレッジ自己評価（十分に回答できたか、追加調査が必要か）
-- 目的から外れそうな問い（あれば）
-
-追加調査が必要になった場合、同じ問いに対して `evidence-q{N}-2.md`, `evidence-q{N}-3.md` のようにサフィックスで付番したファイルを新規作成する。既存のエビデンスは上書きしない。
-
-#### 目的から外れそうな問いの扱い
-
-調査中に新たな問いが生まれた場合、その問いが「当初の目的に直接役立つか」を 1 文で説明し、エビデンスファイルの「目的から外れそうな問い」セクションに記録する。
-
-- 明らかに当初の目的や制約に沿っている問いは、そのまま調査を継続する
-- 目的から外れそうだが価値がありそうな問いは、チェックポイントで一括して調査可否を確認する
-- 明らかに外れている問いは調査せず、チェックポイントで除外したことを報告する
-
-### 6. レポート作成・レビュー改善ループ
-
-すべての Researcher SubAgent が完了し、エビデンスファイルが揃ったら、Writer → Reviewer のループを実行する。
-
-#### レポート作成（Writer）
-
-Writer SubAgent は `plan.md` と `evidence-*.md` をもとに `report.md` を作成または更新する。
-
-```markdown
-# [調査テーマ]
-
-## 前提とスコープ
-
-- 背景・目的: [2〜3 文]
-- 前提知識: [2〜3 文]
-- 制約・スコープ: [2〜3 文]
-
-## 作成日
-
-YYYY-MM-DD
-
-## 要約
-
-[調査結果の要約]
-
-## 詳細な調査結果
-
-[事実の直後に [1] のような番号引用を付けて記述]
-
-## 情報源の一覧
-
-| 番号 | タイトル | URL | 種類 | アクセス日 |
-| --- | --- | --- | --- | --- |
-| 1 | [タイトル] | [URL] | [公式リファレンス / チュートリアル / ブログ / フォーラム / ニュース / 論文 / GitHub / その他] | YYYY-MM-DD |
+```bash
+# 承認された問いの status を更新
+for id in $approved_ids; do
+  bun run scripts/db.ts question update --id "$id" --status approved --db-path ...
+done
 ```
 
-#### レビュー（Reviewer）
+### Phase 4: 調査（Researcher、並列）
 
-Writer が `report.md` を作成または更新するたびに、**レビュー観点ごとに Reviewer SubAgent を並列で起動する**。同時起動数の上限は 5 つとする（観点は 5 つなので、通常は 5 つ同時に起動する）。
+`mt-deep-research-researcher` を**承認された問いごと**に並列起動する（最大 5 同時）。
 
-レビュー観点:
+**入力**: `question_id`、`db.ts snapshot --cycle research` の出力
 
-1. 主要な問いへの回答度 (`coverage`)
-2. 情報源の網羅性と信頼性 (`sources`)
-3. 事実の正確性と誇張の有無 (`accuracy`)
-4. 論理構成と読みやすさ (`structure`)
-5. 引用形式の正確さ (`citations`)
+**期待する成果物**:
 
-各 Reviewer SubAgent は `report.md` を担当観点からレビューし、`review-{aspect}.md` に構造化されたレビュー結果を出力する。
+- `evidence_rounds` / `sources` / `facts` / `off_topic_questions` への一括保存
 
-レビュー結果のカテゴリ:
+各 Researcher のループは最大 5 ラウンド。ラウンドを跨ぐ場合は `round_number` をインクリメントする。
 
-- `must_fix`: Writer が必ず修正すべき項目
-- `research_needed`: Researcher が追加調査すべき項目
-- `suggestions`: 任意で対応すべき改善案
+**オーケストレーターの処理（各 Researcher 完了後）**:
 
-各 Reviewer は担当観点のみを評価し、他の観点の判断は行わない。
-
-#### 改善ループ
-
-オーケストレーターはすべての観点ファイルを読み込み、`must_fix` / `research_needed` / `suggestions` を種別ごとに集約する。
-
-- `must_fix` がある場合は、集約した指摘を 1 つの prompt として Writer に修正を依頼する
-- `research_needed` がある場合は、問いごとに指摘をまとめ、対応する Researcher SubAgent に追加調査を依頼する
-  - 問い 1 に関する `research_needed` は 1 つの Researcher にまとめて渡す
-  - 複数の問いに関する場合は、問いごとに並列で Researcher を起動する
-- 1 回の `report.md` 更新あたり、Writer → Reviewer を最大 3 回まで繰り返す
-- 3 回を超えても `must_fix` や `research_needed` が残る場合は、ユーザーに理由をサマリーして方針を仰ぐ
-
-追加調査後の再レビューでは、すべての観点を再レビューする。ただし、前回のレビュー結果（`review-{aspect}.md`）を参照して、変更点や前回の指摘への対応に絞って評価させる。再レビューのファイル名は `review-{aspect}-2.md`, `review-{aspect}-3.md` のようにサフィックスで付番する。
-
-#### ユーザーへのチェックポイント
-
-内部ループが収束したら、オーケストレーターはユーザーに以下を 3〜5 行で提示する。
-
-- 新しく追加した主な事実
-- 確認してほしいポイント
-- 目的から外れそうで保留している問い（あれば）
-
-全文をセッションに出力しない。ユーザーにはファイルを開いて確認してもらう。
-
-ユーザーに対し、以下のような具体的な観点でフィードバックを求める。
-
-- 追加した事実に誤りや誇張はないか
-- この方向性でさらに深掘りすべきか
-- 見落としている視点や補足してほしい情報はないか
-- 保留中の目的外問いについて、調査するかどうか
-
-ユーザーからのフィードバックがない、あるいは「特にない」などの曖昧な回答があった場合は、次に調査しようとしているステップを 1 文で提示し、「この方向で進めてよいか」を確認する。
-
-### 7. 最終レポートの確定
-
-以下の条件を満たした場合は、最終レポートの確定へ進む。
-
-- 計画書で出た主要な問いに対し、十分な証拠付きで回答できている
-- 目的から外れそうな問いはユーザー確認済みで、調査対象として確定しているか除外されている
-
-主要な問いの 1 つでも回答できないものがあり、かつ追加調査の見込みがない場合は、ユーザーに「追加調査を続けるか」「この時点で終了するか」を確認する。
-
-調査終了後、`report.md` を最終更新する。
-レポート内に以下のような記載は含めない。
-
-- 未解決の問いに関するセクション
-- 次のアクションに関するセクション
-- ループごとの検索ログや中間まとめ
-- SearXNG の信頼性に関する注意書き（これは調査開始時の説明と Skill 注意事項に任せる）
-
-最終的なレポートの内容のみをファイルに残す。
-
-完了をユーザーに伝える際は、以下のように簡潔にする。
-
-```
-調査が完了しました。X 件の情報源を確認しました。レポートは tmp/research/yyyymmdd-[topic]/report.md に保存しました。
+```bash
+bun run scripts/audit.ts phase --phase researcher \
+  --db-path "$WORK/research.db" --question-id "$qid"
 ```
 
-レポート全文をセッション上に出力しない。
+NG の場合は該当 Researcher にフィードバックして**最大 3 回**まで再委譲する。
+
+### Phase 5: research サイクル監査
+
+すべての Researcher 完了後:
+
+```bash
+bun run scripts/audit.ts cycle --cycle research \
+  --db-path "$WORK/research.db"
+```
+
+監査 NG かつ自動リトライ不能な場合は、`mt-deep-research-auditor` を呼び出して**意味的整合性**を評価させる。Auditor の出力 JSON は `db.ts audit save` で SQLite に保存する。
+
+### Phase 6: チェックポイント（任意）
+
+`off_topic_questions` を集約し、ユーザーに「追加調査するか」「除外するか」を確認する。確定したら `db.ts` 経由で `decision` を `include` / `exclude` に更新する。
+
+### Phase 7: レポート作成（Writer）
+
+`mt-deep-research-writer` を 1 つ起動する。
+
+**入力**: `db.ts snapshot --cycle writer-reviewer` の出力
+
+**期待する成果物**:
+
+- `report.md` の作成・更新（`templates/report.md` 構成に従う、mermaid 必須）
+
+**オーケストレーターの処理**:
+
+```bash
+bun run scripts/lint.ts --file "$WORK/report.md"
+bun run scripts/audit.ts phase --phase writer \
+  --db-path "$WORK/research.db" --report-path "$WORK/report.md"
+```
+
+### Phase 8: レビュー（Reviewer、並列）
+
+`mt-deep-research-reviewer` を**5 観点すべて並列**で起動する。
+
+**入力**: 担当観点、`db.ts snapshot --cycle writer-reviewer` の出力
+
+**期待する成果物**:
+
+- `reviews` / `review_findings` テーブルへの JSON 保存（`db.ts review save`）
+
+**オーケストレーターの処理（各 Reviewer 完了後）**:
+
+```bash
+bun run scripts/audit.ts phase --phase reviewer --db-path "$WORK/research.db"
+```
+
+### Phase 9: writer-reviewer サイクル監査 + 改善ループ
+
+```bash
+bun run scripts/audit.ts cycle --cycle writer-reviewer \
+  --db-path "$WORK/research.db" --report-path "$WORK/report.md"
+```
+
+監査 NG の場合:
+
+- `must_fix` あり → Writer に集約プロンプトで再委譲（最大 3 回）
+- `research_needed` あり → 問いごとに Researcher に追加調査を依頼（最大 3 ラウンド）
+- 両方あり → 両方実施
+
+1 回の report.md 更新あたり Writer → Reviewer のループは最大 3 回。3 回を超えて NG が残る場合は人間に判断を仰ぐ。
+
+改善ループの結果は `iterations` テーブルに記録する:
+
+```bash
+bun run scripts/db.ts iteration save --db-path ... --data '{
+  "loop_number": 1,
+  "iteration_type": "writer_fix" | "researcher_revisit" | "audit_retry",
+  "triggered_by_audit": <audit_id>,
+  "summary": "..."
+}'
+```
+
+### Phase 10: 最終レポート確定
+
+`report.md` を最終更新し、`scripts/lint.ts` で再フォーマット・再 lint する。レポートに未解決の問い・次のアクション・中間まとめ・SearXNG 信頼性注意書きを含めない。
+
+```bash
+bun run scripts/lint.ts --file "$WORK/report.md"
+bun run scripts/audit.ts cycle --cycle writer-reviewer \
+  --db-path "$WORK/research.db" --report-path "$WORK/report.md"
+```
+
+### Phase 11: 完了報告
+
+`report.md` の全文はセッションに出さない。完了メッセージは簡潔に:
+
+```
+調査が完了しました。N 件の情報源を確認しました。レポートは tmp/research/yyyymmdd-[topic]/report.md に保存しました。
+```
 
 ## 🤖 利用 SubAgent
 
-| 役割 | SubAgent type | readonly | 定義ファイル |
-| ---- | ---- | ---- | ---- |
-| Planner | `mt-deep-research-planner` | false | `_cursor_user/agents/mt-deep-research-planner.md` |
-| Researcher | `mt-deep-research-researcher` | false | `_cursor_user/agents/mt-deep-research-researcher.md` |
-| Writer | `mt-deep-research-writer` | false | `_cursor_user/agents/mt-deep-research-writer.md` |
-| Reviewer | `mt-deep-research-reviewer` | true | `_cursor_user/agents/mt-deep-research-reviewer.md` |
+| 役割 | SubAgent type | readonly | 責務 |
+| --- | --- | --- | --- |
+| Planner | `mt-deep-research-planner` | false | plan.md + questions テーブル |
+| Researcher | `mt-deep-research-researcher` | false | evidence_rounds / sources / facts / off_topic_questions |
+| Writer | `mt-deep-research-writer` | false | report.md |
+| Reviewer | `mt-deep-research-reviewer` | true | reviews / review_findings |
+| Auditor | `mt-deep-research-auditor` | true | サイクル監査 JSON 返却（書き込みは orchestrator） |
 
-SubAgent への委譲方法、prompt 構造、ループ制御、エラーハンドリング、並列化の詳細は `subagent-protocol.md` を参照する。
+prompt 構造、並列化、Human Gate、監査タイミング、改良ループの詳細は `subagent-protocol.md` を参照。
 
-## ✅ 完了条件
+## 🧰 補助スクリプト
 
-- 事前ヒアリングが完了し、調査の背景・目的・前提知識が明確になっている
-- Planner による研究計画書 `plan.md` が作成され、ユーザー承認を得ている
-- Planner が主要な問い（3〜7 個、目安）と制約・スコープを提案している
-- Researcher が主要な問いごとに並列起動され、各問いに対するエビデンスファイルが作成されている
-- Writer → Reviewer の改善ループが実行され、主要な問いに回答できている
-- Reviewer が観点ごとに並列起動され、レビュー結果ファイルが作成されている
-- 目的から外れそうな問いはユーザー確認が行われ、対応が確定している
-- チェックポイントで `report.md` が作成・更新されている
-- 最終レポートが `tmp/research/yyyymmdd-[topic]/report.md` に保存されている
-- セッション上にレポート全文を出力していない
-- 外部通信前に、送信先・送信データ・目的が明示されている
-- SearXNG が起動していることを確認している
+| スクリプト | 役割 |
+| --- | --- |
+| `scripts/db.ts` | SQLite CRUD / 一括保存 / snapshot |
+| `scripts/audit.ts` | phase / cycle 監査の実行と永続化 |
+| `scripts/lint.ts` | prettier + markdownlint + mermaid 構文チェック |
+| `scripts/schema.sql` | SQLite スキーマ定義 |
+| `scripts/markdownlint.json` | markdownlint ルール設定 |
 
-## 📦 アウトプット
+### 主要コマンド早見表
 
-- `tmp/research/yyyymmdd-[topic]/plan.md`（研究計画書）
-- `tmp/research/yyyymmdd-[topic]/evidence-q{N}.md`（各主要な問いのエビデンス）
-- `tmp/research/yyyymmdd-[topic]/evidence-q{N}-{M}.md`（追加調査ラウンドのエビデンス）
-- `tmp/research/yyyymmdd-[topic]/report.md`（最終レポート）
-- `tmp/research/yyyymmdd-[topic]/review-{aspect}.md`（各レビュー観点の結果）
-- `tmp/research/yyyymmdd-[topic]/review-{aspect}-{M}.md`（改善ループ時のレビュー結果）
-- チェックポイント時の簡潔なサマリーとファイルパス
-- 調査完了時の簡潔な完了メッセージ
+```bash
+# 初期化
+bun run scripts/db.ts init --db-path "$WORK/research.db"
+
+# 問い
+bun run scripts/db.ts question create --content "..." --order 1 --db-path ...
+bun run scripts/db.ts question list --db-path ...
+bun run scripts/db.ts question update --id N --status approved --db-path ...
+
+# 調査（Researcher が実行）
+bun run scripts/db.ts evidence save --data '{...}' --db-path ...
+
+# スナップショット（SubAgent への入力）
+bun run scripts/db.ts snapshot --cycle research --db-path ...
+bun run scripts/db.ts snapshot --cycle writer-reviewer --db-path ... --report-path ...
+
+# レビュー（Reviewer が実行）
+bun run scripts/db.ts review save --data '{...}' --db-path ...
+
+# 監査
+bun run scripts/audit.ts phase --phase planner --db-path ... --plan-path ...
+bun run scripts/audit.ts phase --phase researcher --db-path ... [--question-id N]
+bun run scripts/audit.ts phase --phase writer --db-path ... --report-path ...
+bun run scripts/audit.ts phase --phase reviewer --db-path ...
+bun run scripts/audit.ts cycle --cycle research --db-path ...
+bun run scripts/audit.ts cycle --cycle writer-reviewer --db-path ... --report-path ...
+
+# Lint / Format
+bun run scripts/lint.ts --file "$WORK/plan.md"
+bun run scripts/lint.ts --file "$WORK/report.md"
+
+# イテレーション
+bun run scripts/db.ts iteration save --data '{...}' --db-path ...
+```
+
+## ✅ 完了条件（カテゴリ別）
+
+### プロセス完了
+
+- [ ] Phase 0 の前提チェックが全て OK
+- [ ] Phase 1 のヒアリングが完了し、背景・目的・前提知識が明確
+- [ ] Phase 2 で `research.db` が初期化済み
+- [ ] Phase 3 で `plan.md` と `questions` テーブルが完成し、ユーザー承認済み
+- [ ] Phase 4 で全問いの `evidence_rounds` が完成
+- [ ] Phase 5 の research サイクル監査が pass
+- [ ] Phase 6 の目的外問いがチェックポイントで確定
+- [ ] Phase 7 で `report.md` が完成
+- [ ] Phase 8 で 5 観点すべての `reviews` が完成
+- [ ] Phase 9 で writer-reviewer サイクル監査が pass（must_fix 解消済み）
+- [ ] Phase 10 で最終 `report.md` が lint 済み
+
+### 成果物
+
+- [ ] `plan.md` に必須セクションが全て揃い、mermaid ブロックが存在する
+- [ ] `report.md` に必須セクションが全て揃い、mermaid ブロックが存在する
+- [ ] `report.md` 内の番号引用 `[N]` が `sources.source_number` と一致する
+- [ ] `report.md` に未解決の問い・次のアクション・中間まとめが含まれない
+- [ ] 中間生成物（evidence / reviews / audits / logs）は SQLite に閉じている
+
+### セキュリティ・運用
+
+- [ ] 検索クエリ・URL に秘密情報を含めていない
+- [ ] 外部通信前に送信先・送信データ・目的を宣言済み
+- [ ] セッションに `report.md` の全文を出力していない
+- [ ] `research.db` を含む調査ディレクトリが `.gitignore` 対象である
 
 ## ⚠️ 注意事項
 
-- 検索クエリや URL に社内情報、顧客情報、認証情報、秘密情報を含めない
-- ファイルアップロード、外部 POST / PUT、認証付きアクセスは行わない
-- URL は必ずクォートする
-- `curl` は `--max-time` を付け、長時間ハングさせない
-- Web サイトの利用規約や robots 的な制約に反する大量取得はしない
-- SearXNG の結果は複数の検索エンジン由来であり、正確性を保証しない。重要情報は一次情報を確認する
-- ループを無限に継続しない。Writer-Reviewer ループは 1 回のレポート更新あたり最大 3 回までとする
-- レポート全文をセッション上に出力しない。常にファイルを参照してもらう
-- Researcher SubAgent は同時に最大 5 つまで、Reviewer SubAgent も同時に最大 5 つまで起動する
+- SubAgent は最大 5 つまで同時起動（Researcher・Reviewer とも）
+- Writer → Reviewer ループは 1 回のレポート更新あたり最大 3 回まで
+- 監査は 1 フェーズあたり最大 3 回まで自動リトライ、それ以上は人間に判断を仰ぐ
+- `plan.md` / `report.md` の作成・最終更新後は必ず `lint.ts` を実行する
+- 監査結果と SubAgent の出力が矛盾する場合は、監査結果を優先して再委譲する
