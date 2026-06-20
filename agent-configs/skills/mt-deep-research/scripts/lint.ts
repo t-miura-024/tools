@@ -184,6 +184,18 @@ function checkMermaidBlock(body: string, blockIndex: number, startLine: number):
   if (bracketErr) {
     errors.push({ block_index: blockIndex, line: startLine, message: bracketErr });
   }
+  // Check for HTML-like tags (e.g. <br/>) inside mermaid node labels
+  // These can cause render failures depending on the Mermaid client
+  const htmlTagRE = /<[a-zA-Z\/][^>]*>/g;
+  let htmlMatch: RegExpExecArray | null;
+  while ((htmlMatch = htmlTagRE.exec(body)) !== null) {
+    const lineNo = startLine + body.slice(0, htmlMatch.index).split("\n").length - 1;
+    errors.push({
+      block_index: blockIndex,
+      line: lineNo,
+      message: `HTML tag '${htmlMatch[0]}' in mermaid body may cause render errors`,
+    });
+  }
   return errors;
 }
 
