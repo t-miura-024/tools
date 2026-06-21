@@ -1,6 +1,6 @@
 use std::fs;
 use std::io;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::{Command, Stdio};
 
 use anyhow::Context;
@@ -100,7 +100,7 @@ pub fn run() -> anyhow::Result<()> {
 }
 
 fn install_via_cargo() -> anyhow::Result<()> {
-    let repo_root = find_repo_root()?;
+    let repo_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
 
     let run = Confirm::new()
         .with_prompt("cargo install --path . を実行して mt バイナリをビルド・配置しますか？")
@@ -146,31 +146,6 @@ fn install_via_cargo() -> anyhow::Result<()> {
 
     style::success("cargo install が完了しました（~/.cargo/bin/mt に配置されました）");
     Ok(())
-}
-
-fn find_repo_root() -> anyhow::Result<PathBuf> {
-    let current_dir = std::env::current_dir().context("カレントディレクトリを取得できません")?;
-
-    if let Some(root) = find_manifest_root_from(&current_dir) {
-        return Ok(root);
-    }
-
-    let build_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    if build_root.join("Cargo.toml").is_file() {
-        return Ok(build_root);
-    }
-
-    anyhow::bail!("mt リポジトリのルートを特定できませんでした")
-}
-
-fn find_manifest_root_from(start: &Path) -> Option<PathBuf> {
-    start.ancestors().find_map(|dir| {
-        if dir.join("Cargo.toml").is_file() && dir.join("src/main.rs").is_file() {
-            Some(dir.to_path_buf())
-        } else {
-            None
-        }
-    })
 }
 
 fn append_block(content: &mut String, block: &str) {

@@ -28,17 +28,3 @@ fn test_has_rp_bridge() {
     assert!(has_rp_bridge(RP_BRIDGE_ENTRY));
     assert!(!has_rp_bridge("rp() { cd /tmp; }"));
 }
-
-#[test]
-fn test_find_manifest_root_from_finds_current_repo() {
-    let root = find_manifest_root_from(Path::new(env!("CARGO_MANIFEST_DIR")))
-        .expect("CARGO_MANIFEST_DIR should contain Cargo.toml and src/main.rs");
-    assert!(root.join("Cargo.toml").is_file());
-    assert!(root.join("src/main.rs").is_file());
-}
-
-#[test]
-fn test_find_manifest_root_from_returns_none_for_tmp() {
-    let tmp = std::env::temp_dir();
-    assert!(find_manifest_root_from(&tmp).is_none());
-}
