@@ -168,3 +168,77 @@ fn test_sync_opencode_plugins_no_source_dir() {
 
     assert!(!dest.path().join("plugins").exists());
 }
+
+#[test]
+fn test_sync_opencode_commands_basic() {
+    let src = TempDir::new().unwrap();
+    let dest = TempDir::new().unwrap();
+
+    let commands_src = src.path().join("opencode").join("commands");
+    fs::create_dir_all(&commands_src).unwrap();
+    fs::write(commands_src.join("mt-loop.md"), "loop command").unwrap();
+
+    sync_opencode_commands(src.path(), dest.path()).unwrap();
+
+    let deployed = dest.path().join("commands").join("mt-loop.md");
+    assert!(deployed.exists());
+    assert_eq!(fs::read_to_string(&deployed).unwrap(), "loop command");
+}
+
+#[test]
+fn test_sync_opencode_commands_preserves_user_files() {
+    let src = TempDir::new().unwrap();
+    let dest = TempDir::new().unwrap();
+
+    let commands_src = src.path().join("opencode").join("commands");
+    fs::create_dir_all(&commands_src).unwrap();
+    fs::write(commands_src.join("mt-loop.md"), "managed").unwrap();
+
+    let commands_dest = dest.path().join("commands");
+    fs::create_dir_all(&commands_dest).unwrap();
+    fs::write(commands_dest.join("user-command.md"), "user-managed").unwrap();
+
+    sync_opencode_commands(src.path(), dest.path()).unwrap();
+
+    assert!(commands_dest.join("mt-loop.md").exists());
+    assert!(commands_dest.join("user-command.md").exists());
+    assert_eq!(
+        fs::read_to_string(commands_dest.join("mt-loop.md")).unwrap(),
+        "managed"
+    );
+    assert_eq!(
+        fs::read_to_string(commands_dest.join("user-command.md")).unwrap(),
+        "user-managed"
+    );
+}
+
+#[test]
+fn test_sync_opencode_commands_no_source_dir() {
+    let src = TempDir::new().unwrap();
+    let dest = TempDir::new().unwrap();
+
+    sync_opencode_commands(src.path(), dest.path()).unwrap();
+
+    assert!(!dest.path().join("commands").exists());
+}
+
+#[test]
+fn test_sync_opencode_commands_overwrites_existing_managed() {
+    let src = TempDir::new().unwrap();
+    let dest = TempDir::new().unwrap();
+
+    let commands_src = src.path().join("opencode").join("commands");
+    fs::create_dir_all(&commands_src).unwrap();
+    fs::write(commands_src.join("mt-loop.md"), "new").unwrap();
+
+    let commands_dest = dest.path().join("commands");
+    fs::create_dir_all(&commands_dest).unwrap();
+    fs::write(commands_dest.join("mt-loop.md"), "old").unwrap();
+
+    sync_opencode_commands(src.path(), dest.path()).unwrap();
+
+    assert_eq!(
+        fs::read_to_string(commands_dest.join("mt-loop.md")).unwrap(),
+        "new"
+    );
+}

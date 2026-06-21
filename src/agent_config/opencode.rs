@@ -9,6 +9,7 @@ pub fn sync_opencode(src_root: &Path, dest_root: &Path) -> Result<()> {
     sync_opencode_agents_md(src_root, dest_root)?;
     sync_opencode_skills(src_root, dest_root)?;
     sync_opencode_plugins(src_root, dest_root)?;
+    sync_opencode_commands(src_root, dest_root)?;
 
     println!("Synced agent-configs to {}", dest_root.display());
     Ok(())
@@ -312,6 +313,18 @@ fn sync_opencode_plugins(src_root: &Path, dest_root: &Path) -> Result<()> {
 
     let plugins_dest = dest_root.join("plugins");
     super::sync::sync_dir_additive(&plugins_src, &plugins_dest)?;
+
+    Ok(())
+}
+
+fn sync_opencode_commands(src_root: &Path, dest_root: &Path) -> Result<()> {
+    let commands_src = src_root.join("opencode").join("commands");
+    if !commands_src.exists() {
+        return Ok(());
+    }
+
+    let commands_dest = dest_root.join("commands");
+    super::sync::sync_dir_additive(&commands_src, &commands_dest)?;
 
     Ok(())
 }
