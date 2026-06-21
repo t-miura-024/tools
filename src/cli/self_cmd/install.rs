@@ -1,6 +1,6 @@
 use std::fs;
 use std::io;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 use anyhow::Context;
@@ -34,6 +34,7 @@ pub fn run() -> anyhow::Result<()> {
     let home = std::env::var("HOME").context("HOME 環境変数が設定されていません")?;
     let cargo_bin = format!("{}/.cargo/bin", home);
     let zshrc_path = format!("{}/.zshrc", home);
+    let repo_root = PathBuf::from(format!("{}/src/tools", home));
     let mut content = fs::read_to_string(&zshrc_path).unwrap_or_default();
     let mut changed = false;
 
@@ -93,14 +94,20 @@ pub fn run() -> anyhow::Result<()> {
         style::info("ターミナルを再起動するか、source ~/.zshrc を実行してください");
     }
 
-    install_via_cargo()?;
+    install_via_cargo(&repo_root)?;
 
     style::outro("セットアップが完了しました");
     Ok(())
 }
 
-fn install_via_cargo() -> anyhow::Result<()> {
-    let repo_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+fn install_via_cargo(repo_root: &Path) -> anyhow::Result<()> {
+    if !repo_root.join("Cargo.toml").is_file() {
+        anyhow::bail!(
+            "{} に Cargo.toml が見つかりません。mt のソースリポジトリを {} に配置してください",
+            repo_root.display(),
+            repo_root.display()
+        );
+    }
 
     let run = Confirm::new()
         .with_prompt("cargo install --path . を実行して mt バイナリをビルド・配置しますか？")
