@@ -1,6 +1,6 @@
 ---
 description: Set, check, and clear /mt-goal condition-based automation
-argument-hint: [<condition> | status | clear]
+argument-hint: [<condition> | <goal-doc-path> | status | clear]
 ---
 
 <command-instruction>
@@ -8,6 +8,7 @@ You are the `/mt-goal` command handler. This command manages a goal condition th
 
 Allowed forms:
 - `/mt-goal <condition>` — set a new goal (replaces any active goal)
+- `/mt-goal <goal-doc-path>` — set a goal from the `## 🎯 /mt-goal 条件` section of a `mt-create-goal` document
 - `/mt-goal status` — show the current goal state
 - `/mt-goal clear` — clear the active goal
 
@@ -38,13 +39,31 @@ atomic_jq() {
 
 ## Set a goal
 
-Arguments: the full condition text after `/mt-goal `.
+Arguments: the full condition text after `/mt-goal `, or a path to a `mt-create-goal` document ending in `.md`.
 
 1. Initialize state file if missing.
-2. Write the new goal, resetting counters and clearing previous evaluation.
+2. If the argument is a path to a goal document, extract the condition from the `## 🎯 /mt-goal 条件` section.
+3. Write the new goal, resetting counters and clearing previous evaluation.
 
 ```bash
 CONDITION="$*"
+
+# If the argument looks like a goal document path, extract the /mt-goal condition.
+if [[ "$CONDITION" == *.md ]]; then
+  if [[ ! -f "$CONDITION" ]]; then
+    echo "Goal document not found: $CONDITION" >&2
+    exit 1
+  fi
+
+  EXTRACTED=$(awk '/^## 🎯 \/mt-goal 条件$/{found=1; next} found && NF {print; exit}' "$CONDITION")
+  if [[ -z "$EXTRACTED" ]]; then
+    echo "Failed to extract '/mt-goal 条件' from $CONDITION" >&2
+    exit 1
+  fi
+
+  CONDITION="$EXTRACTED"
+fi
+
 NOW=$(date +%s)
 atomic_jq "$GOAL_STATE" \
   --arg condition "$CONDITION" \
@@ -114,6 +133,8 @@ Then confirm the goal has been cleared.
   ```
 - If the user invokes `/mt-goal` with no argument and no subcommand, show status.
 - If the condition is empty, ask the user to provide one.
+- If the argument is a `.md` path but the file does not exist, report the error.
+- If the argument is a `.md` path but the `## 🎯 /mt-goal 条件` section is missing or empty, report the error.
 
 ## Writing good conditions
 
@@ -122,7 +143,9 @@ Encourage the user to write conditions that are:
 - Provable from the assistant's own output
 - Bounded (the plugin already enforces max-turns/max-minutes)
 
-Example: `/mt-goal npm test passes and all TypeScript errors are resolved`
+Examples:
+- `/mt-goal npm test passes and all TypeScript errors are resolved`
+- `/mt-goal tmp/mt-goal/docs/refined/20260621-example-goal.md`
 </command-instruction>
 
 <current-context>

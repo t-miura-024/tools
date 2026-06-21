@@ -89,6 +89,53 @@ jq --argjson now "$NOW" '
 /mt-goal clear
 ```
 
+## mt-create-goal との連携
+
+`/mt-goal` に渡す条件を計画ドキュメントのように対話で練り上げて文書化したい場合は、`mt-create-goal` Skill を使ってください。
+
+### フロー
+
+1. `mt-create-goal` で背景、測定方法、方針をヒアリングしながら `tmp/mt-goal/docs/draft/yyyymmdd-[goal-name].md` を作成する
+2. `## 🎯 /mt-goal 条件` セクションに `/mt-goal <condition>` へ渡せる一行の条件文字列を確定する
+3. ユーザー承認後、`transition-goal.ts` で `tmp/mt-goal/docs/refined/` に昇格する
+4. `refined` ドキュメントの `## 🎯 /mt-goal 条件` セクションの一行条件をコピーし、`/mt-goal <condition>` として実行する
+
+### `/mt-goal` への条件の渡し方
+
+`/mt-goal` コマンドは条件文字列を直接渡すか、`mt-create-goal` で作成したドキュメントパスを渡すことができます。
+
+**条件文字列を直接渡す例:**
+
+```text
+/mt-goal npm test exits with code 0 and no TypeScript errors are reported
+```
+
+**ドキュメントパスを渡す例:**
+
+```text
+/mt-goal tmp/mt-goal/docs/refined/20260621-example-goal.md
+```
+
+ドキュメントパスを渡した場合、`/mt-goal` コマンドが `## 🎯 /mt-goal 条件` セクションを自動的に読み取り、条件として設定します。
+
+### 保存先とステータス
+
+- 保存先: `tmp/mt-goal/docs/[status]/yyyymmdd-[goal-name].md`
+- ステータス: `draft` → `refined` → `done`
+- `draft`: 作成・リファインメント中
+- `refined`: ユーザー承認済み、`/mt-goal` 実行可能
+- `done`: `/mt-goal` 達成済みまたはクローズ済み
+
+### 共有資材
+
+`mt-goal/` Skill ディレクトリ配下に以下の共有資材を置く。
+
+- `goal-format.md`: ゴール条件ドキュメントの本文フォーマット
+- `list-goals.ts`: `tmp/mt-goal/docs/[status]/` 配下のドキュメントを列挙する
+- `transition-goal.ts`: `draft` → `refined` → `done` の状態遷移を行う
+
+状態遷移は `mv` や手動移動ではなく、`transition-goal.ts` を使う。
+
 ## 良い条件の書き方
 
 ### 測定可能
