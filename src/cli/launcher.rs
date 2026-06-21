@@ -41,7 +41,7 @@ const SCRIPTS: &[ScriptEntry] = &[
     ScriptEntry {
         name: "git repo select",
         category: "git",
-        description: "~/doc, ~/src から Git リポジトリを選択してパスを出力",
+        description: "~/doc, ~/src から親 Git リポジトリを選択してパスを出力（worktree は対象外）",
     },
     ScriptEntry {
         name: "git worktree select",

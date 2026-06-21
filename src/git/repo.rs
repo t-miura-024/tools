@@ -184,8 +184,6 @@ struct RepoEntry {
     category: String,
     name: String,
     path: PathBuf,
-    group: String,
-    is_worktree: bool,
     head_info: HeadInfo,
 }
 
@@ -214,10 +212,12 @@ pub fn select() -> anyhow::Result<()> {
 
     let entries = discover_repos(&roots)?;
     if entries.is_empty() {
-        bail!("~/doc, ~/src 配下に Git リポジトリが見つかりませんでした");
+        bail!(
+            "~/doc, ~/src 配下に親 Git リポジトリが見つかりませんでした（worktree は対象外です）"
+        );
     }
 
-    let sorted = group_and_sort(entries);
+    let sorted = sort_entries(entries);
     let input = format_repo_rows(&sorted);
     let selected = run_fzf(
         input,
@@ -227,7 +227,7 @@ pub fn select() -> anyhow::Result<()> {
             "--delimiter",
             "\t",
             "--with-nth",
-            "1,2,3,4",
+            "1,2,3",
             "--header-lines",
             "1",
             "--prompt",
@@ -274,25 +274,12 @@ fn inspect_repo_dir(path: &Path, category: &str) -> Option<RepoEntry> {
         .and_then(|s| s.to_str())
         .map(|s| s.to_string())?;
 
+    // 親リポジトリのみ採用。`.git` がディレクトリでなければ（worktree の pointer ファイル、
+    // もしくは未初期化ディレクトリ）対象外。
     let git_path = path.join(".git");
-    let (group, is_worktree) = if git_path.is_dir() {
-        (name.clone(), false)
-    } else if git_path.is_file() {
-        let content = fs::read_to_string(&git_path).ok()?;
-        let gitdir = parse_git_pointer(&content)?;
-        let main_git_dir = Path::new(&gitdir)
-            .ancestors()
-            .nth(3)
-            .map(|p| p.to_path_buf())?;
-        let group = main_git_dir
-            .file_name()
-            .and_then(|s| s.to_str())
-            .map(|s| s.to_string())
-            .unwrap_or_else(|| name.clone());
-        (group, true)
-    } else {
+    if !git_path.is_dir() {
         return None;
-    };
+    }
 
     let head_info = read_head_info(&git_path);
 
@@ -300,33 +287,12 @@ fn inspect_repo_dir(path: &Path, category: &str) -> Option<RepoEntry> {
         category: category.to_string(),
         name,
         path: path.to_path_buf(),
-        group,
-        is_worktree,
         head_info,
     })
 }
 
-fn parse_git_pointer(content: &str) -> Option<String> {
-    content
-        .lines()
-        .next()
-        .and_then(|line| line.strip_prefix("gitdir: "))
-        .map(|s| s.trim().to_string())
-}
-
 fn read_head_info(git_path: &Path) -> HeadInfo {
-    let head_path = if git_path.is_dir() {
-        git_path.join("HEAD")
-    } else if git_path.is_file() {
-        let content = fs::read_to_string(git_path).ok();
-        let gitdir = content.as_deref().and_then(parse_git_pointer);
-        match gitdir {
-            Some(dir) => PathBuf::from(dir).join("HEAD"),
-            None => return HeadInfo::Unknown,
-        }
-    } else {
-        return HeadInfo::Unknown;
-    };
+    let head_path = git_path.join("HEAD");
 
     let content = match fs::read_to_string(&head_path) {
         Ok(c) => c,
@@ -343,7 +309,7 @@ fn read_head_info(git_path: &Path) -> HeadInfo {
     HeadInfo::Unknown
 }
 
-fn group_and_sort(entries: Vec<RepoEntry>) -> Vec<RepoEntry> {
+fn sort_entries(entries: Vec<RepoEntry>) -> Vec<RepoEntry> {
     let category_rank = |c: &str| {
         config::REPO_ROOTS
             .iter()
@@ -354,8 +320,6 @@ fn group_and_sort(entries: Vec<RepoEntry>) -> Vec<RepoEntry> {
     sorted.sort_by(|a, b| {
         category_rank(&a.category)
             .cmp(&category_rank(&b.category))
-            .then_with(|| a.group.cmp(&b.group))
-            .then_with(|| a.is_worktree.cmp(&b.is_worktree))
             .then_with(|| a.name.cmp(&b.name))
     });
     sorted
@@ -364,68 +328,42 @@ fn group_and_sort(entries: Vec<RepoEntry>) -> Vec<RepoEntry> {
 fn format_repo_rows(entries: &[RepoEntry]) -> String {
     let mut lines = vec![format_repo_header(entries)];
     for entry in entries {
-        let worktree_name = if entry.is_worktree {
-            entry.name.as_str()
-        } else {
-            ""
-        };
         let path = entry.path.display().to_string();
-        let padded = format_padded_row(
-            &entry.category,
-            &entry.group,
-            worktree_name,
-            &entry.label(),
-            entries,
-        );
+        let padded = format_padded_row(&entry.category, &entry.name, &entry.label(), entries);
         lines.push(format!("{padded}\t{path}"));
     }
     lines.join("\n") + "\n"
 }
 
 fn format_repo_header(entries: &[RepoEntry]) -> String {
-    format_padded_row("category", "group", "worktree", "branch", entries)
+    format_padded_row("category", "name", "branch", entries)
 }
 
-fn format_padded_row(
-    category: &str,
-    group: &str,
-    worktree: &str,
-    branch: &str,
-    entries: &[RepoEntry],
-) -> String {
+fn format_padded_row(category: &str, name: &str, branch: &str, entries: &[RepoEntry]) -> String {
     let widths = column_widths(entries);
     format!(
-        "{:<w_cat$}  {:<w_grp$}  {:<w_wt$}  {:<w_br$}",
+        "{:<w_cat$}  {:<w_name$}  {:<w_br$}",
         category,
-        group,
-        worktree,
+        name,
         branch,
         w_cat = widths.0,
-        w_grp = widths.1,
-        w_wt = widths.2,
-        w_br = widths.3
+        w_name = widths.1,
+        w_br = widths.2
     )
 }
 
-fn column_widths(entries: &[RepoEntry]) -> (usize, usize, usize, usize) {
+fn column_widths(entries: &[RepoEntry]) -> (usize, usize, usize) {
     let mut w_category = "category".chars().count();
-    let mut w_group = "group".chars().count();
-    let mut w_worktree = "worktree".chars().count();
+    let mut w_name = "name".chars().count();
     let mut w_branch = "branch".chars().count();
 
     for entry in entries {
         w_category = w_category.max(entry.category.chars().count());
-        w_group = w_group.max(entry.group.chars().count());
-        let worktree = if entry.is_worktree {
-            entry.name.as_str()
-        } else {
-            ""
-        };
-        w_worktree = w_worktree.max(worktree.chars().count());
+        w_name = w_name.max(entry.name.chars().count());
         w_branch = w_branch.max(entry.label().chars().count());
     }
 
-    (w_category, w_group, w_worktree, w_branch)
+    (w_category, w_name, w_branch)
 }
 
 fn parse_repo_selection(selected: &str) -> anyhow::Result<String> {
