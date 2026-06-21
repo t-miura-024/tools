@@ -35,7 +35,7 @@ pub enum GitCommands {
 pub enum GitRepoCommands {
     /// Create a new GitHub repository interactively
     Create,
-    /// Select a Git repository under ~/doc or ~/src and print its path
+    /// Select a parent Git repository under ~/doc or ~/src and print its path (worktrees are excluded; use `git worktree select` for those)
     Select,
 }
 

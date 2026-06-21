@@ -25,7 +25,7 @@ cargo install --path .
 | `mt git begin`                 | 現在のブランチを upstream 同期 + target を pull で取り込み |
 | `mt git ship`                  | 自身のブランチで commit & push → target に no-ff マージ & push |
 | `mt git repo create`           | GitHub リポジトリを対話的に作成        |
-| `mt git repo select`           | ~/doc, ~/src から Git リポジトリを選択してパスを出力 |
+| `mt git repo select`           | ~/doc, ~/src から親 Git リポジトリを選択してパスを出力（worktree は対象外、`git worktree select` を使用） |
 | `mt git worktree select`       | Git worktree を選択してパスを出力      |
 | `mt git worktree create`       | Git worktree と新規ブランチを対話的に作成 |
 | `mt git worktree delete`       | Git worktree を対話的に削除（多段ガード + 復旧ヒント） |
