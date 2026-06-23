@@ -22,7 +22,7 @@ cargo install --path .
 | `mt agent-config sync`         | Cursor/Claude/OpenCode に設定を同期    |
 | `mt agent-config hook --check` | 保護ディレクトリへの直接編集をブロック |
 | `mt agent-config bootstrap`    | 初期セットアップ（同期 + post-commit hook 設置） |
-| `mt git begin`                 | 現在のブランチを upstream 同期 + target を pull で取り込み |
+| `mt git sync`                 | 現在のブランチを upstream 同期 + target を pull で取り込み |
 | `mt git ship`                  | 自身のブランチで commit & push → target に no-ff マージ & push |
 | `mt git repo create`           | GitHub リポジトリを対話的に作成        |
 | `mt git repo select`           | ~/doc, ~/src から親 Git リポジトリを選択してパスを出力（worktree は対象外、`git worktree select` を使用） |
@@ -195,11 +195,11 @@ Git worktree での一連の作業を `mt git` の 4 ステップで標準化し
 | ステップ | コマンド | 責務 |
 | --- | --- | --- |
 | 1. 環境構築 | `mt git worktree create` | 新しい worktree と feature branch を対話的に作成 |
-| 2. 最新化 | `mt git begin [--target <branch>]` | 現在のブランチを upstream に同期し、target の変更を取り込み |
+| 2. 最新化 | `mt git sync [--target <branch>]` | 現在のブランチを upstream に同期し、target の変更を取り込み |
 | 3. 作業 | （お好みのエディタ） | 通常の開発作業 |
 | 4. マージ & プッシュ | `mt git ship [--target <branch>] [-m <message>]` | コミット → push → target に no-ff マージ → push |
 
-### `mt git begin`
+### `mt git sync`
 
 worktree に入った直後に実行する「最新化」コマンドです。
 
@@ -208,11 +208,11 @@ worktree に入った直後に実行する「最新化」コマンドです。
 - target ブランチの変更を現在のブランチへ `git pull --no-rebase origin <target>` で取り込み
 
 ```bash
-# target を明示して begin
-mt git begin --target main
+# target を明示して sync
+mt git sync --target main
 
 # 引数なし: fzf で target を選択（デフォルトブランチが先頭）
-mt git begin
+mt git sync
 ```
 
 ### `mt git ship`
@@ -242,7 +242,7 @@ mt git worktree create
 
 # 2. 最新化（main の変更を取り込んでから作業開始）
 cd ~/src/tools-wt-1-wt-3
-mt git begin --target main
+mt git sync --target main
 
 # 3. 作業
 vim src/main.rs
@@ -256,7 +256,7 @@ mt git ship --target main -m "feat: add new command"
 
 ### 安全性
 
-- デフォルトブランチ（`main` / `master`）上での `begin` / `ship` はエラーで中断
+- デフォルトブランチ（`main` / `master`）上での `sync` / `ship` はエラーで中断
 - 任意の git 操作が失敗したら即座に中断し、現在の git 状態スナップショット（HEAD / 未コミット変更 / stash）を表示
 - リカバリ選択肢（abort / rebase 手順 / force 手順）から選んで次のアクションを決定
 - 対話入力ができない環境（CI 等）では自動的に abort 扱いで exit 1

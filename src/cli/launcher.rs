@@ -59,7 +59,7 @@ const SCRIPTS: &[ScriptEntry] = &[
         description: "Git worktree を対話的に削除（多段ガード + 復旧ヒント）",
     },
     ScriptEntry {
-        name: "git begin",
+        name: "git sync",
         category: "git",
         description: "現在のブランチを upstream 同期 + target を pull で取り込み",
     },
@@ -140,7 +140,7 @@ fn run_script(name: &str) -> anyhow::Result<()> {
         "git worktree delete" => git::run(GitCommands::Worktree(GitWorktreeCommands::Delete {
             force: false,
         })),
-        "git begin" => git::run(GitCommands::Begin { target: None }),
+        "git sync" => git::run(GitCommands::Sync { target: None }),
         "git ship" => git::run(GitCommands::Ship {
             target: None,
             message: None,

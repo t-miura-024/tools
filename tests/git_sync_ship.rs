@@ -69,7 +69,7 @@ fn setup_test_repo() -> TestRepo {
 }
 
 #[test]
-fn test_mt_git_begin_pulls_target_into_feature() {
+fn test_mt_git_sync_pulls_target_into_feature() {
     let repo = setup_test_repo();
 
     // feature branch を作成 & push（origin/feature を用意）
@@ -92,10 +92,10 @@ fn test_mt_git_begin_pulls_target_into_feature() {
     run_git(&repo.repo, &["commit", "-qm", "feature commit 2"]);
     run_git(&repo.repo, &["push", "-u", "-q", "origin", "feature"]);
 
-    // mt git begin を実行
+    // mt git sync を実行
     let mut cmd = Command::cargo_bin("mt").unwrap();
     cmd.arg("git")
-        .arg("begin")
+        .arg("sync")
         .arg("--target")
         .arg("main")
         .current_dir(&repo.repo)
@@ -133,13 +133,13 @@ fn test_mt_git_begin_pulls_target_into_feature() {
 }
 
 #[test]
-fn test_mt_git_begin_errors_on_protected_branch() {
+fn test_mt_git_sync_errors_on_protected_branch() {
     let repo = setup_test_repo();
     run_git(&repo.repo, &["checkout", "-q", "main"]);
 
     let mut cmd = Command::cargo_bin("mt").unwrap();
     cmd.arg("git")
-        .arg("begin")
+        .arg("sync")
         .arg("--target")
         .arg("main")
         .current_dir(&repo.repo)
@@ -203,13 +203,13 @@ fn test_mt_git_ship_errors_on_protected_branch() {
 }
 
 #[test]
-fn test_mt_git_begin_nonexistent_target_errors() {
+fn test_mt_git_sync_nonexistent_target_errors() {
     let repo = setup_test_repo();
     run_git(&repo.repo, &["checkout", "-q", "-b", "feature"]);
 
     let mut cmd = Command::cargo_bin("mt").unwrap();
     cmd.arg("git")
-        .arg("begin")
+        .arg("sync")
         .arg("--target")
         .arg("nonexistent-branch")
         .current_dir(&repo.repo)
@@ -257,14 +257,14 @@ fn test_mt_git_ship_auto_message_for_feature_commit() {
 }
 
 #[test]
-fn test_mt_git_begin_self_target_errors() {
+fn test_mt_git_sync_self_target_errors() {
     let repo = setup_test_repo();
     run_git(&repo.repo, &["checkout", "-q", "-b", "feature"]);
     run_git(&repo.repo, &["push", "-u", "-q", "origin", "feature"]);
 
     let mut cmd = Command::cargo_bin("mt").unwrap();
     cmd.arg("git")
-        .arg("begin")
+        .arg("sync")
         .arg("--target")
         .arg("feature")
         .current_dir(&repo.repo)
