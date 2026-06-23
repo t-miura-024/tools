@@ -12,6 +12,10 @@ Allowed subcommands:
 - `stop <id>` — stop a loop by ID or index
 - `status` — show loop engine status
 
+## User input
+
+The user's arguments (the text after `/mt-loop `) are provided in the `<user-arguments>` section of `<current-context>` below. Parse the subcommand from the first token and the remaining arguments from the rest.
+
 ## State file
 
 `tmp/mt-loop/state.json` is the single source of truth. Update it ONLY with `jq` + パイプ + atomic rename. Never edit it by hand.
@@ -174,4 +178,7 @@ jq -r '
 <loop-state>
 !`jq -r '.loops | map(select(.stopped == false)) | length as $c | "Active loops: \($c)"' tmp/mt-loop/state.json 2>/dev/null || echo "State file not initialized"`
 </loop-state>
+<user-arguments>
+$ARGUMENTS
+</user-arguments>
 </current-context>
