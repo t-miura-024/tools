@@ -13,6 +13,11 @@ const COLOR_RUNNING = "#4C8DFF";
 const COLOR_RETRY = "#FFA500";
 const COLOR_ERROR = "#FF3B30";
 
+const WORKSPACE_COLOR_RUNNING = "Blue";
+const WORKSPACE_COLOR_RETRY = "Orange";
+const WORKSPACE_COLOR_ERROR = "Red";
+const WORKSPACE_COLOR_IDLE = "Green";
+
 function runCmux(args: string[]): Promise<void> {
   return new Promise((resolve) => {
     try {
@@ -53,6 +58,14 @@ function clearCmuxStatus(): Promise<void> {
   return runCmux(["clear-status", STATUS_KEY]);
 }
 
+function setWorkspaceColor(color: string): Promise<void> {
+  return runCmux(["workspace-action", "--action", "set-color", "--color", color]);
+}
+
+function clearWorkspaceColor(): Promise<void> {
+  return runCmux(["workspace-action", "--action", "clear-color"]);
+}
+
 function summarizeError(error: unknown, fallback: string): string {
   if (typeof error === "string") return error;
   if (error && typeof error === "object") {
@@ -70,19 +83,23 @@ export const CmuxNotifyPlugin: Plugin = async () => {
         const status = event.properties.status;
         if (status.type === "busy") {
           await setCmuxStatus("Running", "bolt.fill", COLOR_RUNNING);
+          await setWorkspaceColor(WORKSPACE_COLOR_RUNNING);
         } else if (status.type === "retry") {
           await setCmuxStatus(
             "Retrying",
             "arrow.clockwise",
             COLOR_RETRY,
           );
+          await setWorkspaceColor(WORKSPACE_COLOR_RETRY);
         } else {
           await clearCmuxStatus();
+          await setWorkspaceColor(WORKSPACE_COLOR_IDLE);
         }
         return;
       }
       if (event.type === "session.idle") {
         await clearCmuxStatus();
+        await setWorkspaceColor(WORKSPACE_COLOR_IDLE);
         await notifyCmux(
           "Task complete",
           `Session ${event.properties.sessionID} is waiting for input`,
@@ -91,6 +108,7 @@ export const CmuxNotifyPlugin: Plugin = async () => {
       }
       if (event.type === "session.error") {
         await setCmuxStatus("Error", "xmark.circle.fill", COLOR_ERROR);
+        await setWorkspaceColor(WORKSPACE_COLOR_ERROR);
         const session = event.properties.sessionID ?? "unknown";
         const detail = summarizeError(
           event.properties.error,

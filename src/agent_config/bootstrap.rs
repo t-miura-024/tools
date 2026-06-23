@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
@@ -18,7 +18,9 @@ fi
 pub fn run() -> Result<()> {
     super::sync::run()?;
 
-    let git_dir = find_git_dir()?;
+    let repo_root = find_repo_root()?;
+
+    let git_dir = repo_root.join(".git");
     let hooks_dir = git_dir.join("hooks");
     fs::create_dir_all(&hooks_dir)?;
 
@@ -59,17 +61,24 @@ pub fn run() -> Result<()> {
     Ok(())
 }
 
-fn find_git_dir() -> Result<PathBuf> {
-    let mut current = std::env::current_dir()?;
+fn find_repo_root() -> Result<PathBuf> {
+    let home = std::env::var("HOME").context("HOME environment variable not set")?;
+    let repo_root = PathBuf::from(&home).join("src").join("tools");
 
-    loop {
-        let git_dir = current.join(".git");
-        if git_dir.exists() && git_dir.is_dir() {
-            return Ok(git_dir);
-        }
-
-        if !current.pop() {
-            anyhow::bail!("Not in a git repository");
-        }
+    if !repo_root.join("Cargo.toml").is_file() {
+        anyhow::bail!(
+            "{} に Cargo.toml が見つかりません。mt のソースリポジトリを {} に配置してください",
+            repo_root.display(),
+            repo_root.display()
+        );
     }
+
+    if !repo_root.join(".git").exists() {
+        anyhow::bail!(
+            "{} に .git が見つかりません",
+            repo_root.display()
+        );
+    }
+
+    Ok(repo_root)
 }

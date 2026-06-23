@@ -22,25 +22,19 @@ pub fn run() -> Result<()> {
 }
 
 fn find_agent_configs_dir() -> Result<PathBuf> {
-    let exe_dir = std::env::current_exe()
-        .context("Failed to get current executable path")?
-        .parent()
-        .context("Failed to get parent directory")?
-        .to_path_buf();
+    let home = std::env::var("HOME").context("HOME environment variable not set")?;
+    let repo_root = PathBuf::from(&home).join("src").join("tools");
+    let agent_configs = repo_root.join("agent-configs");
 
-    let candidates = [
-        exe_dir.join("agent-configs"),
-        exe_dir.join("../agent-configs"),
-        PathBuf::from("agent-configs"),
-    ];
-
-    for candidate in &candidates {
-        if candidate.exists() {
-            return Ok(candidate.canonicalize()?);
-        }
+    if !agent_configs.is_dir() {
+        anyhow::bail!(
+            "{} not found. The mt source repository should be located at {}",
+            agent_configs.display(),
+            repo_root.display()
+        );
     }
 
-    anyhow::bail!("agent-configs directory not found")
+    Ok(agent_configs.canonicalize()?)
 }
 
 fn sync_cursor(src_root: &Path, dest_root: &Path) -> Result<()> {
