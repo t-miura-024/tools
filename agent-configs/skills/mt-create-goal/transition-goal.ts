@@ -154,7 +154,7 @@ export function formatTransitionResult(result: TransitionResult): string {
 
 export function usage(): string {
   return [
-    "Usage: bun <mt-goal-skill-dir>/transition-goal.ts <goal-file> <target-status>",
+    "Usage: bun <mt-create-goal-skill-dir>/transition-goal.ts <goal-file> <target-status>",
     "",
     `Supported statuses: ${GOAL_STATUSES.join(", ")}`,
     "Allowed transitions: draft -> refined, refined -> done, done -> refined",

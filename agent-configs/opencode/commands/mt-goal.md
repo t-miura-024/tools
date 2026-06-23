@@ -37,6 +37,15 @@ atomic_jq() {
 }
 ```
 
+## User input
+
+The user's arguments (the text after `/mt-goal `) are provided in the `<user-arguments>` section of `<current-context>` below. Use that value as the condition or goal-doc-path.
+
+- Empty or `status` → show status
+- `clear` → clear the active goal
+- A path ending in `.md` → extract the condition from the goal document
+- Any other text → use as the goal condition
+
 ## Set a goal
 
 Arguments: the full condition text after `/mt-goal `, or a path to a `mt-create-goal` document ending in `.md`.
@@ -152,4 +161,7 @@ Examples:
 <goal-state>
 !`jq -r 'if .goal == null then "No active goal." else "Active goal: \(.goal.condition)" end' tmp/mt-goal/state.json 2>/dev/null || echo "State file not initialized"`
 </goal-state>
+<user-arguments>
+$ARGUMENTS
+</user-arguments>
 </current-context>

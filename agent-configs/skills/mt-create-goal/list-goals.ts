@@ -109,7 +109,7 @@ export function formatListGoalsResult(result: ListGoalsResult): string {
 
 export function usage(): string {
   return [
-    "Usage: bun <mt-goal-skill-dir>/list-goals.ts [--cwd <project-root>] [statuses...]",
+    "Usage: bun <mt-create-goal-skill-dir>/list-goals.ts [--cwd <project-root>] [statuses...]",
     "",
     `Supported statuses: ${GOAL_STATUSES.join(", ")}`,
     "If no statuses are provided, all statuses are listed.",
