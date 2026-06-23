@@ -1,6 +1,6 @@
 # mt-goal ゴール条件ドキュメントフォーマット
 
-`mt-create-goal`、`mt-goal` が共通で参照するゴール条件ドキュメントの本文フォーマットです。
+`mt-create-goal` が参照するゴール条件ドキュメントの本文フォーマットです。
 ゴール条件ドキュメントは対象プロジェクトの `tmp/mt-goal/docs/[status]/yyyymmdd-[goal-name].md` に保存し、ステータスはディレクトリ名を Source of Truth とします。
 
 ## 基本ルール
