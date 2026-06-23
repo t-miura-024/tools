@@ -47,9 +47,9 @@ fn test_mt_git_worktree_delete_help() {
 }
 
 #[test]
-fn test_mt_git_begin_help() {
+fn test_mt_git_sync_help() {
     let mut cmd = Command::cargo_bin("mt").unwrap();
-    cmd.args(["git", "begin", "--help"])
+    cmd.args(["git", "sync", "--help"])
         .assert()
         .success()
         .stdout(predicate::str::contains(

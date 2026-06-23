@@ -1,6 +1,6 @@
 use clap::Subcommand;
 
-pub mod begin;
+pub mod sync;
 pub mod common;
 pub mod repo;
 pub mod ship;
@@ -9,7 +9,7 @@ pub mod worktree;
 #[derive(Subcommand)]
 pub enum GitCommands {
     /// Sync current branch with upstream and pull target branch into it
-    Begin {
+    Sync {
         /// Target branch to pull into the current branch (default: detected default branch)
         #[arg(long)]
         target: Option<String>,
@@ -55,7 +55,7 @@ pub enum GitWorktreeCommands {
 
 pub fn run(cmd: GitCommands) -> anyhow::Result<()> {
     match cmd {
-        GitCommands::Begin { target } => begin::begin(target),
+        GitCommands::Sync { target } => sync::sync(target),
         GitCommands::Ship { target, message } => ship::ship(target, message),
         GitCommands::Repo(sub) => match sub {
             GitRepoCommands::Create => repo::create(),

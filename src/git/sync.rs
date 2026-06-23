@@ -6,14 +6,14 @@ use crate::git::common::{
     resolve_target_branch, snapshot_git_state,
 };
 
-pub fn begin(target: Option<String>) -> anyhow::Result<()> {
+pub fn sync(target: Option<String>) -> anyhow::Result<()> {
     ensure_inside_git_repo()?;
-    style::intro("mt git begin");
+    style::intro("mt git sync");
 
     let current = current_branch()?;
     if is_protected_branch(&current) {
         anyhow::bail!(
-            "デフォルトブランチ ( {current} ) では begin を実行できません。feature branch などで実行してください"
+            "デフォルトブランチ ( {current} ) では sync を実行できません。feature branch などで実行してください"
         );
     }
 
@@ -63,7 +63,7 @@ pub fn begin(target: Option<String>) -> anyhow::Result<()> {
     spinner.finish_with_message("pull 完了");
 
     style::outro(&format!(
-        "✅ begin 完了: {current} は最新の {target_branch} を取り込み済み"
+        "✅ sync 完了: {current} は最新の {target_branch} を取り込み済み"
     ));
     Ok(())
 }

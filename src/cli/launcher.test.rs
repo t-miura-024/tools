@@ -64,11 +64,11 @@ fn test_format_script_header_uses_padded_columns() {
 }
 
 #[test]
-fn test_scripts_include_git_begin_and_ship() {
+fn test_scripts_include_git_sync_and_ship() {
     let names: Vec<&str> = SCRIPTS.iter().map(|s| s.name).collect();
     assert!(
-        names.contains(&"git begin"),
-        "git begin がランチャーに登録されているべき: {names:?}"
+        names.contains(&"git sync"),
+        "git sync がランチャーに登録されているべき: {names:?}"
     );
     assert!(
         names.contains(&"git ship"),
