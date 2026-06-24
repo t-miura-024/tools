@@ -21,6 +21,7 @@ brew "anomalyco/tap/opencode"
 brew "oven-sh/bun/bun"
 brew "yakitrak/yakitrak/obsidian-cli"
 brew "starship"
+brew "bat"
 
 cask "arc"
 cask "claude-code"
