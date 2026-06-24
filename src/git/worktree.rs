@@ -62,7 +62,7 @@ impl WorktreeBuilder {
                 branch: self.branch.take(),
                 is_bare: self.is_bare,
                 is_detached: self.is_detached,
-                shortstat: String::new(),
+                shortstat: "+0 -0".to_string(),
             });
         }
 
@@ -219,14 +219,8 @@ fn collect_shortstat(entries: &mut [WorktreeEntry]) {
 
 fn parse_shortstat(output: &str) -> String {
     let trimmed = output.trim();
-    if trimmed.is_empty() {
-        return String::new();
-    }
     let insertions = parse_shortstat_count(trimmed, r"(\d+) insertions?\(\+\)");
     let deletions = parse_shortstat_count(trimmed, r"(\d+) deletions?\(-\)");
-    if insertions == 0 && deletions == 0 {
-        return String::new();
-    }
     format!("+{insertions} -{deletions}")
 }
 
