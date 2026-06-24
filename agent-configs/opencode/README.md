@@ -10,11 +10,13 @@ opencode 固有の設定ファイル置き場。`mt agent-config sync` で `~/.c
 
 - `cmux-notify.ts` — cmux にセッション状態の変化を通知し、サイドバータブに status バッジを出すプラグイン。`session.status` / `session.idle` / `session.error` / `permission.updated` の各イベントで `cmux notify` / `cmux set-status` / `cmux clear-status` を呼び出す。`cmux` バイナリが PATH にない場合は no-op で安全。
 
+  ステータス更新のたびに `process.cwd()` で `git diff --shortstat` を実行し、ラベル末尾に ` (+<ins> -<del>)` の差分サマリを付与する（`wt` コマンドと同じ書式）。git 管理外のディレクトリでは差分表示を省略。
+
   バッジ対応:
-  - `busy` → ⚡️ bolt.fill (青) "Running"
-  - `retry` → ↻ arrow.clockwise (橙) "Retrying"
-  - `error` → ❌ xmark.circle.fill (赤) "Error"
-  - `idle` / その他 → バッジクリア
+  - `busy` → ⚡️ bolt.fill (青) "Running (+N -N)"
+  - `retry` → ↻ arrow.clockwise (橙) "Retrying (+N -N)"
+  - `error` → ❌ xmark.circle.fill (赤) "Error (+N -N)"
+  - `idle` / その他 → ✅ checkmark.circle.fill (緑) "Idle (+N -N)" / 終了時にバッジクリア
 
 - `mt-loop-engine.ts` — `/mt-loop`・`/mt-goal` の駆動・評価・注入プラグイン。`setInterval(1000)` の tick ループで `tmp/mt-loop/state.json` を監視し、`session.idle` イベントで `tmp/mt-goal/state.json` の条件達成評価を行う。`cmux` 連携でループ/ゴールの実行中状態をサイドバーに表示する。
 
