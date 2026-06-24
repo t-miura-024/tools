@@ -249,9 +249,14 @@ fn format_worktree_rows(entries: &[WorktreeEntry], current: &str) -> String {
         .map(|entry| entry.shortstat.chars().count())
         .max()
         .unwrap_or(0);
-    let current_dot = Style::new().green().bold().apply_to("●").to_string();
-    let plus_style = Style::new().green();
-    let minus_style = Style::new().red();
+    let current_dot = Style::new()
+        .green()
+        .bold()
+        .force_styling(true)
+        .apply_to("●")
+        .to_string();
+    let plus_style = Style::new().green().force_styling(true);
+    let minus_style = Style::new().red().force_styling(true);
 
     entries
         .iter()
