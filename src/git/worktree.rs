@@ -5,6 +5,7 @@ use std::process::{Command, Stdio};
 use anyhow::{Context, bail};
 use console::Style;
 use dialoguer::Confirm;
+use regex::Regex;
 
 use crate::cli::style;
 
@@ -14,6 +15,7 @@ struct WorktreeEntry {
     branch: Option<String>,
     is_bare: bool,
     is_detached: bool,
+    shortstat: String,
 }
 
 impl WorktreeEntry {
@@ -60,6 +62,7 @@ impl WorktreeBuilder {
                 branch: self.branch.take(),
                 is_bare: self.is_bare,
                 is_detached: self.is_detached,
+                shortstat: String::new(),
             });
         }
 
@@ -76,7 +79,8 @@ pub fn select() -> anyhow::Result<()> {
         .context("現在の Git リポジトリルートを取得できませんでした")?;
     let porcelain = command_output("git", &["worktree", "list", "--porcelain"])
         .context("git worktree の一覧を取得できませんでした")?;
-    let entries = parse_worktree_porcelain(&porcelain);
+    let mut entries = parse_worktree_porcelain(&porcelain);
+    collect_shortstat(&mut entries);
 
     if entries.is_empty() {
         anyhow::bail!("git worktree が見つかりませんでした");
@@ -197,13 +201,63 @@ pub fn find_worktree_for_branch(branch: &str) -> Option<PathBuf> {
     None
 }
 
+fn collect_shortstat(entries: &mut [WorktreeEntry]) {
+    for entry in entries.iter_mut() {
+        if entry.is_bare {
+            continue;
+        }
+        let output = Command::new("git")
+            .args(["-C", &entry.path, "diff", "--shortstat"])
+            .output();
+        if let Ok(out) = output
+            && out.status.success()
+        {
+            entry.shortstat = parse_shortstat(&String::from_utf8_lossy(&out.stdout));
+        }
+    }
+}
+
+fn parse_shortstat(output: &str) -> String {
+    let trimmed = output.trim();
+    if trimmed.is_empty() {
+        return String::new();
+    }
+    let insertions = parse_shortstat_count(trimmed, r"(\d+) insertions?\(\+\)");
+    let deletions = parse_shortstat_count(trimmed, r"(\d+) deletions?\(-\)");
+    if insertions == 0 && deletions == 0 {
+        return String::new();
+    }
+    format!("+{insertions} -{deletions}")
+}
+
+fn parse_shortstat_count(s: &str, pattern: &str) -> u32 {
+    Regex::new(pattern)
+        .ok()
+        .and_then(|re| re.captures(s))
+        .and_then(|c| c.get(1))
+        .and_then(|m| m.as_str().parse::<u32>().ok())
+        .unwrap_or(0)
+}
+
 fn format_worktree_rows(entries: &[WorktreeEntry], current: &str) -> String {
     let max_name_width = entries
         .iter()
         .map(|entry| entry.name().chars().count())
         .max()
         .unwrap_or(0);
+    let max_label_width = entries
+        .iter()
+        .map(|entry| entry.label().chars().count())
+        .max()
+        .unwrap_or(0);
+    let max_stat_width = entries
+        .iter()
+        .map(|entry| entry.shortstat.chars().count())
+        .max()
+        .unwrap_or(0);
     let current_dot = Style::new().green().bold().apply_to("●").to_string();
+    let plus_style = Style::new().green();
+    let minus_style = Style::new().red();
 
     entries
         .iter()
@@ -213,17 +267,45 @@ fn format_worktree_rows(entries: &[WorktreeEntry], current: &str) -> String {
             } else {
                 "  ".to_string()
             };
+            let stat = format_shortstat_colored(
+                &entry.shortstat,
+                max_stat_width,
+                &plus_style,
+                &minus_style,
+            );
             format!(
-                "{marker}{:<width$}  {}\t{}",
+                "{marker}{:<name_width$}  {:<label_width$}  {stat}\t{}",
                 entry.name(),
                 entry.label(),
                 entry.path,
-                width = max_name_width
+                name_width = max_name_width,
+                label_width = max_label_width,
             )
         })
         .collect::<Vec<_>>()
         .join("\n")
         + "\n"
+}
+
+fn format_shortstat_colored(
+    stat: &str,
+    width: usize,
+    plus_style: &Style,
+    minus_style: &Style,
+) -> String {
+    if stat.is_empty() {
+        return " ".repeat(width);
+    }
+    let visible_width = stat.chars().count();
+    let padding = " ".repeat(width.saturating_sub(visible_width));
+    if let Some((plus, rest)) = stat.split_once(' ') {
+        let plus_colored = plus_style.apply_to(plus).to_string();
+        let minus_colored = minus_style.apply_to(rest).to_string();
+        format!("{plus_colored} {minus_colored}{padding}")
+    } else {
+        let plus_colored = plus_style.apply_to(stat).to_string();
+        format!("{plus_colored}{padding}")
+    }
 }
 
 fn run_fzf(input: String, args: &[&str]) -> anyhow::Result<String> {
@@ -351,7 +433,8 @@ pub fn delete(force: bool) -> anyhow::Result<()> {
 
     let current = command_output("git", &["rev-parse", "--show-toplevel"])?;
     let porcelain = command_output("git", &["worktree", "list", "--porcelain"])?;
-    let entries = parse_worktree_porcelain(&porcelain);
+    let mut entries = parse_worktree_porcelain(&porcelain);
+    collect_shortstat(&mut entries);
 
     if entries.is_empty() {
         bail!("git worktree が見つかりませんでした");

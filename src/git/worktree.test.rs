@@ -33,6 +33,7 @@ fn test_format_worktree_rows() {
         branch: Some("main".to_string()),
         is_bare: false,
         is_detached: false,
+        shortstat: String::new(),
     }];
 
     let rows = format_worktree_rows(&entries, "/repo/main");
@@ -42,6 +43,53 @@ fn test_format_worktree_rows() {
     assert!(rows.contains("\t/repo/main"));
 }
 
+#[test]
+fn test_format_worktree_rows_includes_shortstat_column() {
+    let entries = vec![
+        WorktreeEntry {
+            path: "/repo/clean".to_string(),
+            head: Some("aaaaaaaaaaaaaaaa".to_string()),
+            branch: Some("main".to_string()),
+            is_bare: false,
+            is_detached: false,
+            shortstat: String::new(),
+        },
+        WorktreeEntry {
+            path: "/repo/dirty".to_string(),
+            head: Some("bbbbbbbbbbbbbbbb".to_string()),
+            branch: Some("feature".to_string()),
+            is_bare: false,
+            is_detached: false,
+            shortstat: "+12 -5".to_string(),
+        },
+    ];
+
+    let rows = format_worktree_rows(&entries, "/repo/clean");
+
+    // タブで区切られた隠しパス（col 2）の前に shortstat が並ぶ
+    let dirty_line = rows
+        .lines()
+        .find(|line| line.contains("/repo/dirty"))
+        .expect("dirty 行が存在するはず");
+    assert!(
+        dirty_line.contains("+12 -5"),
+        "dirty 行に shortstat が含まれるべき: {dirty_line:?}"
+    );
+
+    // clean 行には shortstat 列のスペース（パディング）が入る
+    let clean_line = rows
+        .lines()
+        .find(|line| line.contains("/repo/clean"))
+        .expect("clean 行が存在するはず");
+    assert!(
+        clean_line.contains("\t/repo/clean"),
+        "clean 行にパス区切りが含まれるべき: {clean_line:?}"
+    );
+    // 名前・ラベル・shortstat 列の間は 2 スペース区切り
+    let parts: Vec<&str> = clean_line.split('\t').collect();
+    assert_eq!(parts.len(), 2, "タブで 2 列に分かれるべき: {clean_line:?}");
+}
+
 fn entry(path: &str) -> WorktreeEntry {
     WorktreeEntry {
         path: path.to_string(),
@@ -49,6 +97,7 @@ fn entry(path: &str) -> WorktreeEntry {
         branch: None,
         is_bare: false,
         is_detached: false,
+        shortstat: String::new(),
     }
 }
 
@@ -248,4 +297,92 @@ fn test_branch_exists_true() {
 fn test_branch_exists_false() {
     let (_tmp, path) = make_temp_git_repo("main");
     assert!(!branch_exists(&path, "nonexistent"));
+}
+
+#[test]
+fn test_parse_shortstat_empty() {
+    assert_eq!(parse_shortstat(""), "");
+    assert_eq!(parse_shortstat("   \n  "), "");
+}
+
+#[test]
+fn test_parse_shortstat_insertions_and_deletions() {
+    assert_eq!(
+        parse_shortstat(" 2 files changed, 12 insertions(+), 7 deletions(-)"),
+        "+12 -7"
+    );
+}
+
+#[test]
+fn test_parse_shortstat_singular_file() {
+    assert_eq!(
+        parse_shortstat(" 1 file changed, 3 insertions(+), 1 deletion(-)"),
+        "+3 -1"
+    );
+}
+
+#[test]
+fn test_parse_shortstat_insertions_only() {
+    assert_eq!(
+        parse_shortstat(" 1 file changed, 5 insertions(+)"),
+        "+5 -0"
+    );
+}
+
+#[test]
+fn test_parse_shortstat_deletions_only() {
+    assert_eq!(
+        parse_shortstat(" 1 file changed, 2 deletions(-)"),
+        "+0 -2"
+    );
+}
+
+#[test]
+fn test_parse_shortstat_zero_diff_falls_back_to_empty() {
+    // 想定外フォーマット: 数字が取れなければ空文字扱い
+    assert_eq!(parse_shortstat(" something weird "), "");
+}
+
+#[test]
+fn test_collect_shortstat_populates_entries() {
+    let (_tmp, path) = make_temp_git_repo("main");
+    std::fs::write(path.join("new.txt"), "hello\nworld\n").unwrap();
+    std::fs::write(path.join("README.md"), "changed\n").unwrap();
+
+    let mut entries = vec![WorktreeEntry {
+        path: path.to_string_lossy().to_string(),
+        head: None,
+        branch: Some("main".to_string()),
+        is_bare: false,
+        is_detached: false,
+        shortstat: String::new(),
+    }];
+
+    collect_shortstat(&mut entries);
+
+    assert!(
+        !entries[0].shortstat.is_empty(),
+        "変更がある wt では shortstat がセットされるはず"
+    );
+    assert!(
+        entries[0].shortstat.starts_with('+'),
+        "shortstat は +N -M 形式であるはず: {:?}",
+        entries[0].shortstat
+    );
+}
+
+#[test]
+fn test_collect_shortstat_skips_bare() {
+    let mut entries = vec![WorktreeEntry {
+        path: "/nonexistent".to_string(),
+        head: None,
+        branch: None,
+        is_bare: true,
+        is_detached: false,
+        shortstat: String::new(),
+    }];
+
+    collect_shortstat(&mut entries);
+
+    assert_eq!(entries[0].shortstat, "", "bare は shortstat 対象外");
 }
