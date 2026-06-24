@@ -85,15 +85,6 @@ function setWorkspaceColor(color: string): Promise<void> {
   ]);
 }
 
-function clearWorkspaceColor(): Promise<void> {
-  return runCmux([
-    "workspace-action",
-    "--action",
-    "clear-color",
-    ...workspaceFlag(),
-  ]);
-}
-
 function summarizeError(error: unknown, fallback: string): string {
   if (typeof error === "string") return error;
   if (error && typeof error === "object") {
@@ -105,37 +96,31 @@ function summarizeError(error: unknown, fallback: string): string {
 }
 
 export const CmuxNotifyPlugin: Plugin = async () => {
+  // Reflect "idle" state immediately on opencode startup. Fire-and-forget so
+  // plugin initialization does not block the opencode boot path; ordering is
+  // preserved by the shared queue, so any later event-driven updates will
+  // observe a consistent state.
+  enqueue(() => setCmuxStatus("Idle", "checkmark.circle.fill", COLOR_IDLE));
+  enqueue(() => setWorkspaceColor(WORKSPACE_COLOR_IDLE));
+
   return {
     event: async ({ event }: { event: Event }) => {
-      if (event.type === "session.created") {
-        await enqueue(() =>
-          setCmuxStatus("Idle", "checkmark.circle.fill", COLOR_IDLE),
-        );
-        await enqueue(() => setWorkspaceColor(WORKSPACE_COLOR_IDLE));
-        return;
-      }
       if (event.type === "session.status") {
         const status = event.properties.status;
         if (status.type === "busy") {
           await enqueue(() => setCmuxStatus("Running", "bolt.fill", COLOR_RUNNING));
           await enqueue(() => setWorkspaceColor(WORKSPACE_COLOR_RUNNING));
         } else if (status.type === "retry") {
-          await enqueue(() =>
-            setCmuxStatus("Retrying", "arrow.clockwise", COLOR_RETRY),
-          );
+          await enqueue(() => setCmuxStatus("Retrying", "arrow.clockwise", COLOR_RETRY));
           await enqueue(() => setWorkspaceColor(WORKSPACE_COLOR_RETRY));
         } else if (status.type === "idle") {
-          await enqueue(() =>
-            setCmuxStatus("Idle", "checkmark.circle.fill", COLOR_IDLE),
-          );
+          await enqueue(() => setCmuxStatus("Idle", "checkmark.circle.fill", COLOR_IDLE));
           await enqueue(() => setWorkspaceColor(WORKSPACE_COLOR_IDLE));
         }
         return;
       }
       if (event.type === "session.idle") {
-        await enqueue(() =>
-          setCmuxStatus("Idle", "checkmark.circle.fill", COLOR_IDLE),
-        );
+        await enqueue(() => setCmuxStatus("Idle", "checkmark.circle.fill", COLOR_IDLE));
         await enqueue(() => setWorkspaceColor(WORKSPACE_COLOR_IDLE));
         await notifyCmux(
           "Task complete",
@@ -164,8 +149,11 @@ export const CmuxNotifyPlugin: Plugin = async () => {
       }
     },
     dispose: async () => {
+      // Drop the running status pill, but keep the workspace tinted as the
+      // "idle" color so the sidebar still reflects the post-opencode state
+      // consistently with the startup behavior.
       await enqueue(() => clearCmuxStatus());
-      await enqueue(() => clearWorkspaceColor());
+      await enqueue(() => setWorkspaceColor(WORKSPACE_COLOR_IDLE));
     },
   };
 };
