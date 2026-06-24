@@ -12,7 +12,11 @@ use crate::git::common::{
 };
 use crate::git::worktree::find_worktree_for_branch;
 
-pub fn ship(target: Option<String>, message: Option<String>) -> anyhow::Result<()> {
+pub fn ship(
+    target: Option<String>,
+    target_default: bool,
+    message: Option<String>,
+) -> anyhow::Result<()> {
     ensure_inside_git_repo()?;
     style::intro("mt git ship");
 
@@ -23,7 +27,7 @@ pub fn ship(target: Option<String>, message: Option<String>) -> anyhow::Result<(
         );
     }
 
-    let target_branch = resolve_target_branch(target.clone())?;
+    let target_branch = resolve_target_branch(target.clone(), target_default)?;
     if target_branch == current {
         anyhow::bail!(
             "target ({target_branch}) が現在のブランチと同じです。別のブランチを指定してください"

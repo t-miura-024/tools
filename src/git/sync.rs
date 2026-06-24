@@ -6,7 +6,7 @@ use crate::git::common::{
     resolve_target_branch, snapshot_git_state,
 };
 
-pub fn sync(target: Option<String>) -> anyhow::Result<()> {
+pub fn sync(target: Option<String>, target_default: bool) -> anyhow::Result<()> {
     ensure_inside_git_repo()?;
     style::intro("mt git sync");
 
@@ -19,7 +19,7 @@ pub fn sync(target: Option<String>) -> anyhow::Result<()> {
 
     style::info(&format!("現在のブランチ: {current}"));
 
-    let target_branch = resolve_target_branch(target.clone())?;
+    let target_branch = resolve_target_branch(target.clone(), target_default)?;
     if target_branch == current {
         anyhow::bail!(
             "target ({target_branch}) が現在のブランチと同じです。別のブランチを指定してください"

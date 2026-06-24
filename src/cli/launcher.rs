@@ -140,9 +140,13 @@ fn run_script(name: &str) -> anyhow::Result<()> {
         "git worktree delete" => git::run(GitCommands::Worktree(GitWorktreeCommands::Delete {
             force: false,
         })),
-        "git sync" => git::run(GitCommands::Sync { target: None }),
+        "git sync" => git::run(GitCommands::Sync {
+            target: None,
+            target_default: false,
+        }),
         "git ship" => git::run(GitCommands::Ship {
             target: None,
+            target_default: false,
             message: None,
         }),
         "opencode oauth setup" => {
