@@ -74,6 +74,45 @@ function clearCmuxStatus(): Promise<void> {
   return runCmux(["clear-status", STATUS_KEY, ...workspaceFlag()]);
 }
 
+function computeGitShortstat(): Promise<string | null> {
+  return new Promise((resolve) => {
+    try {
+      const child = spawn("git", ["diff", "--shortstat"], {
+        stdio: ["ignore", "pipe", "ignore"],
+      });
+      let stdout = "";
+      child.stdout?.on("data", (chunk: Buffer | string) => {
+        stdout += chunk.toString();
+      });
+      child.on("error", () => resolve(null));
+      child.on("exit", (code) => {
+        if (code !== 0) {
+          resolve(null);
+          return;
+        }
+        const text = stdout.trim();
+        const insMatch = text.match(/(\d+) insertions?\(\+\)/);
+        const delMatch = text.match(/(\d+) deletions?\(-\)/);
+        const insertions = insMatch ? insMatch[1] : "0";
+        const deletions = delMatch ? delMatch[1] : "0";
+        resolve(`(+${insertions} -${deletions})`);
+      });
+    } catch {
+      resolve(null);
+    }
+  });
+}
+
+async function setStatusWithDiff(
+  label: string,
+  icon: string,
+  color: string,
+): Promise<void> {
+  const diff = await computeGitShortstat();
+  const fullLabel = diff ? `${label} ${diff}` : label;
+  await setCmuxStatus(fullLabel, icon, color);
+}
+
 function setWorkspaceColor(color: string): Promise<void> {
   return runCmux([
     "workspace-action",
@@ -104,7 +143,7 @@ export const CmuxNotifyPlugin: Plugin = async () => {
   // plugin initialization does not block the opencode boot path; ordering is
   // preserved by the shared queue, so any later event-driven updates will
   // observe a consistent state.
-  enqueue(() => setCmuxStatus("Idle", "checkmark.circle.fill", COLOR_IDLE));
+  enqueue(() => setStatusWithDiff("Idle", "checkmark.circle.fill", COLOR_IDLE));
   enqueue(() => setWorkspaceColor(WORKSPACE_COLOR_IDLE));
 
   return {
@@ -112,19 +151,19 @@ export const CmuxNotifyPlugin: Plugin = async () => {
       if (event.type === "session.status") {
         const status = event.properties.status;
         if (status.type === "busy") {
-          await enqueue(() => setCmuxStatus("Running", "bolt.fill", COLOR_RUNNING));
+          await enqueue(() => setStatusWithDiff("Running", "bolt.fill", COLOR_RUNNING));
           await enqueue(() => setWorkspaceColor(WORKSPACE_COLOR_RUNNING));
         } else if (status.type === "retry") {
-          await enqueue(() => setCmuxStatus("Retrying", "arrow.clockwise", COLOR_RETRY));
+          await enqueue(() => setStatusWithDiff("Retrying", "arrow.clockwise", COLOR_RETRY));
           await enqueue(() => setWorkspaceColor(WORKSPACE_COLOR_RETRY));
         } else if (status.type === "idle") {
-          await enqueue(() => setCmuxStatus("Idle", "checkmark.circle.fill", COLOR_IDLE));
+          await enqueue(() => setStatusWithDiff("Idle", "checkmark.circle.fill", COLOR_IDLE));
           await enqueue(() => setWorkspaceColor(WORKSPACE_COLOR_IDLE));
         }
         return;
       }
       if (event.type === "session.idle") {
-        await enqueue(() => setCmuxStatus("Idle", "checkmark.circle.fill", COLOR_IDLE));
+        await enqueue(() => setStatusWithDiff("Idle", "checkmark.circle.fill", COLOR_IDLE));
         await enqueue(() => setWorkspaceColor(WORKSPACE_COLOR_IDLE));
         await notifyCmux(
           "Task complete",
@@ -133,7 +172,7 @@ export const CmuxNotifyPlugin: Plugin = async () => {
         return;
       }
       if (event.type === "session.error") {
-        await enqueue(() => setCmuxStatus("Error", "xmark.circle.fill", COLOR_ERROR));
+        await enqueue(() => setStatusWithDiff("Error", "xmark.circle.fill", COLOR_ERROR));
         await enqueue(() => setWorkspaceColor(WORKSPACE_COLOR_ERROR));
         const session = event.properties.sessionID ?? "unknown";
         const detail = summarizeError(
