@@ -12,6 +12,7 @@ const STATUS_KEY = "agent_status";
 const COLOR_RUNNING = "#4C8DFF";
 const COLOR_RETRY = "#FFA500";
 const COLOR_ERROR = "#FF3B30";
+const COLOR_IDLE = "#2ECC71";
 
 const WORKSPACE_COLOR_RUNNING = "Blue";
 const WORKSPACE_COLOR_RETRY = "Orange";
@@ -92,13 +93,13 @@ export const CmuxNotifyPlugin: Plugin = async () => {
           );
           await setWorkspaceColor(WORKSPACE_COLOR_RETRY);
         } else {
-          await clearCmuxStatus();
+          await setCmuxStatus("Idle", "checkmark.circle.fill", COLOR_IDLE);
           await setWorkspaceColor(WORKSPACE_COLOR_IDLE);
         }
         return;
       }
       if (event.type === "session.idle") {
-        await clearCmuxStatus();
+        await setCmuxStatus("Idle", "checkmark.circle.fill", COLOR_IDLE);
         await setWorkspaceColor(WORKSPACE_COLOR_IDLE);
         await notifyCmux(
           "Task complete",
