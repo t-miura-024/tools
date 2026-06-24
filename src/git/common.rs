@@ -112,10 +112,6 @@ pub fn is_protected_branch(branch: &str) -> bool {
     matches!(branch, "main" | "master")
 }
 
-pub fn local_branches() -> anyhow::Result<Vec<String>> {
-    local_branches_in(&std::env::current_dir()?)
-}
-
 pub fn local_branches_in(cwd: &Path) -> anyhow::Result<Vec<String>> {
     let output = command_output_in(cwd, "git", &["branch", "--format=%(refname:short)"])
         .context("ローカルブランチ一覧を取得できませんでした")?;
@@ -124,10 +120,6 @@ pub fn local_branches_in(cwd: &Path) -> anyhow::Result<Vec<String>> {
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty())
         .collect())
-}
-
-pub fn resolve_default_branch() -> anyhow::Result<String> {
-    resolve_default_branch_in(&std::env::current_dir()?)
 }
 
 pub fn resolve_default_branch_in(cwd: &Path) -> anyhow::Result<String> {
