@@ -109,16 +109,6 @@ fn install_via_cargo(repo_root: &Path) -> anyhow::Result<()> {
         );
     }
 
-    let run = Confirm::new()
-        .with_prompt("cargo install --path . を実行して mt バイナリをビルド・配置しますか？")
-        .default(true)
-        .interact()?;
-
-    if !run {
-        style::info("cargo install はスキップしました");
-        return Ok(());
-    }
-
     style::info(&format!(
         "実行: cargo install --path {}",
         repo_root.display()
