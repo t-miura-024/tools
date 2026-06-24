@@ -74,10 +74,7 @@ fn find_repo_root() -> Result<PathBuf> {
     }
 
     if !repo_root.join(".git").exists() {
-        anyhow::bail!(
-            "{} に .git が見つかりません",
-            repo_root.display()
-        );
+        anyhow::bail!("{} に .git が見つかりません", repo_root.display());
     }
 
     Ok(repo_root)

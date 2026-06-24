@@ -323,18 +323,12 @@ fn test_parse_shortstat_singular_file() {
 
 #[test]
 fn test_parse_shortstat_insertions_only() {
-    assert_eq!(
-        parse_shortstat(" 1 file changed, 5 insertions(+)"),
-        "+5 -0"
-    );
+    assert_eq!(parse_shortstat(" 1 file changed, 5 insertions(+)"), "+5 -0");
 }
 
 #[test]
 fn test_parse_shortstat_deletions_only() {
-    assert_eq!(
-        parse_shortstat(" 1 file changed, 2 deletions(-)"),
-        "+0 -2"
-    );
+    assert_eq!(parse_shortstat(" 1 file changed, 2 deletions(-)"), "+0 -2");
 }
 
 #[test]
