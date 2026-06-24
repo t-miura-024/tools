@@ -1,9 +1,9 @@
 use clap::Subcommand;
 
-pub mod sync;
 pub mod common;
 pub mod repo;
 pub mod ship;
+pub mod sync;
 pub mod worktree;
 
 #[derive(Subcommand)]
