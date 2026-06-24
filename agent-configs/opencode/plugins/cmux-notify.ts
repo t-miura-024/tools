@@ -12,12 +12,19 @@ const STATUS_KEY = "agent_status";
 const COLOR_RUNNING = "#4C8DFF";
 const COLOR_RETRY = "#FFA500";
 const COLOR_ERROR = "#FF3B30";
-const COLOR_IDLE = "#2ECC71";
 
-const WORKSPACE_COLOR_RUNNING = "Blue";
-const WORKSPACE_COLOR_RETRY = "Orange";
-const WORKSPACE_COLOR_ERROR = "Red";
-const WORKSPACE_COLOR_IDLE = "Green";
+let queue: Promise<void> = Promise.resolve();
+
+function workspaceFlag(): string[] {
+  const workspaceId = process.env.CMUX_WORKSPACE_ID?.trim();
+  return workspaceId ? ["--workspace", workspaceId] : [];
+}
+
+function enqueue(task: () => Promise<void>): Promise<void> {
+  const next = queue.then(task, task);
+  queue = next.catch(() => {});
+  return next;
+}
 
 function runCmux(args: string[]): Promise<void> {
   return new Promise((resolve) => {
@@ -40,6 +47,7 @@ function notifyCmux(subtitle: string, body: string): Promise<void> {
     subtitle,
     "--body",
     body,
+    ...workspaceFlag(),
   ]);
 }
 
@@ -52,19 +60,12 @@ function setCmuxStatus(label: string, icon: string, color: string): Promise<void
     icon,
     "--color",
     color,
+    ...workspaceFlag(),
   ]);
 }
 
 function clearCmuxStatus(): Promise<void> {
-  return runCmux(["clear-status", STATUS_KEY]);
-}
-
-function setWorkspaceColor(color: string): Promise<void> {
-  return runCmux(["workspace-action", "--action", "set-color", "--color", color]);
-}
-
-function clearWorkspaceColor(): Promise<void> {
-  return runCmux(["workspace-action", "--action", "clear-color"]);
+  return runCmux(["clear-status", STATUS_KEY, ...workspaceFlag()]);
 }
 
 function summarizeError(error: unknown, fallback: string): string {
@@ -83,24 +84,18 @@ export const CmuxNotifyPlugin: Plugin = async () => {
       if (event.type === "session.status") {
         const status = event.properties.status;
         if (status.type === "busy") {
-          await setCmuxStatus("Running", "bolt.fill", COLOR_RUNNING);
-          await setWorkspaceColor(WORKSPACE_COLOR_RUNNING);
+          await enqueue(() => setCmuxStatus("Running", "bolt.fill", COLOR_RUNNING));
         } else if (status.type === "retry") {
-          await setCmuxStatus(
-            "Retrying",
-            "arrow.clockwise",
-            COLOR_RETRY,
+          await enqueue(() =>
+            setCmuxStatus("Retrying", "arrow.clockwise", COLOR_RETRY),
           );
-          await setWorkspaceColor(WORKSPACE_COLOR_RETRY);
-        } else {
-          await setCmuxStatus("Idle", "checkmark.circle.fill", COLOR_IDLE);
-          await setWorkspaceColor(WORKSPACE_COLOR_IDLE);
+        } else if (status.type === "idle") {
+          await enqueue(() => clearCmuxStatus());
         }
         return;
       }
       if (event.type === "session.idle") {
-        await setCmuxStatus("Idle", "checkmark.circle.fill", COLOR_IDLE);
-        await setWorkspaceColor(WORKSPACE_COLOR_IDLE);
+        await enqueue(() => clearCmuxStatus());
         await notifyCmux(
           "Task complete",
           `Session ${event.properties.sessionID} is waiting for input`,
@@ -108,8 +103,7 @@ export const CmuxNotifyPlugin: Plugin = async () => {
         return;
       }
       if (event.type === "session.error") {
-        await setCmuxStatus("Error", "xmark.circle.fill", COLOR_ERROR);
-        await setWorkspaceColor(WORKSPACE_COLOR_ERROR);
+        await enqueue(() => setCmuxStatus("Error", "xmark.circle.fill", COLOR_ERROR));
         const session = event.properties.sessionID ?? "unknown";
         const detail = summarizeError(
           event.properties.error,
@@ -126,6 +120,9 @@ export const CmuxNotifyPlugin: Plugin = async () => {
         );
         return;
       }
+    },
+    dispose: async () => {
+      await enqueue(() => clearCmuxStatus());
     },
   };
 };
