@@ -85,6 +85,10 @@ function setWorkspaceColor(color: string): Promise<void> {
   ]);
 }
 
+function clearWorkspaceColor(): Promise<void> {
+  return runCmux(["workspace-action", "--action", "clear-color", ...workspaceFlag()]);
+}
+
 function summarizeError(error: unknown, fallback: string): string {
   if (typeof error === "string") return error;
   if (error && typeof error === "object") {
@@ -149,11 +153,10 @@ export const CmuxNotifyPlugin: Plugin = async () => {
       }
     },
     dispose: async () => {
-      // Drop the running status pill, but keep the workspace tinted as the
-      // "idle" color so the sidebar still reflects the post-opencode state
-      // consistently with the startup behavior.
+      // Drop the status pill and clear the workspace color so the sidebar
+      // returns to a neutral state after opencode exits.
       await enqueue(() => clearCmuxStatus());
-      await enqueue(() => setWorkspaceColor(WORKSPACE_COLOR_IDLE));
+      await enqueue(() => clearWorkspaceColor());
     },
   };
 };
