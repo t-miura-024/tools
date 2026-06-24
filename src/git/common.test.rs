@@ -260,3 +260,30 @@ fn test_ensure_fzf_present_returns_bool() {
     // bool が返ることを確認（fzf の有無は環境依存）
     let _ = ensure_fzf_present();
 }
+
+#[test]
+fn test_resolve_target_branch_with_target_default_returns_default() {
+    let (_tmp, path) = make_temp_git_repo("main");
+    let result = resolve_target_branch_in(&path, None, true)
+        .expect("--target-default は default を返すべき");
+    assert_eq!(result, "main");
+}
+
+#[test]
+fn test_resolve_target_branch_target_default_with_target_conflicts() {
+    let (_tmp, path) = make_temp_git_repo("main");
+    // cli 層で排他制御されているが、関数レベルでも防御的にエラー
+    let result = resolve_target_branch_in(&path, Some("dev".to_string()), true);
+    assert!(
+        result.is_err(),
+        "--target と --target-default 同時指定はエラー"
+    );
+}
+
+#[test]
+fn test_resolve_target_branch_with_explicit_target() {
+    let (_tmp, path) = make_temp_git_repo("main");
+    let result = resolve_target_branch_in(&path, Some("develop".to_string()), false)
+        .expect("明示された target を返すべき");
+    assert_eq!(result, "develop", "明示された target を優先すべき");
+}

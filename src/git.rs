@@ -10,15 +10,21 @@ pub mod worktree;
 pub enum GitCommands {
     /// Sync current branch with upstream and pull target branch into it
     Sync {
-        /// Target branch to pull into the current branch (default: detected default branch)
-        #[arg(long)]
+        /// Target branch to pull into the current branch (mutually exclusive with --target-default)
+        #[arg(long, conflicts_with = "target_default")]
         target: Option<String>,
+        /// Use the detected default branch as target (skips --target and fzf prompt)
+        #[arg(long)]
+        target_default: bool,
     },
     /// Stage, commit, push, and merge the current branch into the target branch
     Ship {
-        /// Target branch to merge into (default: detected default branch)
-        #[arg(long)]
+        /// Target branch to merge into (mutually exclusive with --target-default)
+        #[arg(long, conflicts_with = "target_default")]
         target: Option<String>,
+        /// Use the detected default branch as target (skips --target and fzf prompt)
+        #[arg(long)]
+        target_default: bool,
         /// Commit message (default: auto-generated from staged diff)
         #[arg(long)]
         message: Option<String>,
@@ -55,8 +61,15 @@ pub enum GitWorktreeCommands {
 
 pub fn run(cmd: GitCommands) -> anyhow::Result<()> {
     match cmd {
-        GitCommands::Sync { target } => sync::sync(target),
-        GitCommands::Ship { target, message } => ship::ship(target, message),
+        GitCommands::Sync {
+            target,
+            target_default,
+        } => sync::sync(target, target_default),
+        GitCommands::Ship {
+            target,
+            target_default,
+            message,
+        } => ship::ship(target, target_default, message),
         GitCommands::Repo(sub) => match sub {
             GitRepoCommands::Create => repo::create(),
             GitRepoCommands::Select => repo::select(),

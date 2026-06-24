@@ -195,25 +195,30 @@ Git worktree での一連の作業を `mt git` の 4 ステップで標準化し
 | ステップ | コマンド | 責務 |
 | --- | --- | --- |
 | 1. 環境構築 | `mt git worktree create` | 新しい worktree と feature branch を対話的に作成 |
-| 2. 最新化 | `mt git sync [--target <branch>]` | 現在のブランチを upstream に同期し、target の変更を取り込み |
+| 2. 最新化 | `mt git sync [--target <branch>] [--target-default]` | 現在のブランチを upstream に同期し、target の変更を取り込み |
 | 3. 作業 | （お好みのエディタ） | 通常の開発作業 |
-| 4. マージ & プッシュ | `mt git ship [--target <branch>] [-m <message>]` | コミット → push → target に no-ff マージ → push |
+| 4. マージ & プッシュ | `mt git ship [--target <branch>] [--target-default] [-m <message>]` | コミット → push → target に no-ff マージ → push |
 
 ### `mt git sync`
 
 worktree に入った直後に実行する「最新化」コマンドです。
 
 - 現在のブランチを `git fetch` + `git merge --ff-only origin/<current>` で upstream に同期
-- `--target <branch>` を明示、または未指定なら fzf でローカルブランチから選択（デフォルトブランチが先頭ソート）
+- `--target <branch>` を明示、`--target-default` でデフォルトブランチを自動選択、未指定なら fzf でローカルブランチから選択（デフォルトブランチが先頭ソート）
 - target ブランチの変更を現在のブランチへ `git pull --no-rebase origin <target>` で取り込み
 
 ```bash
 # target を明示して sync
 mt git sync --target main
 
+# デフォルトブランチ（main / master / origin/HEAD）を自動選択（fzf 起動しない）
+mt git sync --target-default
+
 # 引数なし: fzf で target を選択（デフォルトブランチが先頭）
 mt git sync
 ```
+
+> `--target` と `--target-default` は同時に指定できません。
 
 ### `mt git ship`
 
@@ -231,7 +236,12 @@ mt git ship --target main -m "fix: handle edge case"
 
 # 自動生成されたコミットメッセージで ship（-m 未指定）
 mt git ship --target main
+
+# デフォルトブランチを自動選択して ship
+mt git ship --target-default -m "feat: add new command"
 ```
+
+> `--target` と `--target-default` は同時に指定できません。
 
 ### ワークフロー例
 
@@ -242,7 +252,7 @@ mt git worktree create
 
 # 2. 最新化（main の変更を取り込んでから作業開始）
 cd ~/src/tools-wt-1-wt-3
-mt git sync --target main
+mt git sync --target-default
 
 # 3. 作業
 vim src/main.rs
@@ -250,7 +260,7 @@ git add -p   # 個別に確認しながらステージング
 # あるいは mt git ship が自動で git add するので、ここでは省略可
 
 # 4. マージ & プッシュ
-mt git ship --target main -m "feat: add new command"
+mt git ship --target-default -m "feat: add new command"
 # → 変更を commit → push → main に no-ff マージ → push
 ```
 

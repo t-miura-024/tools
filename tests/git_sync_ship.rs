@@ -394,3 +394,118 @@ fn test_mt_git_ship_aborts_when_target_worktree_is_dirty() {
         "dirty 状態なのに main に feature の変更がマージされてしまった: {log}"
     );
 }
+
+#[test]
+fn test_mt_git_ship_target_default_uses_default_branch() {
+    let repo = setup_test_repo();
+
+    // origin/HEAD を main に設定（setup 後は既に main がデフォルト）
+    run_git(&repo.repo, &["remote", "set-head", "origin", "main"]);
+
+    run_git(&repo.repo, &["checkout", "-q", "-b", "feature"]);
+    std::fs::write(repo.repo.join("feature.txt"), "feature work\n").unwrap();
+    run_git(&repo.repo, &["add", "."]);
+    run_git(&repo.repo, &["commit", "-qm", "feature commit"]);
+    run_git(&repo.repo, &["push", "-u", "-q", "origin", "feature"]);
+
+    // --target-default で ship（target 省略時と同じ挙動を保証）
+    let mut cmd = Command::cargo_bin("mt").unwrap();
+    cmd.arg("git")
+        .arg("ship")
+        .arg("--target-default")
+        .arg("--message")
+        .arg("ship via --target-default")
+        .current_dir(&repo.repo)
+        .assert()
+        .success();
+
+    // main に feature の変更がマージされているはず
+    run_git(&repo.repo, &["checkout", "-q", "main"]);
+    let log = run_git_output(&repo.repo, &["log", "--oneline"]);
+    assert!(
+        log.contains("feature commit"),
+        "main に feature の変更がマージされていない: {log}"
+    );
+    assert!(
+        log.contains("ship via --target-default"),
+        "ship commit メッセージが見つからない: {log}"
+    );
+}
+
+#[test]
+fn test_mt_git_sync_target_default_uses_default_branch() {
+    let repo = setup_test_repo();
+    run_git(&repo.repo, &["remote", "set-head", "origin", "main"]);
+
+    // feature branch を作成 & push
+    run_git(&repo.repo, &["checkout", "-q", "-b", "feature"]);
+    run_git(&repo.repo, &["push", "-u", "-q", "origin", "feature"]);
+
+    // main に追加変更を push
+    run_git(&repo.repo, &["checkout", "-q", "main"]);
+    std::fs::write(repo.repo.join("main_update.txt"), "main update\n").unwrap();
+    run_git(&repo.repo, &["add", "."]);
+    run_git(&repo.repo, &["commit", "-qm", "main update"]);
+    run_git(&repo.repo, &["push", "-q", "origin", "main"]);
+
+    // feature に戻り、追加 commit を作成
+    run_git(&repo.repo, &["checkout", "-q", "feature"]);
+    std::fs::write(repo.repo.join("feature2.txt"), "feature work 2\n").unwrap();
+    run_git(&repo.repo, &["add", "."]);
+    run_git(&repo.repo, &["commit", "-qm", "feature commit 2"]);
+    run_git(&repo.repo, &["push", "-q", "origin", "feature"]);
+
+    // --target-default で sync
+    let mut cmd = Command::cargo_bin("mt").unwrap();
+    cmd.arg("git")
+        .arg("sync")
+        .arg("--target-default")
+        .current_dir(&repo.repo)
+        .assert()
+        .success();
+
+    // feature に main の変更が取り込まれているはず
+    let log = run_git_output(&repo.repo, &["log", "--oneline"]);
+    assert!(
+        log.contains("main update"),
+        "feature に main の変更が取り込まれていない: {log}"
+    );
+    assert!(
+        repo.repo.join("main_update.txt").exists(),
+        "main_update.txt が取り込まれていない"
+    );
+}
+
+#[test]
+fn test_mt_git_ship_target_and_target_default_conflict() {
+    let repo = setup_test_repo();
+    run_git(&repo.repo, &["checkout", "-q", "-b", "feature"]);
+
+    let mut cmd = Command::cargo_bin("mt").unwrap();
+    cmd.arg("git")
+        .arg("ship")
+        .arg("--target")
+        .arg("main")
+        .arg("--target-default")
+        .arg("--message")
+        .arg("should fail")
+        .current_dir(&repo.repo)
+        .assert()
+        .failure();
+}
+
+#[test]
+fn test_mt_git_sync_target_and_target_default_conflict() {
+    let repo = setup_test_repo();
+    run_git(&repo.repo, &["checkout", "-q", "-b", "feature"]);
+
+    let mut cmd = Command::cargo_bin("mt").unwrap();
+    cmd.arg("git")
+        .arg("sync")
+        .arg("--target")
+        .arg("main")
+        .arg("--target-default")
+        .current_dir(&repo.repo)
+        .assert()
+        .failure();
+}

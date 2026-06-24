@@ -189,7 +189,29 @@ pub fn select_branch_via_fzf(branches: &[String], default: &str) -> anyhow::Resu
     Ok(selected.trim().to_string())
 }
 
-pub fn resolve_target_branch(target: Option<String>) -> anyhow::Result<String> {
+pub fn resolve_target_branch(
+    target: Option<String>,
+    target_default: bool,
+) -> anyhow::Result<String> {
+    resolve_target_branch_in(
+        &std::env::current_dir().unwrap_or_else(|_| Path::new(".").to_path_buf()),
+        target,
+        target_default,
+    )
+}
+
+pub fn resolve_target_branch_in(
+    cwd: &Path,
+    target: Option<String>,
+    target_default: bool,
+) -> anyhow::Result<String> {
+    if target_default {
+        if target.is_some() {
+            bail!("--target と --target-default は同時に指定できません");
+        }
+        return resolve_default_branch_in(cwd);
+    }
+
     if let Some(t) = target {
         if t.is_empty() {
             bail!("--target に空文字を指定できません");
@@ -197,8 +219,8 @@ pub fn resolve_target_branch(target: Option<String>) -> anyhow::Result<String> {
         return Ok(t);
     }
 
-    let default = resolve_default_branch()?;
-    let branches = local_branches()?;
+    let default = resolve_default_branch_in(cwd)?;
+    let branches = local_branches_in(cwd)?;
 
     if ensure_fzf_present() {
         select_branch_via_fzf(&branches, &default)
