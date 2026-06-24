@@ -111,8 +111,7 @@ pub fn ship(target: Option<String>, message: Option<String>) -> anyhow::Result<(
         style::info(&format!("{} ファイルを add", added.len()));
         style::info(&format!("commit: {commit_message}"));
         let spinner = style::spinner("git commit");
-        if let Err(e) = command_output_in(&current_cwd, "git", &["commit", "-m", &commit_message])
-        {
+        if let Err(e) = command_output_in(&current_cwd, "git", &["commit", "-m", &commit_message]) {
             spinner.finish_with_message("commit 失敗");
             handle_failure("commit", &e.to_string(), &current)?;
             return Ok(());

@@ -304,7 +304,14 @@ fn test_mt_git_ship_works_when_target_checked_out_in_other_worktree_clean() {
     let main_wt_str = main_wt.to_str().unwrap();
     run_git(
         repo.tmp_path(),
-        &["-C", repo.repo.to_str().unwrap(), "worktree", "add", main_wt_str, "main"],
+        &[
+            "-C",
+            repo.repo.to_str().unwrap(),
+            "worktree",
+            "add",
+            main_wt_str,
+            "main",
+        ],
     );
 
     // feature branch の作業ディレクトリから ship を実行
@@ -354,7 +361,14 @@ fn test_mt_git_ship_aborts_when_target_worktree_is_dirty() {
     let main_wt_str = main_wt.to_str().unwrap();
     run_git(
         repo.tmp_path(),
-        &["-C", repo.repo.to_str().unwrap(), "worktree", "add", main_wt_str, "main"],
+        &[
+            "-C",
+            repo.repo.to_str().unwrap(),
+            "worktree",
+            "add",
+            main_wt_str,
+            "main",
+        ],
     );
 
     // 別 worktree を dirty にする（未 commit の新規ファイル）

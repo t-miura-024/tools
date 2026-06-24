@@ -237,8 +237,7 @@ pub fn snapshot_git_state_in(cwd: &Path) -> String {
 }
 
 pub fn worktree_has_uncommitted_changes(path: &Path) -> bool {
-    let status = command_output_in(path, "git", &["status", "--porcelain"])
-        .unwrap_or_default();
+    let status = command_output_in(path, "git", &["status", "--porcelain"]).unwrap_or_default();
     !status.is_empty()
 }
 

@@ -145,7 +145,11 @@ fn test_resolve_default_branch_origin_head_fallback() {
     );
     run_git(
         &path,
-        &["symbolic-ref", "refs/remotes/origin/HEAD", "refs/heads/develop"],
+        &[
+            "symbolic-ref",
+            "refs/remotes/origin/HEAD",
+            "refs/heads/develop",
+        ],
     );
     let branch = resolve_default_branch_in(&path).expect("origin/HEAD を検出できるはず");
     assert_eq!(branch, "develop");
@@ -164,13 +168,25 @@ fn test_resolve_default_branch_strips_origin_prefix() {
     );
 
     let clone = tmp.path().join("clone");
-    run_git(tmp.path(), &["clone", "-q", bare.to_str().unwrap(), clone.to_str().unwrap()]);
+    run_git(
+        tmp.path(),
+        &[
+            "clone",
+            "-q",
+            bare.to_str().unwrap(),
+            clone.to_str().unwrap(),
+        ],
+    );
     run_git(&clone, &["config", "user.email", "test@test.local"]);
     run_git(&clone, &["config", "user.name", "test"]);
     // origin/HEAD を手動設定（remote show で確認可能な状態にする）
     run_git(
         &clone,
-        &["symbolic-ref", "refs/remotes/origin/HEAD", "refs/heads/main"],
+        &[
+            "symbolic-ref",
+            "refs/remotes/origin/HEAD",
+            "refs/heads/main",
+        ],
     );
 
     // origin/HEAD が clone 時に設定されているはず
