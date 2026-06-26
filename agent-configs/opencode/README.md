@@ -8,7 +8,9 @@ opencode 固有の設定ファイル置き場。`mt agent-config sync` で `~/.c
 
 `~/.config/opencode/plugins/` へデプロイされる TypeScript プラグイン。opencode はこのディレクトリに配置されたプラグインを起動時に自動ロードする。
 
-- `cmux-notify.ts` — cmux にセッション状態の変化を通知し、サイドバータブに status バッジを出すプラグイン。`session.status` / `session.idle` / `session.error` / `permission.updated` の各イベントで `cmux notify` / `cmux set-status` / `cmux clear-status` を呼び出す。`cmux` バイナリが PATH にない場合は no-op で安全。
+- `cmux-notify.ts` — cmux にセッション状態の変化を通知し、サイドバータブに status バッジを出すプラグイン。`session.status` / `session.idle` / `session.error` / `permission.updated` の各イベントで `cmux set-status` / `cmux clear-status` を呼び出し、メインセッション（`parentID` を持たないセッション）のときだけ `cmux notify` を発火する。`cmux` バイナリが PATH にない場合は no-op で安全。
+
+  OS 通知（"Task complete" / "Error" / "Waiting for input"）は `client.session.get` で取得したセッションに `parentID` が無い場合（= メインセッション）にのみ実行する。サブエージェント由来のものではサイドバーの status バッジ更新と workspace カラーのみ更新し、OS 通知は発火しない。`session.error` で `sessionID` が付与されていないケースでも OS 通知はスキップする。
 
   ステータス更新のたびに `process.cwd()` で `git diff --shortstat` を実行し、ラベル末尾に ` (+<ins> -<del>)` の差分サマリを付与する（`wt` コマンドと同じ書式）。git 管理外のディレクトリでは差分表示を省略。
 
