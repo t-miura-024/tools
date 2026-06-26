@@ -5,7 +5,7 @@
 ## Prerequisites
 
 - Rust 1.85+ (edition 2024)
-- 外部依存: `fzf`, `gh` (GitHub CLI), `ngrok`, `opencode`, `curl`, `ssh`, `brew`, `mise`, `docker`
+- 外部依存: `fzf`, `gh` (GitHub CLI), `ngrok`, `opencode`, `curl`, `ssh`, `brew`, `mise`, `docker`, `chezmoi`, `age`
 
 ## Install
 
@@ -18,10 +18,19 @@ cargo install --path .
 | Command                        | Description                           |
 | ------------------------------ | ------------------------------------- |
 | `mt`                           | fzf による対話型スクリプトセレクター   |
-| `mt self install`              | mt バイナリを cargo install + zshrc 環境整備 |
+| `mt self install`              | mt バイナリを cargo install + chezmoi apply で dotfile 展開 |
 | `mt agent-config sync`         | Cursor/Claude/OpenCode に設定を同期    |
 | `mt agent-config hook --check` | 保護ディレクトリへの直接編集をブロック |
 | `mt agent-config bootstrap`    | 初期セットアップ（同期 + post-commit hook 設置） |
+| `mt chezmoi apply`             | chezmoi ソースを `~` に展開            |
+| `mt chezmoi init`              | chezmoi ソースを初期化                  |
+| `mt chezmoi diff`              | chezmoi ソースと `~` の差分プレビュー   |
+| `mt chezmoi status`            | chezmoi 管理対象の状態を表示            |
+| `mt chezmoi doctor`            | chezmoi ネイティブ doctor + mt 固有チェック |
+| `mt chezmoi add`               | 既存ファイル / ディレクトリを chezmoi ソースに追加 |
+| `mt chezmoi edit`              | chezmoi ソースのファイルを編集          |
+| `mt chezmoi install-hook`      | post-commit hook を設置（Phase 2 で本実装）|
+| `mt chezmoi uninstall-hook`    | post-commit hook を削除（Phase 2 で本実装）|
 | `mt git sync`                 | 現在のブランチを upstream 同期 + target を pull で取り込み |
 | `mt git ship`                  | 自身のブランチで commit & push → target に no-ff マージ & push |
 | `mt git repo create`           | GitHub リポジトリを対話的に作成        |
@@ -94,6 +103,70 @@ agent-configs/
 - `mt agent-config sync` を 1 回実行
 
 通知挙動をカスタマイズしたい場合は `agent-configs/opencode/plugins/cmux-notify.ts` を編集して `mt agent-config sync` で反映してください。`~/.config/opencode/plugins/` 配下を直接編集すると `mt agent-config hook --check` によってブロックされます。
+
+## Dotfiles Management with chezmoi
+
+個人 dotfiles（`~/.zshrc`, `~/.zprofile`, `~/.gitconfig` ほか）は chezmoi 経由で管理します。`tools` 親リポジトリの `chezmoi/` ディレクトリが Source of Truth です。
+
+### 初回セットアップ
+
+1. `mt tool install` で chezmoi と age を brew 経由でインストール（`manifests/Brewfile` の `brew "chezmoi"` / `brew "age"` が自動追加される）
+2. age 秘密鍵を生成:
+
+    ```bash
+    age-keygen -o ~/.config/chezmoi/key.txt
+    ```
+
+3. `~/.config/chezmoi/chezmoi.toml` を作成（git コミット対象外、ユーザー固有設定）:
+
+    ```toml
+    sourceDir = "/Users/mt/src/tools/chezmoi"
+    encryption = "age"
+
+    [age]
+    identity = "/Users/mt/.config/chezmoi/key.txt"
+    ```
+
+4. dotfile を展開:
+
+    ```bash
+    mt chezmoi apply
+    ```
+
+### 編集ワークフロー
+
+```bash
+# 1. chezmoi ソースを直接編集
+vim ~/src/tools/chezmoi/dot_zshrc.tmpl
+
+# 2. 差分プレビュー
+mt chezmoi diff
+
+# 3. 反映
+mt chezmoi apply
+
+# 4. 状態確認
+mt chezmoi status
+
+# 5. ソース変更をコミット
+cd ~/src/tools
+git add chezmoi/
+git commit -m "..."
+```
+
+`mt self install` を実行すると `chezmoi apply` + `cargo install --path .` が自動実行され、`~/.zshrc` などへの直接書き込みは行いません（chezmoi 経由のみ）。
+
+### `mt chezmoi doctor`
+
+chezmoi ネイティブ doctor に加え、以下を `mt` 固有チェックとして実行:
+
+- `CHEZMOI_SOURCE_DIR` 環境変数 or `~/.config/chezmoi/chezmoi.toml` の `sourceDir` 設定
+- `~/.config/chezmoi/key.txt` の存在と妥当性（`AGE-SECRET-KEY-` プレフィックス）
+- post-commit hook の設置状態
+
+### secrets の暗号化
+
+`chezmoi/dot_zsh_secrets.age` のような age 暗号化ファイルで API キーなどの secrets を管理できます。テンプレート側で `{{ include "dot_zsh_secrets.age" | decrypt -}}` と書くと復号結果が展開されます。
 
 ## Tool Management
 
@@ -287,6 +360,13 @@ agent-configs/  # AI agent configs (Source of Truth)
   skills/       # Skill definitions
   opencode/     # opencode 固有ファイル（plugins/ など）
   AGENTS.md     # Core rules (synced to CLAUDE.md, etc.)
+chezmoi/        # chezmoi ソース（dotfile の Source of Truth）
+  dot_zshrc.tmpl        # ~/.zshrc のテンプレート
+  dot_zprofile          # ~/.zprofile の plain コピー
+  dot_gitconfig         # ~/.gitconfig の plain コピー
+  dot_zsh_secrets.age   # age 暗号化 API キー
+  .chezmoiignore        # README.md を chezmoi apply から除外
+  README.md             # ソースディレクトリの説明
 docker/         # Docker Compose services (1 サブディレクトリ = 1 サービス)
   searxng/      # SearXNG (settings.yml, docker-compose.yml)
   qdrant/       # Qdrant (docker-compose.yml)

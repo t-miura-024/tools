@@ -4,7 +4,7 @@ mod install;
 
 #[derive(Subcommand)]
 pub enum SelfCommands {
-    /// Install mt binary via cargo install --path . and set up shell environment
+    /// Install mt binary via cargo install --path . and run chezmoi apply
     Install,
 }
 

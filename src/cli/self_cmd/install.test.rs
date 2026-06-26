@@ -1,30 +1,5 @@
-use super::*;
-
-#[test]
-fn test_path_contains_check() {
-    let path = "/usr/local/bin:/usr/bin:/home/user/.cargo/bin:/bin";
-    assert!(path_contains(path, "/home/user/.cargo/bin"));
-
-    let path2 = "/usr/local/bin:/usr/bin:/bin";
-    assert!(!path_contains(path2, "/home/user/.cargo/bin"));
-}
-
-#[test]
-fn test_append_block() {
-    let mut content = "export FOO=bar\n".to_string();
-    append_block(&mut content, "export BAR=baz");
-
-    assert_eq!(content, "export FOO=bar\n\nexport BAR=baz\n");
-}
-
-#[test]
-fn test_has_wt_bridge() {
-    assert!(has_wt_bridge(WT_BRIDGE_ENTRY));
-    assert!(!has_wt_bridge("wt() { cd /tmp; }"));
-}
-
-#[test]
-fn test_has_rp_bridge() {
-    assert!(has_rp_bridge(RP_BRIDGE_ENTRY));
-    assert!(!has_rp_bridge("rp() { cd /tmp; }"));
-}
+// install.rs のテストは chezmoi バイナリの外部依存が必要なため、
+// 外部プロセス呼び出しを伴わない挙動（env var 経由での chezmoi apply 引数組み立て）は
+// `chezmoi::shared::tests` 側で検証する。
+//
+// install.test.rs は将来の self install 拡張用に残しておく。
