@@ -3,107 +3,392 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import {
+  appendHistoryEntry,
+  formatTransitionResult,
+  isAllowedTransition,
+  parseTransitionPlanCli,
   transitionPlan,
-  resolvePlanPath,
   TransitionPlanError,
+  usage,
+  type UpdateIssueBodyFn,
+  type UpdateIssueStateFn,
+  type UpdateItemStatusFn,
+  type FindPlanItemFn,
 } from "./transition-plan";
+import {
+  InitConfigError,
+  loadConfig,
+  saveConfig,
+  type MtPlanConfig,
+} from "./init-config";
 
-describe("mt-plan/transition-plan", () => {
+function makeConfig(): MtPlanConfig {
+  return {
+    owner: "t-miura-024",
+    projectNumber: 4,
+    projectId: "PVT_test",
+    statusFieldId: "PVTF_status",
+    statusOptions: {
+      draft: "opt_draft",
+      refined: "opt_refined",
+      "in-progress": "opt_in_progress",
+      done: "opt_done",
+    },
+  };
+}
+
+describe("mt-plan/transition-plan (Project version)", () => {
   let tmp: string;
-  let planRoot: string;
 
   beforeEach(() => {
     tmp = fs.mkdtempSync(path.join(os.tmpdir(), "mt-plan-transition-"));
-    planRoot = path.join(tmp, "project", "tmp", "plan");
   });
 
   afterEach(() => {
     fs.rmSync(tmp, { recursive: true, force: true });
   });
 
-  function writePlan(status: string, filename = "20260425-example.md"): string {
-    const file = path.join(planRoot, status, filename);
-    fs.mkdirSync(path.dirname(file), { recursive: true });
-    fs.writeFileSync(file, "# Example\n");
-    return file;
-  }
+  describe("isAllowedTransition", () => {
+    it("許可された遷移は true", () => {
+      expect(isAllowedTransition("draft", "refined")).toBe(true);
+      expect(isAllowedTransition("refined", "in-progress")).toBe(true);
+      expect(isAllowedTransition("in-progress", "done")).toBe(true);
+      expect(isAllowedTransition("done", "in-progress")).toBe(true);
+    });
 
-  it("refined の計画を in-progress に移動する", () => {
-    const source = writePlan("refined");
-
-    const result = transitionPlan(source, "in-progress");
-
-    expect(fs.existsSync(source)).toBe(false);
-    expect(fs.existsSync(result.to)).toBe(true);
-    expect(result.sourceStatus).toBe("refined");
-    expect(result.targetStatus).toBe("in-progress");
-    expect(result.to).toBe(
-      path.join(planRoot, "in-progress", "20260425-example.md"),
-    );
+    it("許可されていない遷移は false", () => {
+      expect(isAllowedTransition("draft", "in-progress")).toBe(false);
+      expect(isAllowedTransition("draft", "done")).toBe(false);
+      expect(isAllowedTransition("refined", "done")).toBe(false);
+      expect(isAllowedTransition("refined", "draft")).toBe(false);
+      expect(isAllowedTransition("in-progress", "refined")).toBe(false);
+      expect(isAllowedTransition("in-progress", "draft")).toBe(false);
+      expect(isAllowedTransition("done", "refined")).toBe(false);
+      expect(isAllowedTransition("done", "draft")).toBe(false);
+    });
   });
 
-  it("移動先ディレクトリが存在しない場合は作成する", () => {
-    const source = writePlan("draft");
-    const targetDir = path.join(planRoot, "refined");
+  describe("appendHistoryEntry", () => {
+    it("## 🐢 履歴 セクションがない場合は末尾に追加", () => {
+      const body = "## 💭 背景\n\nこれはテストです。";
+      const result = appendHistoryEntry(body, "draft", "refined");
 
-    expect(fs.existsSync(targetDir)).toBe(false);
+      expect(result).toContain("## 🐢 履歴");
+      expect(result).toContain("[refined] draft から遷移");
+    });
 
-    const result = transitionPlan(source, "refined");
+    it("## 🐢 履歴 セクションがある場合はその直下に追記", () => {
+      const body = "## 💭 背景\n\nこれはテストです。\n\n## 🐢 履歴\n\n- 2026-06-25 10:00 [refined] previous";
+      const result = appendHistoryEntry(body, "refined", "in-progress");
 
-    expect(fs.existsSync(targetDir)).toBe(true);
-    expect(fs.existsSync(result.to)).toBe(true);
+      expect(result).toContain("## 🐢 履歴");
+      expect(result).toContain("- 2026-06-25 10:00 [refined] previous");
+      expect(result).toContain("[in-progress] refined から遷移");
+    });
+
+    it("## 🐢 履歴 セクションが空の場合はその直下に追記 (新セクションを作らない)", () => {
+      const body = "## 💭 背景\n\nこれはテストです。\n\n## 🐢 履歴";
+      const result = appendHistoryEntry(body, "draft", "refined");
+
+      const matches = result.match(/## 🐢 履歴/g);
+      expect(matches?.length).toBe(1);
+      expect(result).toContain("[refined] draft から遷移");
+    });
+
+    it("## 🐢 履歴 ヘッダーのみで末尾にある場合もその直下に追記", () => {
+      const body = "## 💭 背景\n\n## 🐢 履歴\n";
+      const result = appendHistoryEntry(body, "draft", "refined");
+
+      const matches = result.match(/## 🐢 履歴/g);
+      expect(matches?.length).toBe(1);
+      expect(result).toContain("[refined] draft から遷移");
+    });
+
+    it("## 🐢 履歴 が body 中盤にあって、後に別セクションがある場合も追記できる", () => {
+      const body = [
+        "## 💭 背景",
+        "",
+        "これはテストです。",
+        "",
+        "## 🐢 履歴",
+        "",
+        "- 2026-06-25 10:00 [refined] previous",
+        "",
+        "## 🦊 別セクション",
+        "",
+        "別のセクションの内容",
+      ].join("\n");
+      const result = appendHistoryEntry(body, "refined", "in-progress");
+
+      const matches = result.match(/## 🐢 履歴/g);
+      expect(matches?.length).toBe(1);
+      expect(result).toContain("- 2026-06-25 10:00 [refined] previous");
+      expect(result).toContain("[in-progress] refined から遷移");
+      expect(result).toContain("## 🦊 別セクション");
+      expect(result).toContain("別のセクションの内容");
+
+      const historyIdx = result.indexOf("## 🐢 履歴");
+      const otherIdx = result.indexOf("## 🦊 別セクション");
+      expect(historyIdx).toBeLessThan(otherIdx);
+
+      const newEntryIdx = result.indexOf("[in-progress] refined から遷移");
+      const oldEntryIdx = result.indexOf("[refined] previous");
+      expect(newEntryIdx).toBeLessThan(oldEntryIdx);
+    });
+
+    it("## 🐢 履歴 が body 中盤にあり、内容が空で、後に別セクションがある場合は追記できる", () => {
+      const body = [
+        "## 💭 背景",
+        "",
+        "これはテストです。",
+        "",
+        "## 🐢 履歴",
+        "",
+        "## 🦊 別セクション",
+        "",
+        "別のセクションの内容",
+      ].join("\n");
+      const result = appendHistoryEntry(body, "draft", "refined");
+
+      const matches = result.match(/## 🐢 履歴/g);
+      expect(matches?.length).toBe(1);
+      expect(result).toContain("[refined] draft から遷移");
+      expect(result).toContain("## 🦊 別セクション");
+    });
   });
 
-  it("移動先に同名ファイルがある場合は上書きしない", () => {
-    const source = writePlan("refined");
-    const destination = writePlan("in-progress");
+  describe("parseTransitionPlanCli", () => {
+    it("number と target status を positional で受け取る", () => {
+      const options = parseTransitionPlanCli(["7", "in-progress"]);
+      expect(options.number).toBe(7);
+      expect(options.targetStatus).toBe("in-progress");
+    });
 
-    expect(() => transitionPlan(source, "in-progress")).toThrowError(
-      /Destination plan already exists/,
-    );
-    expect(fs.existsSync(source)).toBe(true);
-    expect(fs.readFileSync(destination, "utf8")).toBe("# Example\n");
+    it("--config で config path を指定できる", () => {
+      const options = parseTransitionPlanCli(["7", "in-progress", "--config", "/tmp/c.json"]);
+      expect(options.configPath).toBe("/tmp/c.json");
+    });
+
+    it("--help / -h", () => {
+      expect(parseTransitionPlanCli(["--help"]).help).toBe(true);
+      expect(parseTransitionPlanCli(["-h"]).help).toBe(true);
+    });
+
+    it("number が数値以外ならエラー", () => {
+      expect(() => parseTransitionPlanCli(["abc", "in-progress"])).toThrowError(
+        TransitionPlanError,
+      );
+    });
+
+    it("未対応 status はエラー", () => {
+      expect(() => parseTransitionPlanCli(["7", "archived"])).toThrowError(
+        TransitionPlanError,
+      );
+    });
+
+    it("引数が多すぎる場合はエラー", () => {
+      expect(() => parseTransitionPlanCli(["7", "in-progress", "extra"])).toThrowError(
+        TransitionPlanError,
+      );
+    });
   });
 
-  it("存在しない計画ファイルはエラーにする", () => {
-    const missing = path.join(planRoot, "refined", "missing.md");
-
-    expect(() => transitionPlan(missing, "in-progress")).toThrowError(
-      /Plan file does not exist/,
-    );
+  describe("usage", () => {
+    it("usage メッセージを返す", () => {
+      const text = usage();
+      expect(text).toContain("Usage:");
+      expect(text).toContain("Allowed transitions");
+    });
   });
 
-  it("未対応ステータスはエラーにする", () => {
-    const source = writePlan("refined");
+  describe("transitionPlan (mock 経由)", () => {
+    const findPlanItem: FindPlanItemFn = async () => ({
+      itemId: "PVTI_abc",
+      currentStatus: "draft",
+      repo: "t-miura-024/tools",
+    });
 
-    expect(() => transitionPlan(source, "archived")).toThrowError(
-      /Unsupported target status/,
-    );
+    it("draft → refined の遷移を実行し、status / issue state / body を更新", async () => {
+      const config = makeConfig();
+      const statusUpdates: Array<{ itemId: string; optionId: string }> = [];
+      const stateUpdates: Array<{ state: "open" | "closed" }> = [];
+      const bodyUpdates: string[] = [];
+
+      const updateItemStatus: UpdateItemStatusFn = async (params) => {
+        statusUpdates.push({ itemId: params.itemId, optionId: params.optionId });
+      };
+      const updateIssueState: UpdateIssueStateFn = async (params) => {
+        stateUpdates.push({ state: params.state });
+      };
+      const readIssueBody = async () => "## 💭 背景\n\n元の body";
+      const updateIssueBody: UpdateIssueBodyFn = async (params) => {
+        bodyUpdates.push(params.body);
+      };
+
+      const result = await transitionPlan({
+        config,
+        number: 7,
+        targetStatus: "refined",
+        findPlanItem,
+        updateItemStatus,
+        updateIssueState,
+        readIssueBody,
+        updateIssueBody,
+      });
+
+      expect(statusUpdates).toEqual([
+        { itemId: "PVTI_abc", optionId: config.statusOptions.refined },
+      ]);
+      expect(stateUpdates).toEqual([{ state: "open" }]);
+      expect(bodyUpdates).toHaveLength(1);
+      expect(bodyUpdates[0]).toContain("[refined] draft から遷移");
+      expect(result.sourceStatus).toBe("draft");
+      expect(result.targetStatus).toBe("refined");
+      expect(result.bodyUpdated).toBe(true);
+      expect(result.issueStateChanged).toBe(true);
+      expect(result.issueClosed).toBe(false);
+    });
+
+    it("in-progress → done では Issue を close する", async () => {
+      const config = makeConfig();
+      const stateUpdates: Array<{ state: "open" | "closed" }> = [];
+
+      await transitionPlan({
+        config,
+        number: 7,
+        targetStatus: "done",
+        findPlanItem: async () => ({
+          itemId: "PVTI_abc",
+          currentStatus: "in-progress",
+          repo: "t-miura-024/tools",
+        }),
+        updateItemStatus: async () => undefined,
+        updateIssueState: async (params) => {
+          stateUpdates.push({ state: params.state });
+        },
+        readIssueBody: async () => "",
+        updateIssueBody: async () => undefined,
+      });
+
+      expect(stateUpdates).toEqual([{ state: "closed" }]);
+    });
+
+    it("許可されていない遷移はエラー", async () => {
+      const config = makeConfig();
+
+      await expect(
+        transitionPlan({
+          config,
+          number: 7,
+          targetStatus: "done",
+          findPlanItem: async () => ({
+            itemId: "PVTI_abc",
+            currentStatus: "draft",
+            repo: "t-miura-024/tools",
+          }),
+          updateItemStatus: async () => undefined,
+          updateIssueState: async () => undefined,
+          readIssueBody: async () => "",
+          updateIssueBody: async () => undefined,
+        }),
+      ).rejects.toThrowError(/Transition 'draft' -> 'done' is not allowed/);
+    });
+
+    it("同じ status への遷移はエラー", async () => {
+      const config = makeConfig();
+
+      await expect(
+        transitionPlan({
+          config,
+          number: 7,
+          targetStatus: "refined",
+          findPlanItem: async () => ({
+            itemId: "PVTI_abc",
+            currentStatus: "refined",
+            repo: "t-miura-024/tools",
+          }),
+          updateItemStatus: async () => undefined,
+          updateIssueState: async () => undefined,
+          readIssueBody: async () => "",
+          updateIssueBody: async () => undefined,
+        }),
+      ).rejects.toThrowError(/already in status/);
+    });
+
+    it("skipHistoryAppend = true で body 更新をスキップ", async () => {
+      const config = makeConfig();
+      const bodyUpdates: string[] = [];
+
+      const result = await transitionPlan({
+        config,
+        number: 7,
+        targetStatus: "refined",
+        findPlanItem,
+        updateItemStatus: async () => undefined,
+        updateIssueState: async () => undefined,
+        readIssueBody: async () => "",
+        updateIssueBody: async (params) => {
+          bodyUpdates.push(params.body);
+        },
+        skipHistoryAppend: true,
+      });
+
+      expect(bodyUpdates).toHaveLength(0);
+      expect(result.bodyUpdated).toBe(false);
+    });
   });
 
-  it("許可されていない遷移はエラーにする", () => {
-    const source = writePlan("draft");
+  describe("formatTransitionResult", () => {
+    it("result の主要フィールドを表示する", () => {
+      const result = {
+        itemId: "PVTI_abc",
+        number: 7,
+        sourceStatus: "refined" as const,
+        targetStatus: "in-progress" as const,
+        bodyUpdated: true,
+        issueStateChanged: true,
+        issueClosed: false,
+      };
+      const output = formatTransitionResult(result);
 
-    expect(() => transitionPlan(source, "done")).toThrowError(
-      /is not allowed/,
-    );
+      expect(output).toContain("number: #7");
+      expect(output).toContain("status: refined -> in-progress");
+      expect(output).toContain("item: PVTI_abc");
+      expect(output).toContain("history: appended");
+      expect(output).toContain("issue: reopened");
+    });
+
+    it("done への遷移は issue: closed と表示", () => {
+      const result = {
+        itemId: "PVTI_abc",
+        number: 7,
+        sourceStatus: "in-progress" as const,
+        targetStatus: "done" as const,
+        bodyUpdated: true,
+        issueStateChanged: true,
+        issueClosed: true,
+      };
+      const output = formatTransitionResult(result);
+
+      expect(output).toContain("issue: closed");
+    });
   });
 
-  it("tmp/plan/[status]/ 直下ではないパスはエラーにする", () => {
-    const nested = path.join(planRoot, "refined", "nested", "example.md");
-    fs.mkdirSync(path.dirname(nested), { recursive: true });
-    fs.writeFileSync(nested, "# Nested\n");
+  describe("loadConfig 統合", () => {
+    it("config をファイルから読み込める", () => {
+      const config = makeConfig();
+      const configPath = path.join(tmp, "config.json");
+      saveConfig(config, configPath);
 
-    expect(() => resolvePlanPath(nested)).toThrowError(
-      /direct child of tmp\/plan\/\[status\]/,
-    );
-  });
+      const loaded = loadConfig(configPath);
 
-  it("専用エラー型で失敗内容を返す", () => {
-    const source = writePlan("unknown");
+      expect(loaded).toEqual(config);
+    });
 
-    expect(() => transitionPlan(source, "done")).toThrowError(
-      TransitionPlanError,
-    );
+    it("存在しない config はエラー", () => {
+      expect(() => loadConfig(path.join(tmp, "missing.json"))).toThrowError(
+        InitConfigError,
+      );
+    });
   });
 });
