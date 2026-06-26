@@ -6,6 +6,7 @@ use anyhow::Context;
 use dialoguer::Input;
 
 use crate::agent_config::{self, AgentConfigCommands};
+use crate::chezmoi::{self, ChezmoiCommands};
 use crate::cli::self_cmd::{self, SelfCommands};
 use crate::cli::style;
 use crate::git::{self, GitCommands, GitRepoCommands, GitWorktreeCommands};
@@ -113,6 +114,21 @@ const SCRIPTS: &[ScriptEntry] = &[
         category: "config",
         description: "mt バイナリのビルドとシェル環境整備",
     },
+    ScriptEntry {
+        name: "chezmoi apply",
+        category: "dotfiles",
+        description: "chezmoi ソースを home ディレクトリに展開",
+    },
+    ScriptEntry {
+        name: "chezmoi diff",
+        category: "dotfiles",
+        description: "chezmoi の差分プレビュー",
+    },
+    ScriptEntry {
+        name: "chezmoi doctor",
+        category: "dotfiles",
+        description: "chezmoi + mt 固有 doctor を実行",
+    },
 ];
 
 pub fn run() -> anyhow::Result<()> {
@@ -160,6 +176,9 @@ fn run_script(name: &str) -> anyhow::Result<()> {
         "vector ingest" => run_vector_ingest(),
         "vector search" => run_vector_search(),
         "self install" => self_cmd::run(SelfCommands::Install),
+        "chezmoi apply" => chezmoi::run(ChezmoiCommands::Apply),
+        "chezmoi diff" => chezmoi::run(ChezmoiCommands::Diff),
+        "chezmoi doctor" => chezmoi::run(ChezmoiCommands::Doctor),
         _ => anyhow::bail!("Unknown script: {}", name),
     }
 }

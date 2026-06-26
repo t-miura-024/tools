@@ -22,6 +22,8 @@ brew "oven-sh/bun/bun"
 brew "yakitrak/yakitrak/obsidian-cli"
 brew "starship"
 brew "bat"
+brew "chezmoi"
+brew "age"
 
 cask "arc"
 cask "claude-code"
