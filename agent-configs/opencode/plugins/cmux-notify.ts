@@ -4,7 +4,7 @@
 
 import { spawn } from "node:child_process";
 import type { Event } from "@opencode-ai/sdk";
-import type { Plugin } from "@opencode-ai/plugin";
+import type { Plugin, PluginInput } from "@opencode-ai/plugin";
 
 const TITLE = "OpenCode";
 const STATUS_KEY = "agent_status";
@@ -138,7 +138,20 @@ function summarizeError(error: unknown, fallback: string): string {
   return fallback;
 }
 
-export const CmuxNotifyPlugin: Plugin = async () => {
+async function isMainSession(
+  client: PluginInput["client"],
+  sessionID: string,
+): Promise<boolean> {
+  try {
+    const res = await client.session.get({ path: { id: sessionID } });
+    const session = res.data as { parentID?: string } | undefined;
+    return !session?.parentID;
+  } catch {
+    return false;
+  }
+}
+
+export const CmuxNotifyPlugin: Plugin = async ({ client }) => {
   // Reflect "idle" state immediately on opencode startup. Fire-and-forget so
   // plugin initialization does not block the opencode boot path; ordering is
   // preserved by the shared queue, so any later event-driven updates will
@@ -163,31 +176,38 @@ export const CmuxNotifyPlugin: Plugin = async () => {
         return;
       }
       if (event.type === "session.idle") {
+        const sessionID = event.properties.sessionID;
         await enqueue(() => setStatusWithDiff("Idle", "checkmark.circle.fill", COLOR_IDLE));
         await enqueue(() => setWorkspaceColor(WORKSPACE_COLOR_IDLE));
-        await notifyCmux(
-          "Task complete",
-          `Session ${event.properties.sessionID} is waiting for input`,
-        );
+        if (await isMainSession(client, sessionID)) {
+          await notifyCmux(
+            "Task complete",
+            `Session ${sessionID} is waiting for input`,
+          );
+        }
         return;
       }
       if (event.type === "session.error") {
         await enqueue(() => setStatusWithDiff("Error", "xmark.circle.fill", COLOR_ERROR));
         await enqueue(() => setWorkspaceColor(WORKSPACE_COLOR_ERROR));
-        const session = event.properties.sessionID ?? "unknown";
-        const detail = summarizeError(
-          event.properties.error,
-          "see opencode logs",
-        );
-        await notifyCmux("Error", `Session ${session} failed: ${detail}`);
+        const sessionID = event.properties.sessionID;
+        if (sessionID && (await isMainSession(client, sessionID))) {
+          const detail = summarizeError(
+            event.properties.error,
+            "see opencode logs",
+          );
+          await notifyCmux("Error", `Session ${sessionID} failed: ${detail}`);
+        }
         return;
       }
       if (event.type === "permission.updated") {
         const perm = event.properties;
-        await notifyCmux(
-          "Waiting for input",
-          `Permission needed: ${perm.title} (${perm.sessionID})`,
-        );
+        if (await isMainSession(client, perm.sessionID)) {
+          await notifyCmux(
+            "Waiting for input",
+            `Permission needed: ${perm.title} (${perm.sessionID})`,
+          );
+        }
         return;
       }
     },
