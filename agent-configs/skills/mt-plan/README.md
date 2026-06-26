@@ -1,38 +1,42 @@
 # mt-plan 共有資材
 
-`mt-create-plan`、`mt-run-plan`、`mt-plan` で共有する計画管理用の資材を置くディレクトリです。
+`mt-create-plan`、`mt-run-plan`、`mt-plan` で共有する GitHub Issue / Project ベースの計画管理用の資材を置くディレクトリです。
 各 Skill の `SKILL.md` には共有資材の本文を重複させず、このディレクトリ配下のファイルを参照します。
 
 ## ファイル
 
-- `plan-format.md`: 計画ファイルの本文フォーマット。
-- `list-plans.ts`: `.gitignore` の影響を受けずに `tmp/plan/[status]/*.md` を列挙するスクリプト。
-- `list-plans.test.ts`: 計画一覧スクリプトの Vitest。
-- `transition-plan.ts`: `tmp/plan/[status]/` 間で計画ファイルを移動する状態遷移スクリプト。
-- `transition-plan.test.ts`: 状態遷移スクリプトの Vitest。
+- `plan-format.md`: GitHub Issue body の本文フォーマット。
+- `init-config.ts`: GitHub Project から `~/.config/mt-plan/config.json` を生成するスクリプト。
+- `init-config.test.ts`: `init-config.ts` の Vitest。
+- `init-config-gh.ts`: `init-config.ts` から呼び出される `gh` CLI 経由の GitHub API 呼び出し層。
+- `list-plans.ts`: GitHub Project から計画 Issue を列挙するスクリプト (`refined` / `in-progress` デフォルト)。
+- `list-plans.test.ts`: `list-plans.ts` の Vitest。
+- `transition-plan.ts`: 計画 Issue の Status custom field を更新し、Issue open/closed を同期し、`## 🐢 履歴` に追記する状態遷移スクリプト。
+- `transition-plan.test.ts`: `transition-plan.ts` の Vitest。
 
 ## 計画一覧
 
-`tmp/plan/` はプロジェクトの `.gitignore` で ignore 対象になり得ます。
-計画候補の一覧取得では `Glob` / `rg` の結果だけに依存せず、`list-plans.ts` でファイルシステムから直接列挙します。
+GitHub Project (v2) を Source of Truth とし、Status custom field でフィルタリングして Issue を列挙します。
+`list-plans.ts` は `gh api graphql` で Project の items を取得し、Status 値で絞り込みます。
 
 ```bash
-bun <mt-plan-skill-dir>/list-plans.ts --cwd <project-root> refined in-progress
+bun <mt-plan-skill-dir>/list-plans.ts refined in-progress
+# default は refined in-progress、省略可能
 ```
 
 主な用途は以下です。
 
-- `mt-run-plan`: `refined` / `in-progress` の実行候補一覧
-- `mt-create-plan`: `draft` / `refined` の既存計画確認
+- `mt-run-plan`: `refined` / `in-progress` の実行候補一覧（インタラクティブ選択）
+- `mt-create-plan`: 既存計画確認
 
 ## 状態遷移
 
 状態遷移は `transition-plan.ts` を使います。
-`mv` や手動のファイル移動で `tmp/plan/[status]/` 間を移動してはいけません。
-実行時は、現在読み込んでいる `mt-plan` Skill ディレクトリ内の `transition-plan.ts` を指定します。
+Project の Status custom field を更新し、Issue open/closed を同期し、`## 🐢 履歴` に追記します。
 
 ```bash
-bun <mt-plan-skill-dir>/transition-plan.ts tmp/plan/refined/20260425-example.md in-progress
+bun <mt-plan-skill-dir>/transition-plan.ts 7 in-progress
+# Plan #7 を in-progress に遷移
 ```
 
 許可される遷移は以下です。
@@ -42,10 +46,23 @@ bun <mt-plan-skill-dir>/transition-plan.ts tmp/plan/refined/20260425-example.md 
 - `in-progress` → `done`
 - `done` → `in-progress`
 
+## 設定初期化
+
+`init-config.ts` で `~/.config/mt-plan/config.json` を生成します。
+GitHub Project の field 一覧を取得し、Status custom field の option ID を保存します。
+
+```bash
+bun <mt-plan-skill-dir>/init-config.ts
+# ~/.config/mt-plan/config.json に Project ID, Status field ID, option ID を保存
+```
+
+`gh` CLI の `project` scope が必要です。事前に `gh auth refresh -s read:project,project` を実行してください。
+
 ## テスト
 
 共有スクリプトを変更した場合は、次のコマンドでテストします。
 
 ```bash
-npm test -- <mt-plan-skill-dir>/list-plans.test.ts <mt-plan-skill-dir>/transition-plan.test.ts
+cd <mt-plan-skill-dir>
+bun x vitest run
 ```

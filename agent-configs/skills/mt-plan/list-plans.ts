@@ -1,25 +1,5 @@
-import * as fs from "node:fs";
-import * as path from "node:path";
-import { PLAN_STATUSES, type PlanStatus } from "./transition-plan";
-
-export type ListedPlan = {
-  status: PlanStatus;
-  path: string;
-  absolutePath: string;
-};
-
-export type CheckedPlanDirectory = {
-  status: PlanStatus;
-  dir: string;
-  exists: boolean;
-};
-
-export type ListPlansResult = {
-  root: string;
-  statuses: readonly PlanStatus[];
-  directories: CheckedPlanDirectory[];
-  plans: ListedPlan[];
-};
+import { loadConfig, type MtPlanConfig, type PlanStatus, PLAN_STATUSES, InitConfigError } from "./init-config";
+import { runCommand, GitCommandError } from "./init-config-gh";
 
 export class ListPlansError extends Error {
   constructor(message: string) {
@@ -28,6 +8,36 @@ export class ListPlansError extends Error {
   }
 }
 
+export type ProjectItemIssue = {
+  number: number;
+  title: string;
+  url: string;
+  state: "OPEN" | "CLOSED";
+  createdAt: string;
+};
+
+export type ProjectItem = {
+  id: string;
+  issue: ProjectItemIssue;
+  fieldValueByName?: Record<string, { name: string; optionId: string | null }>;
+};
+
+export type ListedPlan = {
+  itemId: string;
+  number: number;
+  title: string;
+  url: string;
+  status: PlanStatus;
+  state: "OPEN" | "CLOSED";
+  createdAt: string;
+};
+
+export type ListPlansResult = {
+  config: MtPlanConfig;
+  statuses: readonly PlanStatus[];
+  plans: ListedPlan[];
+};
+
 function isPlanStatus(value: string): value is PlanStatus {
   return PLAN_STATUSES.includes(value as PlanStatus);
 }
@@ -35,123 +45,302 @@ function isPlanStatus(value: string): value is PlanStatus {
 function parsePlanStatus(value: string): PlanStatus {
   if (!isPlanStatus(value)) {
     throw new ListPlansError(
-      `Unsupported status: ${value}. Supported statuses: ${PLAN_STATUSES.join(
-        ", ",
-      )}`,
+      `Unsupported status: ${value}. Supported statuses: ${PLAN_STATUSES.join(", ")}`,
     );
   }
-
   return value;
 }
 
-export function listPlans(options: {
-  cwd?: string;
-  statuses?: readonly PlanStatus[];
-} = {}): ListPlansResult {
-  const root = path.resolve(options.cwd ?? process.cwd());
-  const statuses = options.statuses ?? PLAN_STATUSES;
-  const directories: CheckedPlanDirectory[] = [];
+function reverseOptionLookup(
+  config: MtPlanConfig,
+): Map<string, PlanStatus> {
+  const map = new Map<string, PlanStatus>();
+  for (const status of PLAN_STATUSES) {
+    map.set(config.statusOptions[status], status);
+  }
+  return map;
+}
+
+export function extractPlanStatus(
+  item: ProjectItem,
+  config: MtPlanConfig,
+): PlanStatus | null {
+  const field = item.fieldValueByName?.["Status"];
+  if (!field || !field.optionId) {
+    return null;
+  }
+  const lookup = reverseOptionLookup(config);
+  return lookup.get(field.optionId) ?? null;
+}
+
+export function sortByCreatedAtDesc(plans: ListedPlan[]): ListedPlan[] {
+  return [...plans].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+}
+
+export function filterAndSort(
+  items: readonly ProjectItem[],
+  config: MtPlanConfig,
+  statuses: readonly PlanStatus[],
+): ListedPlan[] {
+  const allowed = new Set(statuses);
   const plans: ListedPlan[] = [];
 
-  for (const status of statuses) {
-    const dir = path.join(root, "tmp", "plan", status);
-    const exists = fs.existsSync(dir) && fs.statSync(dir).isDirectory();
-    directories.push({ status, dir, exists });
-
-    if (!exists) {
+  for (const item of items) {
+    const status = extractPlanStatus(item, config);
+    if (!status || !allowed.has(status)) {
       continue;
     }
-
-    const entries = fs
-      .readdirSync(dir, { withFileTypes: true })
-      .filter((entry) => entry.isFile() && entry.name.endsWith(".md"))
-      .sort((a, b) => a.name.localeCompare(b.name));
-
-    for (const entry of entries) {
-      const absolutePath = path.join(dir, entry.name);
-      plans.push({
-        status,
-        absolutePath,
-        path: path.relative(root, absolutePath),
-      });
-    }
+    plans.push({
+      itemId: item.id,
+      number: item.issue.number,
+      title: item.issue.title,
+      url: item.issue.url,
+      status,
+      state: item.issue.state,
+      createdAt: item.issue.createdAt,
+    });
   }
 
-  return { root, statuses, directories, plans };
+  return sortByCreatedAtDesc(plans);
+}
+
+function buildListQuery(): string {
+  return `
+    query($projectId: ID!, $after: String) {
+      node(id: $projectId) {
+        ... on ProjectV2 {
+          items(first: 100, after: $after) {
+            nodes {
+              id
+              fieldValueByName(name: "Status") {
+                ... on ProjectV2ItemFieldSingleSelectValue {
+                  name
+                  optionId
+                }
+              }
+              content {
+                ... on Issue {
+                  number
+                  title
+                  url
+                  state
+                  createdAt
+                }
+              }
+            }
+            pageInfo {
+              hasNextPage
+              endCursor
+            }
+          }
+        }
+      }
+    }
+  `;
+}
+
+type GhListResponse = {
+  data?: {
+    node?: {
+      items?: {
+        nodes?: Array<{
+          id: string;
+          fieldValueByName?: {
+            name?: string;
+            optionId?: string | null;
+          } | null;
+          content?: {
+            number: number;
+            title: string;
+            url: string;
+            state: "OPEN" | "CLOSED";
+            createdAt: string;
+          } | null;
+        }>;
+        pageInfo?: {
+          hasNextPage: boolean;
+          endCursor: string | null;
+        };
+      };
+    };
+  };
+  errors?: Array<{ message: string }>;
+};
+
+export async function fetchProjectItems(
+  config: MtPlanConfig,
+): Promise<ProjectItem[]> {
+  const query = buildListQuery();
+  const allNodes: ProjectItem[] = [];
+  let after: string | null = null;
+  let hasNextPage = true;
+
+  while (hasNextPage) {
+    const args = [
+      "api",
+      "graphql",
+      "-H",
+      "GraphQL-Features: project_v2",
+      "-f",
+      `query=${query}`,
+      "-f",
+      `projectId=${config.projectId}`,
+    ];
+    if (after) {
+      args.push("-f", `after=${after}`);
+    }
+
+    let stdout: string;
+    try {
+      const result = await runCommand("gh", args);
+      stdout = result.stdout;
+    } catch (error) {
+      if (error instanceof GitCommandError) {
+        throw new ListPlansError(error.message);
+      }
+      throw error;
+    }
+    const response = JSON.parse(stdout) as GhListResponse;
+
+    if (response.errors && response.errors.length > 0) {
+      throw new ListPlansError(
+        `gh api graphql returned errors: ${response.errors.map((e) => e.message).join("; ")}`,
+      );
+    }
+
+    const page = response.data?.node?.items;
+    const nodes = page?.nodes ?? [];
+    const pageInfo = page?.pageInfo;
+
+    for (const node of nodes) {
+      if (!node.content) continue;
+      allNodes.push({
+        id: node.id,
+        issue: node.content,
+        fieldValueByName: node.fieldValueByName
+          ? {
+              Status: {
+                name: node.fieldValueByName.name ?? "",
+                optionId: node.fieldValueByName.optionId ?? null,
+              },
+            }
+          : undefined,
+      });
+    }
+
+    hasNextPage = pageInfo?.hasNextPage ?? false;
+    after = pageInfo?.endCursor ?? null;
+  }
+
+  return allNodes;
+}
+
+export type ListPlansOptions = {
+  config: MtPlanConfig;
+  statuses?: readonly PlanStatus[];
+  fetchItems?: (config: MtPlanConfig) => Promise<ProjectItem[]>;
+};
+
+export async function listPlans(
+  options: ListPlansOptions,
+): Promise<ListPlansResult> {
+  const statuses = options.statuses ?? ["refined", "in-progress"];
+  const fetch = options.fetchItems ?? fetchProjectItems;
+  const items = await fetch(options.config);
+  return {
+    config: options.config,
+    statuses,
+    plans: filterAndSort(items, options.config, statuses),
+  };
+}
+
+function formatCreatedAt(iso: string): string {
+  return iso.slice(0, 10);
 }
 
 export function formatListPlansResult(result: ListPlansResult): string {
-  const lines = [
-    `root: ${result.root}`,
-    `statuses: ${result.statuses.join(", ")}`,
-  ];
-
-  if (result.plans.length > 0) {
-    lines.push("plans:");
-    result.plans.forEach((plan, index) => {
-      lines.push(`${index + 1}. [${plan.status}] ${plan.path}`);
-    });
-    return lines.join("\n");
+  if (result.plans.length === 0) {
+    return [
+      "plans: none",
+      `statuses: ${result.statuses.join(", ")}`,
+      `project: ${result.config.owner}/${result.config.projectNumber}`,
+    ].join("\n");
   }
 
-  lines.push("plans: none");
-  lines.push("checked directories:");
-  for (const directory of result.directories) {
+  const lines: string[] = [];
+  result.plans.forEach((plan, index) => {
     lines.push(
-      `- [${directory.status}] ${directory.dir} (${
-        directory.exists ? "exists" : "missing"
-      })`,
+      `${index + 1}. [${plan.status}] ${plan.title} (#${plan.number}) ${formatCreatedAt(plan.createdAt)}`,
     );
-  }
-
+  });
   return lines.join("\n");
 }
 
-export function usage(): string {
-  return [
-    "Usage: bun <mt-plan-skill-dir>/list-plans.ts [--cwd <project-root>] [statuses...]",
-    "",
-    `Supported statuses: ${PLAN_STATUSES.join(", ")}`,
-    "If no statuses are provided, all statuses are listed.",
-  ].join("\n");
-}
+export type ListPlansCliOptions = {
+  configPath?: string;
+  statuses: PlanStatus[];
+  help?: boolean;
+};
 
-export function runCli(argv = process.argv.slice(2)): string {
-  if (argv.includes("--help") || argv.includes("-h")) {
-    return usage();
-  }
-
-  let cwd: string | undefined;
-  const statuses: PlanStatus[] = [];
+export function parseListPlansCli(argv: readonly string[]): ListPlansCliOptions {
+  const options: ListPlansCliOptions = { statuses: [] };
 
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
 
-    if (arg === "--cwd") {
+    if (arg === "--help" || arg === "-h") {
+      options.help = true;
+      continue;
+    }
+
+    if (arg === "--config") {
       const value = argv[index + 1];
       if (!value) {
-        throw new ListPlansError("--cwd requires a project root path.");
+        throw new ListPlansError("--config requires a path.");
       }
-
-      cwd = value;
+      options.configPath = value;
       index += 1;
       continue;
     }
 
-    statuses.push(parsePlanStatus(arg));
+    options.statuses.push(parsePlanStatus(arg));
   }
 
-  return formatListPlansResult(
-    listPlans({ cwd, statuses: statuses.length > 0 ? statuses : undefined }),
-  );
+  return options;
+}
+
+export function usage(): string {
+  return [
+    "Usage: bun <mt-plan-skill-dir>/list-plans.ts [--config <path>] [statuses...]",
+    "",
+    "Lists plans from the GitHub Project. Default statuses: refined in-progress.",
+    "Config is loaded from ~/.config/mt-plan/config.json (see init-config.ts).",
+    "",
+    `Supported statuses: ${PLAN_STATUSES.join(", ")}`,
+  ].join("\n");
 }
 
 if (require.main === module) {
-  try {
-    process.stdout.write(`${runCli()}\n`);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    process.stderr.write(`${message}\n`);
-    process.exitCode = 1;
-  }
+  void (async () => {
+    try {
+      const options = parseListPlansCli(process.argv.slice(2));
+      if (options.help) {
+        process.stdout.write(`${usage()}\n`);
+        return;
+      }
+      const config = loadConfig(options.configPath);
+      const statuses =
+        options.statuses.length > 0 ? options.statuses : ["refined", "in-progress"];
+      const result = await listPlans({ config, statuses });
+      process.stdout.write(`${formatListPlansResult(result)}\n`);
+    } catch (error) {
+      if (error instanceof InitConfigError || error instanceof ListPlansError) {
+        process.stderr.write(`${error.message}\n`);
+      } else {
+        const message = error instanceof Error ? error.message : String(error);
+        process.stderr.write(`${message}\n`);
+      }
+      process.exitCode = 1;
+    }
+  })();
 }
