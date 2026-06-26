@@ -1,5 +1,5 @@
 use std::io::{BufRead, BufReader};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 use crate::cli::style;
@@ -7,7 +7,8 @@ use crate::cli::style;
 use super::shared::{chezmoi_binary_present, home_dir};
 
 /// Run `mt chezmoi doctor`: run chezmoi's own doctor first, then add
-/// `mt`-specific checks for the source dir, age key, and post-commit hook.
+/// `mt`-specific checks for the source dir, age key, post-commit hook,
+/// agent-configs/ removal, and platform-native hook placement.
 pub fn run() -> anyhow::Result<()> {
     style::intro("mt chezmoi doctor");
 
@@ -40,6 +41,7 @@ pub fn run() -> anyhow::Result<()> {
         ));
     }
 
+    let home = home_dir()?;
     let mut all_ok = true;
 
     if check_source_dir_config().is_ok() {
@@ -58,8 +60,22 @@ pub fn run() -> anyhow::Result<()> {
         style::success("post-commit hook: 設置済み");
     } else {
         style::warn(
-            "post-commit hook: 未設置（`mt chezmoi install-hook` で設置可能。Phase 2 で本格実装）",
+            "post-commit hook: 未設置（`mt chezmoi install-hook` で設置可能）",
         );
+    }
+
+    if check_agent_configs_removed(&home).is_ok() {
+        style::success("agent-configs/: 削除済み（chezmoi 移管完了）");
+    } else {
+        style::warn("agent-configs/: 残存しています。`rm -rf agent-configs/` で削除してください");
+        all_ok = false;
+    }
+
+    if check_platform_settings(&home) {
+        style::success("platform-native hook: 4 ファイル配置済み");
+    } else {
+        style::warn("platform-native hook: 一部未配置（`mt chezmoi install-hook` で再配置可能）");
+        all_ok = false;
     }
 
     if all_ok {
@@ -162,6 +178,57 @@ fn locate_post_commit_hook(tools_repo: &Path) -> anyhow::Result<std::path::PathB
         anyhow::bail!("post-commit hook が見つかりません: {}", candidate.display());
     }
     Ok(candidate)
+}
+
+fn check_agent_configs_removed(home: &Path) -> anyhow::Result<()> {
+    let tools_repo = locate_tools_repo(home);
+    let agent_configs = tools_repo.join("agent-configs");
+    if agent_configs.is_dir() {
+        anyhow::bail!("{} が残存しています", agent_configs.display());
+    }
+    Ok(())
+}
+
+fn locate_tools_repo(home: &Path) -> std::path::PathBuf {
+    if let Ok(source) = std::env::var("CHEZMOI_SOURCE_DIR")
+        && !source.is_empty()
+    {
+        let p = std::path::PathBuf::from(&source);
+        if let Some(parent) = p.parent() {
+            return parent.to_path_buf();
+        }
+    }
+    home.join("src").join("tools")
+}
+
+fn check_platform_settings(home: &Path) -> bool {
+    let checks: &[(&str, PathBuf)] = &[
+        (
+            "Cursor hooks.json",
+            home.join(".cursor/hooks.json"),
+        ),
+        (
+            "Claude settings.json",
+            home.join(".claude/settings.json"),
+        ),
+        (
+            "opencode bridge",
+            home.join(".config/opencode/plugins/cursor-hook-bridge.ts"),
+        ),
+        (
+            "共通 hook スクリプト",
+            home.join(".config/opencode/plugins/agent-hooks/block-cursor-config-direct-edit.ts"),
+        ),
+    ];
+
+    let mut all_ok = true;
+    for (label, path) in checks {
+        if !path.exists() {
+            style::warn(&format!("platform hook {}: 未配置 ({})", label, path.display()));
+            all_ok = false;
+        }
+    }
+    all_ok
 }
 
 #[cfg(test)]

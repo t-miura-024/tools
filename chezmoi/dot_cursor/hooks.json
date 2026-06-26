@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "hooks": {
+    "preToolUse": [
+      {
+        "command": "bun \"$HOME/.config/opencode/plugins/agent-hooks/block-cursor-config-direct-edit.ts\"",
+        "matcher": "^(write|edit|Write|Edit|StrReplace|MultiEdit|Delete|EditNotebook)$"
+      }
+    ]
+  }
+}
