@@ -65,7 +65,16 @@ fn test_cleanup_commands_preview_before_force() {
 #[test]
 fn test_npm_global_install_and_uninstall_use_mise_node() {
     let manifest_dir = Path::new("/repo/manifests");
-    let packages = vec!["agent-browser".to_string(), "pnpm".to_string()];
+    let packages = vec![
+        NpmGlobalPackage {
+            name: "agent-browser".to_string(),
+            version: "latest".to_string(),
+        },
+        NpmGlobalPackage {
+            name: "pnpm".to_string(),
+            version: "9.0.0".to_string(),
+        },
+    ];
 
     assert_eq!(
         npm_global_install_command(manifest_dir, &packages),
@@ -79,14 +88,17 @@ fn test_npm_global_install_and_uninstall_use_mise_node() {
                 "npm".into(),
                 "install".into(),
                 "--global".into(),
-                "agent-browser".into(),
-                "pnpm".into(),
+                "agent-browser@latest".into(),
+                "pnpm@9.0.0".into(),
             ],
             envs: vec![],
         }
     );
     assert_eq!(
-        npm_global_uninstall_command(manifest_dir, &packages),
+        npm_global_uninstall_command(
+            manifest_dir,
+            &["agent-browser".to_string(), "pnpm".to_string()],
+        ),
         ToolCommandSpec {
             program: "mise",
             args: vec![

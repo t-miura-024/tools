@@ -37,7 +37,16 @@ fn test_verify_commands_do_not_upgrade_or_install() {
 #[test]
 fn test_npm_global_verify_uses_mise_node() {
     let manifest_dir = Path::new("/repo/manifests");
-    let packages = vec!["agent-browser".to_string(), "pnpm".to_string()];
+    let packages = vec![
+        NpmGlobalPackage {
+            name: "agent-browser".to_string(),
+            version: "latest".to_string(),
+        },
+        NpmGlobalPackage {
+            name: "pnpm".to_string(),
+            version: "9.0.0".to_string(),
+        },
+    ];
 
     assert_eq!(
         npm_global_verify_command(manifest_dir, &packages),

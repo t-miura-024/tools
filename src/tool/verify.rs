@@ -2,8 +2,8 @@ use std::path::Path;
 
 use crate::cli::style;
 use crate::tool::shared::{
-    Manifests, ToolCommandSpec, ensure_command, ensure_mise_trusted, npm_exec_prefix,
-    read_npm_global_packages, run_tool_command,
+    Manifests, NpmGlobalPackage, ToolCommandSpec, ensure_command, ensure_mise_trusted,
+    npm_exec_prefix, read_npm_global_packages, run_tool_command,
 };
 
 pub(super) fn verify() -> anyhow::Result<()> {
@@ -61,7 +61,10 @@ fn mise_verify_command(manifest_dir: &Path) -> ToolCommandSpec {
     )
 }
 
-fn npm_global_verify_command(manifest_dir: &Path, packages: &[String]) -> ToolCommandSpec {
+fn npm_global_verify_command(
+    manifest_dir: &Path,
+    packages: &[NpmGlobalPackage],
+) -> ToolCommandSpec {
     let mut args = npm_exec_prefix(manifest_dir);
     args.extend([
         "npm".to_string(),
@@ -69,7 +72,7 @@ fn npm_global_verify_command(manifest_dir: &Path, packages: &[String]) -> ToolCo
         "--global".to_string(),
         "--depth=0".to_string(),
     ]);
-    args.extend(packages.iter().cloned());
+    args.extend(packages.iter().map(|package| package.name.clone()));
     ToolCommandSpec::new("mise", args)
 }
 
