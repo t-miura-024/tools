@@ -50,7 +50,11 @@ pub enum GitWorktreeCommands {
     /// Select a Git worktree and print its path
     Select,
     /// Create a new Git worktree and branch interactively
-    Create,
+    Create {
+        /// Skip pushing the new/attached branch to `origin` after worktree creation
+        #[arg(long)]
+        no_push: bool,
+    },
     /// Delete a Git worktree interactively (with safety checks)
     Delete {
         /// Skip all safety checks and force removal
@@ -76,7 +80,7 @@ pub fn run(cmd: GitCommands) -> anyhow::Result<()> {
         },
         GitCommands::Worktree(sub) => match sub {
             GitWorktreeCommands::Select => worktree::select(),
-            GitWorktreeCommands::Create => worktree::create(),
+            GitWorktreeCommands::Create { no_push } => worktree::create(no_push),
             GitWorktreeCommands::Delete { force } => worktree::delete(force),
         },
     }

@@ -419,3 +419,86 @@ fn test_collect_shortstat_skips_bare() {
 
     assert_eq!(entries[0].shortstat, "+0 -0", "bare は shortstat 対象外");
 }
+
+// push_branch のテスト: 実 git + 一時ディレクトリ + ローカル bare remote
+// make_temp_git_repo と run_git は check_worktree_safety のテストで確立済み。
+
+fn make_temp_bare_repo() -> (tempfile::TempDir, PathBuf) {
+    let tmp = tempfile::tempdir().expect("bare tempdir 作成失敗");
+    let path = tmp.path().to_path_buf();
+    run_git(&path, &["init", "-q", "--bare"]);
+    (tmp, path)
+}
+
+fn attach_origin(local: &Path, bare: &Path) {
+    run_git(
+        local,
+        &["remote", "add", "origin", bare.to_str().unwrap()],
+    );
+}
+
+#[test]
+fn test_push_branch_success() {
+    let (_tmp_local, local) = make_temp_git_repo("main");
+    let (_tmp_bare, bare) = make_temp_bare_repo();
+    attach_origin(&local, &bare);
+
+    // 新しい branch を作成して commit を積む
+    run_git(&local, &["checkout", "-q", "-b", "tools-wt-test"]);
+    std::fs::write(local.join("feature.txt"), "f\n").unwrap();
+    run_git(&local, &["add", "."]);
+    run_git(&local, &["commit", "-qm", "feature commit"]);
+
+    // 初期状態: bare remote には branch が存在しない
+    let before = command_output("git", &["-C", bare.to_str().unwrap(), "branch"])
+        .expect("bare remote の branch 取得");
+    assert!(
+        !before.contains("tools-wt-test"),
+        "push 前に branch が存在してはいけない: {before}"
+    );
+
+    push_branch(&local, "tools-wt-test").expect("push が成功するはず");
+
+    // push 後に bare remote に branch が現れる
+    let after = command_output("git", &["-C", bare.to_str().unwrap(), "branch"])
+        .expect("bare remote の branch 取得 (push 後)");
+    assert!(
+        after.contains("tools-wt-test"),
+        "push 後に branch が origin に存在すべき: {after}"
+    );
+
+    // upstream が origin/tools-wt-test に設定されているはず
+    let upstream =
+        command_output("git", &["-C", local.to_str().unwrap(), "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"])
+            .expect("upstream 取得");
+    assert_eq!(upstream, "origin/tools-wt-test");
+}
+
+#[test]
+fn test_push_branch_no_origin_fails() {
+    let (_tmp_local, local) = make_temp_git_repo("main");
+    run_git(&local, &["checkout", "-q", "-b", "tools-wt-noorigin"]);
+    std::fs::write(local.join("a.txt"), "a\n").unwrap();
+    run_git(&local, &["add", "."]);
+    run_git(&local, &["commit", "-qm", "x"]);
+
+    // origin が未設定なら push は失敗する
+    let result = push_branch(&local, "tools-wt-noorigin");
+    let err = format!("{:#}", result.expect_err("origin 無しで push が成功してはいけない"));
+    assert!(
+        err.contains("git push"),
+        "エラーメッセージに 'git push' が含まれるべき: {err}"
+    );
+}
+
+#[test]
+fn test_push_branch_missing_repo_path() {
+    // 存在しないパスでも -C で起動はするため、git 側のエラーが返る
+    let result = push_branch(Path::new("/nonexistent/path/to/repo"), "any-branch");
+    let err = result.expect_err("存在しないパスでは push 失敗のはず");
+    let err_msg = format!("{:#}", err);
+    assert!(
+        err_msg.contains("git push"),
+        "エラーメッセージに 'git push' が含まれるべき: {err_msg}"
+    );
+}

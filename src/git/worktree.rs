@@ -333,7 +333,7 @@ fn run_fzf(input: String, args: &[&str]) -> anyhow::Result<String> {
     Ok(String::from_utf8_lossy(&output.stdout).to_string())
 }
 
-pub fn create() -> anyhow::Result<()> {
+pub fn create(no_push: bool) -> anyhow::Result<()> {
     ensure_inside_git_repo()?;
     style::intro("Git worktree 作成");
 
@@ -382,6 +382,10 @@ pub fn create() -> anyhow::Result<()> {
         style::info(&format!("新規 branch  : {new_name}"));
         style::info(&format!("派生元       : {base}"));
     }
+    style::info(&format!(
+        "push 設定    : {}",
+        if no_push { "skip (--no-push)" } else { "origin へ push" }
+    ));
 
     let confirm = Confirm::new()
         .with_prompt("この内容で作成しますか？")
@@ -407,22 +411,64 @@ pub fn create() -> anyhow::Result<()> {
             .arg(&base)
             .status()
     };
-    match result {
+    let worktree_created = match result {
         Ok(status) if status.success() => {
             spinner.finish_with_message("worktree を作成しました");
-            style::outro(&format!("✅ {}", new_path.display()));
+            true
         }
         Ok(_) => {
             spinner.finish_with_message("worktree の作成に失敗しました");
             style::error("git worktree add が失敗しました");
             style::outro("中止しました");
+            false
         }
         Err(e) => {
             spinner.finish_with_message("worktree の作成に失敗しました");
             return Err(e).context("git worktree add の起動に失敗しました");
         }
+    };
+
+    if !worktree_created {
+        return Ok(());
     }
 
+    if no_push {
+        style::outro(&format!(
+            "✅ {} (push はスキップしました)",
+            new_path.display()
+        ));
+        return Ok(());
+    }
+
+    match push_branch(&new_path, &new_name) {
+        Ok(()) => {
+            style::info(&format!("origin へ push: {new_name}"));
+            style::outro(&format!("✅ {}", new_path.display()));
+            Ok(())
+        }
+        Err(e) => {
+            style::error(&format!(
+                "push に失敗しました: {} (worktree は残っています)",
+                e
+            ));
+            style::outro("⚠️ push 失敗 — 手動で git push を実行してください");
+            std::process::exit(1);
+        }
+    }
+}
+
+fn push_branch(repo_path: &Path, branch: &str) -> anyhow::Result<()> {
+    let Some(path_str) = repo_path.to_str() else {
+        anyhow::bail!("worktree パスが UTF-8 ではありません: {}", repo_path.display());
+    };
+    let output = Command::new("git")
+        .args(["-C", path_str, "push", "-u", "origin", branch])
+        .output()
+        .context("git push の起動に失敗しました")?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        anyhow::bail!("git push: {}", stderr.trim());
+    }
     Ok(())
 }
 
