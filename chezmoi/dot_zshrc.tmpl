@@ -1,0 +1,45 @@
+command -v brew >/dev/null 2>&1 && eval "$(brew shellenv)"
+eval "$(mise activate zsh)"
+
+################################
+# zsh
+################################
+
+# コマンド補完（zsh 組み込み）
+autoload -Uz compinit && compinit
+
+# ヒストリ設定
+HISTSIZE=10000
+SAVEHIST=10000
+setopt HIST_IGNORE_ALL_DUPS
+setopt SHARE_HISTORY
+
+# プラグイン読み込み（Homebrewのパス）
+source $(brew --prefix)/share/zsh-autosuggestions/zsh-autosuggestions.zsh
+source $(brew --prefix)/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh
+
+# Starship プロンプト（最後に書く）
+eval "$(starship init zsh)"
+
+# pipx 経由の CLI（~/.local/bin）
+export PATH="$PATH:$HOME/.local/bin"
+
+# API keys（chezmoi で age 暗号化）
+{{ include "dot_zsh_secrets.age" | decrypt }}
+export PATH="$HOME/.cargo/bin:$PATH"
+
+# mt wt bridge
+wt() {
+  local target
+  target="$(mt git worktree select)" || return
+  [[ -n "$target" ]] || return
+  cd -- "$target"
+}
+
+# mt rp bridge
+rp() {
+  local target
+  target="$(mt git repo select)" || return
+  [[ -n "$target" ]] || return
+  cd -- "$target"
+}
