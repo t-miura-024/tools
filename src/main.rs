@@ -1,6 +1,5 @@
 use clap::{Parser, Subcommand};
 
-mod agent_config;
 mod chezmoi;
 mod cli;
 mod config;
@@ -30,9 +29,6 @@ enum Commands {
     /// tool: Homebrew and mise tool management
     #[command(subcommand)]
     Tool(tool::ToolCommands),
-    /// agent-config: AI agent configuration management
-    #[command(subcommand)]
-    AgentConfig(agent_config::AgentConfigCommands),
     /// chezmoi: dotfile management (chezmoi thin wrapper + mt 固有サブコマンド)
     #[command(subcommand)]
     Chezmoi(chezmoi::ChezmoiCommands),
@@ -50,7 +46,6 @@ fn main() -> anyhow::Result<()> {
         Some(Commands::Git(cmd)) => git::run(cmd),
         Some(Commands::Opencode(cmd)) => opencode::run(cmd),
         Some(Commands::Tool(cmd)) => tool::run(cmd),
-        Some(Commands::AgentConfig(cmd)) => agent_config::run(cmd),
         Some(Commands::Chezmoi(cmd)) => chezmoi::run(cmd),
         Some(Commands::Vector(cmd)) => vector::run(cmd),
     }
