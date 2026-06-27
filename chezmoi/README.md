@@ -7,7 +7,7 @@
 
 | ファイル | 種別 | 役割 |
 | --- | --- | --- |
-| `dot_zshrc.tmpl` | template | `~/.zshrc` のテンプレート。`{{ include "dot_zsh_secrets.age" \| decrypt -}}` 経由で API キーを展開（trim 付き） |
+| `dot_zshrc.tmpl` | template | `~/.zshrc` のテンプレート。`{{ include "dot_zsh_secrets.age" \| decrypt }}` 経由で API キーを展開 |
 | `dot_zprofile` | plain | `~/.zprofile` の plain コピー |
 | `dot_gitconfig` | plain | `~/.gitconfig` の plain コピー |
 | `dot_zsh_secrets.age` | age 暗号化 | API キーなどの secrets（age 公開鍵で暗号化） |
