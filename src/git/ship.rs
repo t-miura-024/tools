@@ -226,6 +226,11 @@ fn add_changed_files_in(cwd: &std::path::Path) -> anyhow::Result<Vec<String>> {
         } else {
             path
         };
+        let index_status = line.as_bytes().first().copied().unwrap_or(b' ') as char;
+        if matches!(index_status, 'M' | 'A' | 'D' | 'R' | 'C' | 'T') {
+            added.push(actual_path.to_string());
+            continue;
+        }
         command_output_in(cwd, "git", &["add", "--", actual_path])
             .with_context(|| format!("git add {actual_path} に失敗"))?;
         added.push(actual_path.to_string());

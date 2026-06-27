@@ -1,9 +1,10 @@
-use std::collections::BTreeSet;
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 use anyhow::Context;
+use serde::Deserialize;
 
 use crate::cli::style;
 
@@ -47,7 +48,7 @@ impl Manifests {
         Ok(Self {
             brewfile: manifest_dir.join("Brewfile"),
             mise_toml: manifest_dir.join("mise.toml"),
-            npm_global: manifest_dir.join("npm-global.txt"),
+            npm_global: manifest_dir.join("npm-global.yml"),
             manifest_dir,
             root,
         })
@@ -56,7 +57,7 @@ impl Manifests {
     pub(super) fn ensure_files(&self) -> anyhow::Result<()> {
         self.ensure_brewfile()?;
         ensure_file(&self.mise_toml, "mise.toml")?;
-        ensure_file(&self.npm_global, "npm-global.txt")?;
+        ensure_file(&self.npm_global, "npm-global.yml")?;
         Ok(())
     }
 
@@ -106,34 +107,51 @@ pub(super) fn ensure_mise_trusted(root: &Path, mise_toml: &Path) -> anyhow::Resu
     Ok(())
 }
 
-pub(super) fn read_npm_global_packages(path: &Path) -> anyhow::Result<Vec<String>> {
+pub(super) fn read_npm_global_packages(path: &Path) -> anyhow::Result<Vec<NpmGlobalPackage>> {
     let content = fs::read_to_string(path).with_context(|| {
         format!(
-            "npm-global.txt の読み込みに失敗しました: {}",
+            "npm-global.yml の読み込みに失敗しました: {}",
             path.display()
         )
     })?;
-    let mut seen = BTreeSet::new();
-    let mut packages = Vec::new();
 
-    for (index, line) in content.lines().enumerate() {
-        let package = line.trim();
-        if package.is_empty() || package.starts_with('#') {
-            continue;
-        }
-        if package.split_whitespace().count() != 1 {
-            anyhow::bail!(
-                "npm-global.txt:{} は 1 行 1 パッケージで指定してください: {}",
-                index + 1,
-                line
-            );
-        }
-        if seen.insert(package.to_string()) {
-            packages.push(package.to_string());
-        }
+    let manifest: NpmGlobalManifest = serde_yaml::from_str(&content).with_context(|| {
+        format!(
+            "npm-global.yml の YAML 解析に失敗しました: {}",
+            path.display()
+        )
+    })?;
+
+    Ok(manifest.into_packages())
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub(super) struct NpmGlobalPackage {
+    pub(super) name: String,
+    pub(super) version: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct NpmGlobalManifest {
+    #[serde(default)]
+    packages: BTreeMap<String, NpmGlobalPackageEntry>,
+}
+
+#[derive(Debug, Deserialize)]
+struct NpmGlobalPackageEntry {
+    version: String,
+}
+
+impl NpmGlobalManifest {
+    fn into_packages(self) -> Vec<NpmGlobalPackage> {
+        self.packages
+            .into_iter()
+            .map(|(name, entry)| NpmGlobalPackage {
+                name,
+                version: entry.version,
+            })
+            .collect()
     }
-
-    Ok(packages)
 }
 
 pub(super) fn npm_exec_prefix(manifest_dir: &Path) -> Vec<String> {

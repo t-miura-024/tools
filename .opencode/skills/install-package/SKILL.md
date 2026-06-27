@@ -1,6 +1,6 @@
 ---
 name: install-package
-description: 管理されているマニフェスト（manifests/Brewfile / manifests/mise.toml / manifests/npm-global.txt）にパッケージを追記し、既存 Rust 実装の `mt tool install` を実行して Homebrew / Mise / npm のいずれかでインストールする。Homebrew / Mise / npm の各公式リファレンスを WebFetch で照会してツールごとの取扱可否を判定し、ユーザーの公式ドキュメント記載に従って推奨を提示する。「パッケージを入れたい」「ツールを追加して」「〇〇 を Homebrew で入れて」などと言われた時に使用する。
+description: 管理されているマニフェスト（manifests/Brewfile / manifests/mise.toml / manifests/npm-global.yml）にパッケージを追記し、既存 Rust 実装の `mt tool install` を実行して Homebrew / Mise / npm のいずれかでインストールする。Homebrew / Mise / npm の各公式リファレンスを WebFetch で照会してツールごとの取扱可否を判定し、ユーザーの公式ドキュメント記載に従って推奨を提示する。「パッケージを入れたい」「ツールを追加して」「〇〇 を Homebrew で入れて」などと言われた時に使用する。
 ---
 
 # install-package
@@ -9,7 +9,7 @@ description: 管理されているマニフェスト（manifests/Brewfile / mani
 
 ## 🧠 前提知識
 
-`tools/manifests/` 配下の 3 ファイル（Brewfile / mise.toml / npm-global.txt）が PC ツール管理の Single Source of Truth であり、Homebrew・Mise・npm のインストールは Rust 実装の `mt tool install` が一手に担う。Skill 自体は `brew bundle` / `mise install` / `npm install -g` を直接呼ばない。
+`tools/manifests/` 配下の 3 ファイル（Brewfile / mise.toml / npm-global.yml）が PC ツール管理の Single Source of Truth であり、Homebrew・Mise・npm のインストールは Rust 実装の `mt tool install` が一手に担う。Skill 自体は `brew bundle` / `mise install` / `npm install -g` を直接呼ばない。
 
 - 関連 Skill: mt-search-web（外部ドキュメント参照時のフォールバック）
 - 関連 Rust 実装: `src/tool/install.rs`（`mt tool install` の本体）
@@ -57,7 +57,7 @@ description: 管理されているマニフェスト（manifests/Brewfile / mani
   - 行頭から行末までの文字列マッチで行を比較する（大文字小文字を区別する、Brewfile の `Brewfile` 構文に準ずる）
   - `Brewfile` の `#` で始まるコメント行は対象外とする
   - 同名エントリが複数セクション（例: `brew "fzf"` と `cask "fzf"`）に存在する場合、Step 4 で確定した sub-category のセクションのみを比較対象とする
-  - `npm-global.txt` の `#` 始端行も対象外、`空行`も対象外
+  - `npm-global.yml` の `#` 始端行も対象外、`空行`も対象外
 
 ### 6. マニフェスト追記内容の整形と diff 表示（確認 1 回目 / 種別ごとのセクション末尾追記）
 
@@ -69,7 +69,7 @@ description: 管理されているマニフェスト（manifests/Brewfile / mani
     - `vscode "<publisher.name>"`
     - `cargo "<name>"`
   - `mise.toml`: `[tools]` セクションの末尾に `<name> = "<version>"` を追記する（`[tools]` がない場合は新規作成）。バージョンは本スキルが定義するルール（明示要求、省略時 `latest`）に従う。
-  - `npm-global.txt`: ファイル末尾に `<name>` を 1 行で追記する（`@version` suffix を許容）。
+  - `npm-global.yml`: `packages:` セクション内のアルファベット順末尾に `<name>: { version: <version> }` を追記する。`<version>` 省略時は `latest` を使う（明示要求があればそれを優先）。
 - 整形後、本文で diff（追記行 + 該当セクション位置）をプレビュー表示し、追記を実行して良いか確認する。
 
 ### 7. マニフェストへの追記実行
@@ -113,7 +113,7 @@ description: 管理されているマニフェスト（manifests/Brewfile / mani
 
 ## 📦 アウトプット
 
-- 追記されたマニフェストファイル（Brewfile / mise.toml / npm-global.txt のいずれか）
+- 追記されたマニフェストファイル（Brewfile / mise.toml / npm-global.yml のいずれか）
 - 追加されたエントリの diff（追記行・追記位置）
 - `mt tool install` の実行結果（成功 / 失敗のステータス、失敗時はエラー内容）
 

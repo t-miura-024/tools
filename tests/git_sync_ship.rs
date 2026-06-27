@@ -509,3 +509,89 @@ fn test_mt_git_sync_target_and_target_default_conflict() {
         .assert()
         .failure();
 }
+
+#[test]
+fn test_mt_git_ship_succeeds_with_already_staged_deletion() {
+    let repo = setup_test_repo();
+
+    // feature branch を作成し、削除予定のファイルと変更対象のファイルを commit
+    run_git(&repo.repo, &["checkout", "-q", "-b", "feature"]);
+    std::fs::write(repo.repo.join("to_delete.txt"), "will be deleted\n").unwrap();
+    std::fs::write(repo.repo.join("modified.txt"), "modified content\n").unwrap();
+    run_git(&repo.repo, &["add", "."]);
+    run_git(&repo.repo, &["commit", "-qm", "feature commit"]);
+
+    // シナリオ:
+    //   - to_delete.txt を git rm で削除（削除が既に index にステージ済み = porcelain "D "）
+    //   - new_file.txt は commit 履歴にない未追跡ファイル（porcelain "?? "）
+    //   - modified.txt を変更して未ステージ（porcelain " M"）
+    run_git(&repo.repo, &["rm", "-q", "to_delete.txt"]);
+    std::fs::write(repo.repo.join("new_file.txt"), "untracked new file\n").unwrap();
+    std::fs::write(repo.repo.join("modified.txt"), "modified content v2\n").unwrap();
+    // 状態を明示的に確認（ship 実行前のスナップショット）
+    let status_before = run_git_output(&repo.repo, &["status", "--porcelain"]);
+    assert!(
+        status_before.contains("D  to_delete.txt"),
+        "削除が index にステージされている想定だが porcelain 出力が違う: {status_before}"
+    );
+    assert!(
+        status_before.contains("?? new_file.txt"),
+        "new_file.txt が未追跡の想定だが porcelain 出力が違う: {status_before}"
+    );
+    assert!(
+        status_before.contains(" M modified.txt"),
+        "modified.txt が未ステージ変更の想定だが porcelain 出力が違う: {status_before}"
+    );
+
+    // main を別 worktree に用意
+    let main_wt = repo.tmp_path().join("main-wt");
+    let main_wt_str = main_wt.to_str().unwrap();
+    run_git(
+        repo.tmp_path(),
+        &[
+            "-C",
+            repo.repo.to_str().unwrap(),
+            "worktree",
+            "add",
+            main_wt_str,
+            "main",
+        ],
+    );
+
+    // ship を実行
+    let mut cmd = Command::cargo_bin("mt").unwrap();
+    cmd.arg("git")
+        .arg("ship")
+        .arg("--target")
+        .arg("main")
+        .arg("--message")
+        .arg("ship with already-staged deletion")
+        .current_dir(&repo.repo)
+        .assert()
+        .success();
+
+    // main ブランチの状態は別 worktree 側で確認
+    // 削除したファイルは存在しないはず
+    assert!(
+        !main_wt.join("to_delete.txt").exists(),
+        "削除したファイルが main に残っている"
+    );
+    // 追加したファイルは存在するはず
+    assert!(
+        main_wt.join("new_file.txt").exists(),
+        "追加したファイルが main にマージされていない"
+    );
+    // 変更したファイルは新しい内容になっているはず
+    let modified_content = std::fs::read_to_string(main_wt.join("modified.txt")).unwrap();
+    assert_eq!(
+        modified_content, "modified content v2\n",
+        "変更したファイルが新しい内容になっていない: {modified_content}"
+    );
+
+    // ship コミットメッセージが main にあるはず
+    let log = run_git_output(&main_wt, &["log", "--oneline"]);
+    assert!(
+        log.contains("ship with already-staged deletion"),
+        "ship commit メッセージが見つからない: {log}"
+    );
+}

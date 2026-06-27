@@ -5,8 +5,9 @@ use dialoguer::Confirm;
 
 use crate::cli::style;
 use crate::tool::shared::{
-    Manifests, ToolCommandSpec, command_output_spec, ensure_command, ensure_mise_trusted,
-    npm_exec_prefix, read_npm_global_packages, run_tool_command, run_tool_command_status,
+    Manifests, NpmGlobalPackage, ToolCommandSpec, command_output_spec, ensure_command,
+    ensure_mise_trusted, npm_exec_prefix, read_npm_global_packages, run_tool_command,
+    run_tool_command_status,
 };
 
 pub(super) fn install() -> anyhow::Result<()> {
@@ -43,7 +44,10 @@ pub(super) fn install() -> anyhow::Result<()> {
     Ok(())
 }
 
-fn cleanup_after_install(manifests: &Manifests, npm_packages: &[String]) -> anyhow::Result<()> {
+fn cleanup_after_install(
+    manifests: &Manifests,
+    npm_packages: &[NpmGlobalPackage],
+) -> anyhow::Result<()> {
     run_cleanup_preview(
         "Brewfile 管理対象外の依存",
         &brew_bundle_cleanup_preview_command(&manifests.brewfile),
@@ -93,11 +97,18 @@ fn run_cleanup_preview(
     Ok(())
 }
 
-fn cleanup_npm_globals(manifests: &Manifests, desired_packages: &[String]) -> anyhow::Result<()> {
+fn cleanup_npm_globals(
+    manifests: &Manifests,
+    desired_packages: &[NpmGlobalPackage],
+) -> anyhow::Result<()> {
     style::info("npm global の削除候補を確認します");
     let installed_packages =
         installed_npm_global_packages(&manifests.manifest_dir, &manifests.root)?;
-    let removable = removable_npm_global_packages(&installed_packages, desired_packages);
+    let desired_names: Vec<String> = desired_packages
+        .iter()
+        .map(|package| package.name.clone())
+        .collect();
+    let removable = removable_npm_global_packages(&installed_packages, &desired_names);
 
     if removable.is_empty() {
         style::success("npm global の削除候補はありません");
@@ -241,14 +252,21 @@ fn mise_reshim_command(manifest_dir: &Path) -> ToolCommandSpec {
     )
 }
 
-fn npm_global_install_command(manifest_dir: &Path, packages: &[String]) -> ToolCommandSpec {
+fn npm_global_install_command(
+    manifest_dir: &Path,
+    packages: &[NpmGlobalPackage],
+) -> ToolCommandSpec {
     let mut args = npm_exec_prefix(manifest_dir);
     args.extend([
         "npm".to_string(),
         "install".to_string(),
         "--global".to_string(),
     ]);
-    args.extend(packages.iter().cloned());
+    args.extend(
+        packages
+            .iter()
+            .map(|package| format!("{}@{}", package.name, package.version)),
+    );
     ToolCommandSpec::new("mise", args)
 }
 
