@@ -25,8 +25,7 @@ eval "$(starship init zsh)"
 export PATH="$PATH:$HOME/.local/bin"
 
 # API keys（chezmoi で age 暗号化）
-{{ include "dot_zsh_secrets.age" | decrypt -}}
-{{ "\n" }}
+{{ include "dot_zsh_secrets.age" | decrypt }}
 export PATH="$HOME/.cargo/bin:$PATH"
 
 # mt wt bridge
