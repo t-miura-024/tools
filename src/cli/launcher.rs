@@ -139,7 +139,9 @@ fn run_script(name: &str) -> anyhow::Result<()> {
         "git repo create" => git::run(GitCommands::Repo(GitRepoCommands::Create)),
         "git repo select" => git::run(GitCommands::Repo(GitRepoCommands::Select)),
         "git worktree select" => git::run(GitCommands::Worktree(GitWorktreeCommands::Select)),
-        "git worktree create" => git::run(GitCommands::Worktree(GitWorktreeCommands::Create)),
+        "git worktree create" => git::run(GitCommands::Worktree(GitWorktreeCommands::Create {
+            no_push: false,
+        })),
         "git worktree delete" => git::run(GitCommands::Worktree(GitWorktreeCommands::Delete {
             force: false,
         })),
