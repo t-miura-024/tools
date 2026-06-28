@@ -1,3 +1,7 @@
 language: ja
 provider: opencode
 model: opencode/big-pickle
+
+workflow_categories:
+  MT Plan:
+    workflows: [mt-create-plan, mt-run-plan]
