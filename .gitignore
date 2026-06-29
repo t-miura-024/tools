@@ -4,7 +4,7 @@ dist
 .DS_Store
 tmp
 target
-
+.takt
 
 # Added by cargo
 
