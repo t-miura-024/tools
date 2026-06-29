@@ -2,5 +2,28 @@
   "$schema": "https://opencode.ai/config.json",
   "plugin": [
     "./plugins/cursor-hook-bridge.ts"
-  ]
+  ],
+  "permission": {
+    "external_directory": {
+      "*": "allow",
+      "~/Documents/**": "deny",
+      "~/Desktop/**": "deny",
+      "~/Downloads/**": "deny",
+      "~/Pictures/**": "deny",
+      "~/Library/**": "deny",
+      "~/.agent-browser/**": "deny",
+      "~/.ssh/**": "deny",
+      "~/.zshrc": "deny",
+      "~/.zsh_secrets.age": "deny",
+      "~/.config/gh/**": "deny",
+      "~/.mcp-auth/**": "deny",
+      "~/.copilot/**": "deny",
+      "~/.config/configstore/**": "deny",
+      "~/.local/share/opencode/auth.json": "deny",
+      "~/.local/share/opencode/account.json": "deny",
+      "~/.Trash/**": "deny",
+      "/etc/**": "deny",
+      "/System/**": "deny"
+    }
+  }
 }
