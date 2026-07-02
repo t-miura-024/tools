@@ -1,7 +1,7 @@
 name: mt-run-plan
-description: mt-plan の計画実行ワークフロー。承認済み計画を選択し、方針に基づいて実行し、5観点の並列レビューと fix ループを経て done へ遷移する。
+description: mt-plan の計画実行ワークフロー。承認済み計画を検証し、方針に基づいて実行し、5観点の並列レビューと fix ループを経て COMPLETE する。commit/push/PR 作成は TAKT エンジンが実行後に行う。
 max_steps: 50
-initial_step: select-plan
+initial_step: validate-plan
 
 personas:
   executor: ../facets/personas/executor.md
@@ -20,7 +20,7 @@ knowledge:
   plan-format: ../facets/knowledge/plan-format.md
 
 instructions:
-  select-plan: ../facets/instructions/select-plan.md
+  validate-plan: ../facets/instructions/validate-plan.md
   start-execution: ../facets/instructions/start-execution.md
   execute: ../facets/instructions/execute.md
   review-essence: ../facets/instructions/review-essence.md
@@ -29,8 +29,6 @@ instructions:
   review-policy: ../facets/instructions/review-policy.md
   review-quality: ../facets/instructions/review-quality.md
   fix: ../facets/instructions/fix.md
-  done-gate: ../facets/instructions/done-gate.md
-  promote-done: ../facets/instructions/promote-done.md
 
 report_formats:
   execution-report: ../facets/output-contracts/execution-report.md
@@ -52,16 +50,16 @@ loop_monitors:
           next: ABORT
 
 steps:
-  - name: select-plan
+  - name: validate-plan
     persona: executor
     policy: execution
     edit: false
     requires_user_input: true
-    instruction: select-plan
+    instruction: validate-plan
     rules:
-      - condition: "Plan selected - refined status"
+      - condition: "Validation passed - refined status"
         next: start-execution
-      - condition: "Plan selected - in-progress status"
+      - condition: "Validation passed - in-progress status"
         next: execute
       - condition: "No executable plan"
         next: ABORT
@@ -175,7 +173,7 @@ steps:
           - condition: needs_fix
     rules:
       - condition: all("approved")
-        next: done-gate
+        next: COMPLETE
       - condition: any("needs_fix")
         next: fix
 
@@ -196,25 +194,3 @@ steps:
       - condition: "Cannot fix"
         next: ABORT
 
-  - name: done-gate
-    persona: supervisor
-    policy: review
-    edit: false
-    requires_user_input: true
-    instruction: done-gate
-    rules:
-      - condition: "User confirmed done"
-        next: promote-done
-      - condition: "User wants more work"
-        next: execute
-
-  - name: promote-done
-    persona: supervisor
-    policy: execution
-    edit: false
-    instruction: promote-done
-    rules:
-      - condition: "Transition succeeded"
-        next: COMPLETE
-      - condition: "Transition failed"
-        next: ABORT
