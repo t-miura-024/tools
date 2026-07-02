@@ -2,7 +2,7 @@
 
 ## 手順
 
-1. select-plan step で選択された Issue 番号を取得する。
+1. validate-plan step で検証された Issue 番号を取得する。
 2. `~/.config/mt-plan/config.json` が存在するか確認する。存在しない場合は `bun ~/.takt/scripts/init-config.ts --owner <owner> --project <number>` の実行を案内して ABORT する。
 3. transition-plan.ts を実行して in-progress へ遷移する:
    ```bash
