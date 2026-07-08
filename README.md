@@ -93,20 +93,22 @@ chezmoi/
 │   ├── agents/                # Claude 形式（description: Use this agent when...）
 │   ├── skills/                # Claude 形式
 │   └── settings.json          # Claude PreToolUse 設定
-└── dot_config/opencode/       # ~/.config/opencode/ へデプロイ
-    ├── AGENTS.md              # Source of Truth 記述
-    ├── agents/                # opencode 形式（mode, permission, color）
-    ├── skills/                # opencode 形式
-    ├── plugins/               # opencode プラグイン
-    │   ├── cmux-notify.ts     # cmux 通知プラグイン
-    │   ├── mt-loop-engine.ts  # mt loop engine
-    │   ├── cursor-hook-bridge.ts  # Cursor の hooks.json を opencode plugin に bridge
-    │   └── agent-hooks/
-    │       └── block-cursor-config-direct-edit.ts  # 共通 hook スクリプト
-    ├── commands/              # opencode slash commands
-    │   ├── mt-goal.md
-    │   └── mt-loop.md
-    └── config.json            # opencode 設定（plugin: cursor-hook-bridge）
+└── dot_config/                    # ~/.config/ へデプロイ
+    ├── starship.toml              # ~/.config/starship.toml（plain copy）
+    └── opencode/                  # ~/.config/opencode/ へデプロイ
+        ├── AGENTS.md              # Source of Truth 記述
+        ├── agents/                # opencode 形式（mode, permission, color）
+        ├── skills/                # opencode 形式
+        ├── plugins/               # opencode プラグイン
+        │   ├── cmux-notify.ts     # cmux 通知プラグイン
+        │   ├── mt-loop-engine.ts  # mt loop engine
+        │   ├── cursor-hook-bridge.ts  # Cursor の hooks.json を opencode plugin に bridge
+        │   └── agent-hooks/
+        │       └── block-cursor-config-direct-edit.ts  # 共通 hook スクリプト
+        ├── commands/              # opencode slash commands
+        │   ├── mt-goal.md
+        │   └── mt-loop.md
+        └── config.json            # opencode 設定（plugin: cursor-hook-bridge）
 ```
 
 ### 編集ワークフロー
@@ -375,8 +377,9 @@ chezmoi/        # chezmoi ソース（dotfile の Source of Truth）
   dot_zshrc.tmpl        # ~/.zshrc のテンプレート
   dot_zprofile          # ~/.zprofile の plain コピー
   dot_gitconfig         # ~/.gitconfig の plain コピー
-  dot_zsh_secrets.age   # age 暗号化 API キー
-  .chezmoiignore        # README.md を chezmoi apply から除外
+  dot_zsh_secrets.age        # age 暗号化 API キー
+  dot_config/starship.toml   # ~/.config/starship.toml の plain コピー
+  .chezmoiignore             # README.md を chezmoi apply から除外
   README.md             # ソースディレクトリの説明
 docker/         # Docker Compose services (1 サブディレクトリ = 1 サービス)
   searxng/      # SearXNG (settings.yml, docker-compose.yml)
