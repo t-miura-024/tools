@@ -149,25 +149,17 @@ pub fn generate_claude_agent(agent: &AgentFile) -> String {
 
 pub fn generate_opencode_agent(agent: &AgentFile) -> String {
     let color = claude_color_to_opencode(&agent.meta.color);
-    let mode = if agent.meta.readonly {
-        "subagent"
-    } else {
-        "all"
-    };
 
     if agent.meta.readonly {
         format!(
             "---\n\
              description: \"{desc}\"\n\
-             mode: \"{mode}\"\n\
+             mode: \"subagent\"\n\
              color: \"{color}\"\n\
-             permission:\n\
-               edit: \"deny\"\n\
-               bash: \"deny\"\n\
+             permission:\n  edit: \"deny\"\n  bash: \"deny\"\n\
              ---\n\
              {body}",
             desc = agent.meta.description,
-            mode = mode,
             color = color,
             body = agent.body,
         )
@@ -175,12 +167,11 @@ pub fn generate_opencode_agent(agent: &AgentFile) -> String {
         format!(
             "---\n\
              description: \"{desc}\"\n\
-             mode: \"{mode}\"\n\
+             mode: \"subagent\"\n\
              color: \"{color}\"\n\
              ---\n\
              {body}",
             desc = agent.meta.description,
-            mode = mode,
             color = color,
             body = agent.body,
         )
