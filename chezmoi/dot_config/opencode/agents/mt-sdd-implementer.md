@@ -1,6 +1,6 @@
 ---
 description: "SDD 実装 SubAgent。implementation-plan.md の個別タスクに基づき、仕様に忠実なコード変更を担当する。"
-mode: "all"
+mode: "subagent"
 color: "success"
 ---
 # mt-sdd-implementer

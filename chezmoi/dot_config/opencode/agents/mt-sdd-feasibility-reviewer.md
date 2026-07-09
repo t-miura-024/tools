@@ -3,8 +3,8 @@ description: "SDD 仕様の実現可能性レビュアー。spec.md が既存技
 mode: "subagent"
 color: "warning"
 permission:
-edit: "deny"
-bash: "deny"
+  edit: "deny"
+  bash: "deny"
 ---
 # mt-sdd-feasibility-reviewer
 
