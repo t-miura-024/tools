@@ -5,6 +5,7 @@ mod cli;
 mod config;
 mod git;
 mod opencode;
+mod plan;
 mod raycast;
 mod tool;
 mod vector;
@@ -36,6 +37,9 @@ enum Commands {
     /// vector: local vector search over markdown
     #[command(subcommand)]
     Vector(vector::VectorCommands),
+    /// plan: mt-plan Issue 管理
+    #[command(subcommand)]
+    Plan(plan::PlanCommands),
     /// raycast: Raycast settings backup and restore via chezmoi
     #[command(subcommand)]
     Raycast(raycast::RaycastCommands),
@@ -52,6 +56,7 @@ fn main() -> anyhow::Result<()> {
         Some(Commands::Tool(cmd)) => tool::run(cmd),
         Some(Commands::Chezmoi(cmd)) => chezmoi::run(cmd),
         Some(Commands::Vector(cmd)) => vector::run(cmd),
+        Some(Commands::Plan(cmd)) => plan::run(cmd),
         Some(Commands::Raycast(cmd)) => raycast::run(cmd),
     }
 }

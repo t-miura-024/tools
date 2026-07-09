@@ -45,6 +45,7 @@ cargo install --path .
 | `mt vector search`             | Qdrant コレクションをベクトル検索        |
 | `mt raycast sync`              | Raycast 設定をエクスポートして chezmoi 管理下に保存 |
 | `mt raycast restore`           | バックアップから Raycast 設定を復元      |
+| `mt plan draft`                | 新しい計画 Issue を draft で作成          |
 
 ## Dotfiles Management with chezmoi
 

@@ -10,6 +10,7 @@ use crate::cli::self_cmd::{self, SelfCommands};
 use crate::cli::style;
 use crate::git::{self, GitCommands, GitRepoCommands, GitWorktreeCommands};
 use crate::opencode::{self, OpencodeCommands, OpencodeOauthCommands, OpencodeWebCommands};
+use crate::plan::{self, PlanCommands};
 use crate::raycast::{self, RaycastCommands};
 use crate::tool::{self, ToolBrewCommands, ToolCommands};
 use crate::vector::{self, VectorCommands};
@@ -129,6 +130,11 @@ const SCRIPTS: &[ScriptEntry] = &[
         category: "raycast",
         description: "バックアップから Raycast 設定を復元",
     },
+    ScriptEntry {
+        name: "plan draft",
+        category: "plan",
+        description: "新しい計画 Issue を draft で作成",
+    },
 ];
 
 pub fn run() -> anyhow::Result<()> {
@@ -181,6 +187,7 @@ fn run_script(name: &str) -> anyhow::Result<()> {
         "chezmoi doctor" => chezmoi::run(ChezmoiCommands::Doctor),
         "raycast sync" => raycast::run(RaycastCommands::Sync),
         "raycast restore" => raycast::run(RaycastCommands::Restore),
+        "plan draft" => plan::run(PlanCommands::Draft { yes: false }),
         _ => anyhow::bail!("Unknown script: {}", name),
     }
 }
