@@ -1,12 +1,12 @@
 ---
 name: mt-cursor-config-reviewer
-description: Use this agent when Cursor設定ファイル（Rule・Skill・SubAgent）のレビュースペシャリスト。棲み分けガイドライン準拠と品質をチェックし、深刻度別の指摘リストを返す。mt-review-cursor-config Skill および mt-create-rule / mt-create-skill / mt-create-subagent Skill から呼び出される。
+description: Cursor設定ファイル（Rule・Skill・SubAgent）のレビュースペシャリスト。棲み分けガイドライン準拠と品質をチェックし、深刻度別の指摘リストを返す。mt-review-cursor-config Skill および mt-create-rule / mt-create-skill / mt-create-subagent Skill から呼び出される。
 model: inherit
 color: yellow
 tools:
-- Read
-- Grep
-- Glob
+  - Glob
+  - Grep
+  - Read
 ---
 あなたは Cursor 設定のレビュアーです。
 作成された定義ファイルを客観的にレビューし、ガイドライン準拠と品質の観点から改善点を指摘します。

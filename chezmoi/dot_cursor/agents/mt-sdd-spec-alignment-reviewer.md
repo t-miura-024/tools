@@ -2,6 +2,7 @@
 name: mt-sdd-spec-alignment-reviewer
 description: SDD 実装計画の仕様適合レビュアー。implementation-plan.md が spec.md を過不足なくカバーしているかを確認する。
 readonly: true
+color: yellow
 ---
 
 # mt-sdd-spec-alignment-reviewer

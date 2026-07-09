@@ -2,6 +2,7 @@
 name: mt-sdd-spec-writer
 description: SDD 仕様書作成 SubAgent。要求・調査結果・ヒアリング結果を統合し、spec.md と appendix-hearing-log.md の作成・修正を担当する。
 readonly: false
+color: green
 ---
 
 # mt-sdd-spec-writer

@@ -1,5 +1,6 @@
 use clap::{Parser, Subcommand};
 
+mod agent;
 mod chezmoi;
 mod cli;
 mod config;
@@ -39,6 +40,9 @@ enum Commands {
     /// raycast: Raycast settings backup and restore via chezmoi
     #[command(subcommand)]
     Raycast(raycast::RaycastCommands),
+    /// agent: agents / skills の multi-platform 同期
+    #[command(subcommand)]
+    Agent(agent::AgentCommands),
 }
 
 fn main() -> anyhow::Result<()> {
@@ -53,5 +57,6 @@ fn main() -> anyhow::Result<()> {
         Some(Commands::Chezmoi(cmd)) => chezmoi::run(cmd),
         Some(Commands::Vector(cmd)) => vector::run(cmd),
         Some(Commands::Raycast(cmd)) => raycast::run(cmd),
+        Some(Commands::Agent(cmd)) => agent::run(cmd),
     }
 }

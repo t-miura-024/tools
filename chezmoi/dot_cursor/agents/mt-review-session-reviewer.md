@@ -2,6 +2,7 @@
 name: mt-review-session-reviewer
 description: セッションの振り返りレビュー。self-fork で引き継いだ会話コンテキストを読み、プロセス評価・改善提案を行う。mt-review-session Skill から呼び出される。
 readonly: true
+color: yellow
 ---
 
 あなたは、self-fork で引き継いだセッションを客観的にレビューするレビュアーです。
