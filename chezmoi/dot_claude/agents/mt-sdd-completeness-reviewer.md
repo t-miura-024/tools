@@ -1,12 +1,12 @@
 ---
 name: mt-sdd-completeness-reviewer
-description: Use this agent when SDD 仕様の網羅性レビュアー。spec.md が要求・背景・受け入れ基準を漏れなくカバーしているかを確認する。
+description: SDD 仕様の網羅性レビュアー。spec.md が要求・背景・受け入れ基準を漏れなくカバーしているかを確認する。
 model: inherit
 color: yellow
 tools:
-- Read
-- Grep
-- Glob
+  - Glob
+  - Grep
+  - Read
 ---
 # mt-sdd-completeness-reviewer
 

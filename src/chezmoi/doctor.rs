@@ -76,6 +76,13 @@ pub fn run() -> anyhow::Result<()> {
         all_ok = false;
     }
 
+    if check_agent_sync().is_ok() {
+        style::success("agent/skill sync: 同期済み");
+    } else {
+        style::error("agent/skill sync: 未同期の項目があります。`mt agent sync` を実行してください");
+        all_ok = false;
+    }
+
     if all_ok {
         style::outro("doctor: すべての mt 固有チェック OK");
     } else {
@@ -182,6 +189,17 @@ fn check_agent_configs_removed(home: &Path) -> anyhow::Result<()> {
         anyhow::bail!("{} が残存しています", agent_configs.display());
     }
     Ok(())
+}
+
+fn check_agent_sync() -> anyhow::Result<()> {
+    let source_dir = crate::agent::shared::chezmoi_source_dir()?;
+    match crate::agent::shared::check_sync_status(&source_dir)? {
+        None => Ok(()),
+        Some(issues) => {
+            eprintln!("{}", issues);
+            anyhow::bail!("agent/skill 未同期")
+        }
+    }
 }
 
 fn locate_tools_repo(home: &Path) -> std::path::PathBuf {

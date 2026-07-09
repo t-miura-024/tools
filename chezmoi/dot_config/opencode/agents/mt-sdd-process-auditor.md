@@ -3,8 +3,8 @@ description: "SDD Process Auditor SubAgent。Human Gate 前に成果物、レビ
 mode: "subagent"
 color: "warning"
 permission:
-  edit: "deny"
-  bash: "deny"
+edit: "deny"
+bash: "deny"
 ---
 # mt-sdd-process-auditor
 

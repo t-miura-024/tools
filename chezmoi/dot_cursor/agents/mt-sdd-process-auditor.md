@@ -2,6 +2,7 @@
 name: mt-sdd-process-auditor
 description: SDD Process Auditor SubAgent。Human Gate 前に成果物、レビュー、UCR 処理、プロセス順守を監査する。
 readonly: true
+color: yellow
 ---
 
 # mt-sdd-process-auditor

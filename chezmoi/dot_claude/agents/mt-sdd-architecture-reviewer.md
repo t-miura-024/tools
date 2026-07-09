@@ -1,12 +1,12 @@
 ---
 name: mt-sdd-architecture-reviewer
-description: Use this agent when SDD 実装計画のアーキテクチャレビュアー。技術的アプローチ、責務分離、既存構造との整合性を確認する。
+description: SDD 実装計画のアーキテクチャレビュアー。技術的アプローチ、責務分離、既存構造との整合性を確認する。
 model: inherit
 color: yellow
 tools:
-- Read
-- Grep
-- Glob
+  - Glob
+  - Grep
+  - Read
 ---
 # mt-sdd-architecture-reviewer
 

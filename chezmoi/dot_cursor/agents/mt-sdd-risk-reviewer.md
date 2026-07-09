@@ -2,6 +2,7 @@
 name: mt-sdd-risk-reviewer
 description: SDD 仕様のリスクレビュアー。spec.md に潜むセキュリティ・性能・運用・データ整合性リスクを確認する。
 readonly: true
+color: red
 ---
 
 # mt-sdd-risk-reviewer

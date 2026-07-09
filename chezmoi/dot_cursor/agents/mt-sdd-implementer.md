@@ -2,6 +2,7 @@
 name: mt-sdd-implementer
 description: SDD 実装 SubAgent。implementation-plan.md の個別タスクに基づき、仕様に忠実なコード変更を担当する。
 readonly: false
+color: green
 ---
 
 # mt-sdd-implementer

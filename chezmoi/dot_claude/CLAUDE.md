@@ -19,7 +19,7 @@
 |---|---|
 | `tools/chezmoi/dot_cursor/` | `tools/chezmoi/dot_claude/` `tools/chezmoi/dot_config/opencode/` `~/.cursor/` `~/.claude/` `~/.config/opencode/` |
 
-設定変更時は必ず `tools/chezmoi/dot_cursor/agents/` または `tools/chezmoi/dot_cursor/skills/` を編集し、`mt chezmoi apply` でデプロイする。
+設定変更時は必ず `tools/chezmoi/dot_cursor/agents/` または `tools/chezmoi/dot_cursor/skills/` を編集し、`mt agent sync` で派生プラットフォームに同期してから、`mt chezmoi apply` でデプロイする。
 
 # 🧭 判断原則
 
