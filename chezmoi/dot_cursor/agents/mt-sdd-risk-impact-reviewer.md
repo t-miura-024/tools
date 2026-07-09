@@ -2,6 +2,7 @@
 name: mt-sdd-risk-impact-reviewer
 description: SDD 実装計画のリスク・影響範囲レビュアー。変更の影響範囲、破壊的変更、テスト戦略の妥当性を確認する。
 readonly: true
+color: red
 ---
 
 # mt-sdd-risk-impact-reviewer

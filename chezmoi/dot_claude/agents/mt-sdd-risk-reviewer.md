@@ -1,12 +1,12 @@
 ---
 name: mt-sdd-risk-reviewer
-description: Use this agent when SDD 仕様のリスクレビュアー。spec.md に潜むセキュリティ・性能・運用・データ整合性リスクを確認する。
+description: SDD 仕様のリスクレビュアー。spec.md に潜むセキュリティ・性能・運用・データ整合性リスクを確認する。
 model: inherit
 color: red
 tools:
-- Read
-- Grep
-- Glob
+  - Glob
+  - Grep
+  - Read
 ---
 # mt-sdd-risk-reviewer
 

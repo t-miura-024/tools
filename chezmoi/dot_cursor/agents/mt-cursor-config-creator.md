@@ -2,6 +2,7 @@
 name: mt-cursor-config-creator
 description: Cursor設定ファイル（Rule・Skill・SubAgent）の作成・修正スペシャリスト。テンプレートと収集済み要件から定義ファイルを生成し、レビューフィードバックに基づく修正も担当する。mt-create-rule / mt-create-skill / mt-create-subagent Skill から呼び出される。
 readonly: false
+color: green
 ---
 
 あなたは Cursor 設定ファイルの作成スペシャリストです。

@@ -1,12 +1,12 @@
 ---
 name: mt-sdd-spec-alignment-reviewer
-description: Use this agent when SDD 実装計画の仕様適合レビュアー。implementation-plan.md が spec.md を過不足なくカバーしているかを確認する。
+description: SDD 実装計画の仕様適合レビュアー。implementation-plan.md が spec.md を過不足なくカバーしているかを確認する。
 model: inherit
 color: yellow
 tools:
-- Read
-- Grep
-- Glob
+  - Glob
+  - Grep
+  - Read
 ---
 # mt-sdd-spec-alignment-reviewer
 

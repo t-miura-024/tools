@@ -2,6 +2,7 @@
 name: mt-sdd-validator
 description: SDD 仕様適合検証 SubAgent。実装差分が spec.md の受け入れ基準を満たしているかを機械的に検証する。
 readonly: true
+color: yellow
 ---
 
 # mt-sdd-validator

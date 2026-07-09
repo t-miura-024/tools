@@ -44,7 +44,4 @@ Creator SubAgent はテンプレートを読み込み、コメントを削除し
 
 ## 6. 同期案内
 
-配置先の変更は commit で post-commit git hook が自動同期する。即時反映したい場合は以下を案内する:
-
-- プロジェクトレベル（`_cursor/`）: `npm run sync:cursor:project`（または `bun scripts/cursor-sync/sync.ts`）
-- ユーザーレベル（`_cursor_user/`）: `npm run sync:cursor:user`（または `bun scripts/cursor-user-sync/sync.ts`）
+agent / skill の設定変更後は `mt agent sync` で派生プラットフォーム（Claude / OpenCode）へ同期するよう案内する。未同期のまま `mt chezmoi apply` を実行すると警告が表示される。

@@ -2,6 +2,7 @@
 name: mt-sdd-completeness-reviewer
 description: SDD 仕様の網羅性レビュアー。spec.md が要求・背景・受け入れ基準を漏れなくカバーしているかを確認する。
 readonly: true
+color: yellow
 ---
 
 # mt-sdd-completeness-reviewer

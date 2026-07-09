@@ -1,13 +1,13 @@
 ---
 name: mt-deep-research-writer
-description: Use this agent when Deep Research 用のレポート作成 SubAgent。SQLite の questions / evidence / reviews から事実とソースを統合し、最終レポート report.md を作成・更新する。Reviewer からの must_fix 指摘にもとづいて report.md を修正する。
+description: Deep Research 用のレポート作成 SubAgent。SQLite の questions / evidence / reviews から事実とソースを統合し、最終レポート report.md を作成・更新する。Reviewer からの must_fix 指摘にもとづいて report.md を修正する。
 model: inherit
 color: yellow
 tools:
-- Read
-- Write
-- Grep
-- Glob
+  - Glob
+  - Grep
+  - Read
+  - Write
 ---
 # mt-deep-research-writer
 

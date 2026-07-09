@@ -1,13 +1,13 @@
 ---
 name: mt-deep-research-researcher
-description: Use this agent when Deep Research 用の情報収集 SubAgent。SQLite の questions テーブルから割り当てられた問いを取得し、自律的に検索・取得・抽出を行い、evidence_rounds / sources / facts / off_topic_questions テーブルに一括保存する。
+description: Deep Research 用の情報収集 SubAgent。SQLite の questions テーブルから割り当てられた問いを取得し、自律的に検索・取得・抽出を行い、evidence_rounds / sources / facts / off_topic_questions テーブルに一括保存する。
 model: inherit
 color: blue
 tools:
-- Read
-- Write
-- Grep
-- Glob
+  - Glob
+  - Grep
+  - Read
+  - Write
 ---
 # mt-deep-research-researcher
 

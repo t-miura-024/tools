@@ -1,12 +1,12 @@
 ---
 name: mt-deep-research-reviewer
-description: Use this agent when Deep Research 用のレビュアー SubAgent。SQLite から questions / evidence / report.md を取得し、5 つの観点（coverage / sources / accuracy / structure / citations）のいずれかを担当してレビューし、reviews / review_findings テーブルに JSON で結果を保存する。
+description: Deep Research 用のレビュアー SubAgent。SQLite から questions / evidence / report.md を取得し、5 つの観点（coverage / sources / accuracy / structure / citations）のいずれかを担当してレビューし、reviews / review_findings テーブルに JSON で結果を保存する。
 model: inherit
 color: yellow
 tools:
-- Read
-- Grep
-- Glob
+  - Glob
+  - Grep
+  - Read
 ---
 # mt-deep-research-reviewer
 

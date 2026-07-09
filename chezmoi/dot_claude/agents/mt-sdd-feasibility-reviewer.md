@@ -1,12 +1,12 @@
 ---
 name: mt-sdd-feasibility-reviewer
-description: Use this agent when SDD 仕様の実現可能性レビュアー。spec.md が既存技術・制約・実装現実に照らして実現可能かを確認する。
+description: SDD 仕様の実現可能性レビュアー。spec.md が既存技術・制約・実装現実に照らして実現可能かを確認する。
 model: inherit
 color: yellow
 tools:
-- Read
-- Grep
-- Glob
+  - Glob
+  - Grep
+  - Read
 ---
 # mt-sdd-feasibility-reviewer
 

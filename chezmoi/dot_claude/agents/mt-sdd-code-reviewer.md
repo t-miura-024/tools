@@ -1,12 +1,12 @@
 ---
 name: mt-sdd-code-reviewer
-description: Use this agent when SDD コードレビュー SubAgent。実装差分をマクロ・ミクロ両面からレビューし、コード品質と保守性を確認する。
+description: SDD コードレビュー SubAgent。実装差分をマクロ・ミクロ両面からレビューし、コード品質と保守性を確認する。
 model: inherit
 color: yellow
 tools:
-- Read
-- Grep
-- Glob
+  - Glob
+  - Grep
+  - Read
 ---
 # mt-sdd-code-reviewer
 

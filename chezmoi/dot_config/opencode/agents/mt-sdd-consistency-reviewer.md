@@ -3,8 +3,8 @@ description: "SDD 仕様の一貫性レビュアー。spec.md 内部および既
 mode: "subagent"
 color: "warning"
 permission:
-  edit: "deny"
-  bash: "deny"
+edit: "deny"
+bash: "deny"
 ---
 # mt-sdd-consistency-reviewer
 

@@ -2,6 +2,7 @@
 name: mt-sdd-architecture-reviewer
 description: SDD 実装計画のアーキテクチャレビュアー。技術的アプローチ、責務分離、既存構造との整合性を確認する。
 readonly: true
+color: yellow
 ---
 
 # mt-sdd-architecture-reviewer
