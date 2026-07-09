@@ -47,6 +47,7 @@ cargo install --path .
 | `mt agent sync --check`        | 同期状態のみ確認（drift ありで非0終了）   |
 | `mt raycast sync`              | Raycast 設定をエクスポートして chezmoi 管理下に保存 |
 | `mt raycast restore`           | バックアップから Raycast 設定を復元      |
+| `mt plan draft`                | 新しい計画 Issue を draft で作成          |
 
 ## Dotfiles Management with chezmoi
 

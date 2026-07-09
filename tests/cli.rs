@@ -128,3 +128,12 @@ fn test_mt_self_install_help() {
         .success()
         .stdout(predicate::str::contains("cargo install"));
 }
+
+#[test]
+fn test_mt_plan_draft_help() {
+    let mut cmd = Command::cargo_bin("mt").unwrap();
+    cmd.args(["plan", "draft", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("draft で作成"));
+}
