@@ -2,6 +2,7 @@
 name: mt-cursor-config-reviewer
 description: Cursor設定ファイル（Rule・Skill・SubAgent）のレビュースペシャリスト。棲み分けガイドライン準拠と品質をチェックし、深刻度別の指摘リストを返す。mt-review-cursor-config Skill および mt-create-rule / mt-create-skill / mt-create-subagent Skill から呼び出される。
 readonly: true
+color: yellow
 ---
 
 あなたは Cursor 設定のレビュアーです。

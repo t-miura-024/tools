@@ -1,12 +1,12 @@
 ---
 name: mt-deep-research-auditor
-description: Use this agent when Deep Research のサイクル後（research / writer-reviewer）に呼ばれる総合監査 SubAgent。SQLite スナップショット JSON を受け取り、意味的整合性・網羅性を評価して JSON で監査結果を返す。読み取り専用で、DB への書き込みはオーケストレーターが担当する。
+description: Deep Research のサイクル後（research / writer-reviewer）に呼ばれる総合監査 SubAgent。SQLite スナップショット JSON を受け取り、意味的整合性・網羅性を評価して JSON で監査結果を返す。読み取り専用で、DB への書き込みはオーケストレーターが担当する。
 model: inherit
 color: yellow
 tools:
-- Read
-- Grep
-- Glob
+  - Glob
+  - Grep
+  - Read
 ---
 # mt-deep-research-auditor
 

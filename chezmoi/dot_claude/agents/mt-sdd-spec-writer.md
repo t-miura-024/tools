@@ -1,13 +1,13 @@
 ---
 name: mt-sdd-spec-writer
-description: Use this agent when SDD 仕様書作成 SubAgent。要求・調査結果・ヒアリング結果を統合し、spec.md と appendix-hearing-log.md の作成・修正を担当する。
+description: SDD 仕様書作成 SubAgent。要求・調査結果・ヒアリング結果を統合し、spec.md と appendix-hearing-log.md の作成・修正を担当する。
 model: inherit
 color: green
 tools:
-- Read
-- Write
-- Grep
-- Glob
+  - Glob
+  - Grep
+  - Read
+  - Write
 ---
 # mt-sdd-spec-writer
 

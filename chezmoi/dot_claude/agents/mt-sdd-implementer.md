@@ -1,13 +1,13 @@
 ---
 name: mt-sdd-implementer
-description: Use this agent when SDD 実装 SubAgent。implementation-plan.md の個別タスクに基づき、仕様に忠実なコード変更を担当する。
+description: SDD 実装 SubAgent。implementation-plan.md の個別タスクに基づき、仕様に忠実なコード変更を担当する。
 model: inherit
 color: green
 tools:
-- Read
-- Write
-- Grep
-- Glob
+  - Glob
+  - Grep
+  - Read
+  - Write
 ---
 # mt-sdd-implementer
 

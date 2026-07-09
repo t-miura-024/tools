@@ -1,12 +1,12 @@
 ---
 name: mt-sdd-validator
-description: Use this agent when SDD 仕様適合検証 SubAgent。実装差分が spec.md の受け入れ基準を満たしているかを機械的に検証する。
+description: SDD 仕様適合検証 SubAgent。実装差分が spec.md の受け入れ基準を満たしているかを機械的に検証する。
 model: inherit
 color: yellow
 tools:
-- Read
-- Grep
-- Glob
+  - Glob
+  - Grep
+  - Read
 ---
 # mt-sdd-validator
 

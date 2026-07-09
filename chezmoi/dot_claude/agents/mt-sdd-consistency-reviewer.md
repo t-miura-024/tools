@@ -1,12 +1,12 @@
 ---
 name: mt-sdd-consistency-reviewer
-description: Use this agent when SDD 仕様の一貫性レビュアー。spec.md 内部および既存システムとの用語・構造・設計整合性を確認する。
+description: SDD 仕様の一貫性レビュアー。spec.md 内部および既存システムとの用語・構造・設計整合性を確認する。
 model: inherit
 color: yellow
 tools:
-- Read
-- Grep
-- Glob
+  - Glob
+  - Grep
+  - Read
 ---
 # mt-sdd-consistency-reviewer
 

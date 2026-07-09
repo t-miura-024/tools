@@ -3,7 +3,7 @@ use std::path::PathBuf;
 
 use tempfile::TempDir;
 
-use super::*;
+use super::repo_discover::*;
 
 #[test]
 fn test_repo_name_validation() {

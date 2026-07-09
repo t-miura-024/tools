@@ -1,13 +1,13 @@
 ---
 name: mt-sdd-implementation-planner
-description: Use this agent when SDD 実装計画 SubAgent。確定仕様を実装タスクへ分解し、implementation-plan.md の作成・修正を担当する。
+description: SDD 実装計画 SubAgent。確定仕様を実装タスクへ分解し、implementation-plan.md の作成・修正を担当する。
 model: inherit
 color: blue
 tools:
-- Read
-- Write
-- Grep
-- Glob
+  - Glob
+  - Grep
+  - Read
+  - Write
 ---
 # mt-sdd-implementation-planner
 

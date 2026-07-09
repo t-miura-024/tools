@@ -3,8 +3,8 @@ description: "SDD 実装計画の仕様適合レビュアー。implementation-pl
 mode: "subagent"
 color: "warning"
 permission:
-  edit: "deny"
-  bash: "deny"
+edit: "deny"
+bash: "deny"
 ---
 # mt-sdd-spec-alignment-reviewer
 

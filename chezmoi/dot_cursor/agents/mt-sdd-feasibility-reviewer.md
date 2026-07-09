@@ -2,6 +2,7 @@
 name: mt-sdd-feasibility-reviewer
 description: SDD 仕様の実現可能性レビュアー。spec.md が既存技術・制約・実装現実に照らして実現可能かを確認する。
 readonly: true
+color: yellow
 ---
 
 # mt-sdd-feasibility-reviewer

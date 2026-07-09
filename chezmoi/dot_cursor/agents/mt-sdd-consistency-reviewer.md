@@ -2,6 +2,7 @@
 name: mt-sdd-consistency-reviewer
 description: SDD 仕様の一貫性レビュアー。spec.md 内部および既存システムとの用語・構造・設計整合性を確認する。
 readonly: true
+color: yellow
 ---
 
 # mt-sdd-consistency-reviewer

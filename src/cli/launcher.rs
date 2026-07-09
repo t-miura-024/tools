@@ -5,11 +5,13 @@ use std::process::{Command, Stdio};
 use anyhow::Context;
 use dialoguer::Input;
 
+use crate::agent::{self, AgentCommands};
 use crate::chezmoi::{self, ChezmoiCommands, SecretCommands};
 use crate::cli::self_cmd::{self, SelfCommands};
 use crate::cli::style;
 use crate::git::{self, GitCommands, GitRepoCommands, GitWorktreeCommands};
 use crate::opencode::{self, OpencodeCommands, OpencodeOauthCommands, OpencodeWebCommands};
+use crate::plan::{self, PlanCommands};
 use crate::raycast::{self, RaycastCommands};
 use crate::tool::{self, ToolBrewCommands, ToolCommands};
 use crate::vector::{self, VectorCommands};
@@ -125,6 +127,11 @@ const SCRIPTS: &[ScriptEntry] = &[
         description: "dot_zsh_secrets.age に API キー等を追加・更新",
     },
     ScriptEntry {
+        name: "agent sync",
+        category: "config",
+        description: "agents / skills を cursor canonical から Claude / OpenCode へ同期",
+    },
+    ScriptEntry {
         name: "raycast sync",
         category: "raycast",
         description: "Raycast 設定をエクスポートして chezmoi 管理下に保存",
@@ -133,6 +140,11 @@ const SCRIPTS: &[ScriptEntry] = &[
         name: "raycast restore",
         category: "raycast",
         description: "バックアップから Raycast 設定を復元",
+    },
+    ScriptEntry {
+        name: "plan draft",
+        category: "plan",
+        description: "新しい計画 Issue を draft で作成",
     },
 ];
 
@@ -185,8 +197,13 @@ fn run_script(name: &str) -> anyhow::Result<()> {
         "chezmoi diff" => chezmoi::run(ChezmoiCommands::Diff),
         "chezmoi doctor" => chezmoi::run(ChezmoiCommands::Doctor),
         "chezmoi secret set" => run_chezmoi_secret_set(),
+        "agent sync" => agent::run(AgentCommands::Sync {
+            check: false,
+            dry_run: false,
+        }),
         "raycast sync" => raycast::run(RaycastCommands::Sync),
         "raycast restore" => raycast::run(RaycastCommands::Restore),
+        "plan draft" => plan::run(PlanCommands::Draft { yes: false }),
         _ => anyhow::bail!("Unknown script: {}", name),
     }
 }

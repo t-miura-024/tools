@@ -2,6 +2,7 @@
 name: mt-sdd-task-structure-reviewer
 description: SDD 実装計画のタスク構造レビュアー。タスク粒度、順序、依存関係、レイヤー分類の妥当性を確認する。
 readonly: true
+color: yellow
 ---
 
 # mt-sdd-task-structure-reviewer

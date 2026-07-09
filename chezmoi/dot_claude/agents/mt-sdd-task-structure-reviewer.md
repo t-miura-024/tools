@@ -1,12 +1,12 @@
 ---
 name: mt-sdd-task-structure-reviewer
-description: Use this agent when SDD 実装計画のタスク構造レビュアー。タスク粒度、順序、依存関係、レイヤー分類の妥当性を確認する。
+description: SDD 実装計画のタスク構造レビュアー。タスク粒度、順序、依存関係、レイヤー分類の妥当性を確認する。
 model: inherit
 color: yellow
 tools:
-- Read
-- Grep
-- Glob
+  - Glob
+  - Grep
+  - Read
 ---
 # mt-sdd-task-structure-reviewer
 
