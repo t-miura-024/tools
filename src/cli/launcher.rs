@@ -5,6 +5,7 @@ use std::process::{Command, Stdio};
 use anyhow::Context;
 use dialoguer::Input;
 
+use crate::agent::{self, AgentCommands};
 use crate::chezmoi::{self, ChezmoiCommands};
 use crate::cli::self_cmd::{self, SelfCommands};
 use crate::cli::style;
@@ -120,6 +121,11 @@ const SCRIPTS: &[ScriptEntry] = &[
         description: "chezmoi + mt 固有 doctor を実行",
     },
     ScriptEntry {
+        name: "agent sync",
+        category: "config",
+        description: "agents / skills を cursor canonical から Claude / OpenCode へ同期",
+    },
+    ScriptEntry {
         name: "raycast sync",
         category: "raycast",
         description: "Raycast 設定をエクスポートして chezmoi 管理下に保存",
@@ -179,6 +185,10 @@ fn run_script(name: &str) -> anyhow::Result<()> {
         "chezmoi apply" => chezmoi::run(ChezmoiCommands::Apply),
         "chezmoi diff" => chezmoi::run(ChezmoiCommands::Diff),
         "chezmoi doctor" => chezmoi::run(ChezmoiCommands::Doctor),
+        "agent sync" => agent::run(AgentCommands::Sync {
+            check: false,
+            dry_run: false,
+        }),
         "raycast sync" => raycast::run(RaycastCommands::Sync),
         "raycast restore" => raycast::run(RaycastCommands::Restore),
         _ => anyhow::bail!("Unknown script: {}", name),
