@@ -54,8 +54,8 @@ pub enum SecretCommands {
     /// Delete a secret value from dot_zsh_secrets.age
     #[command(name = "delete")]
     Delete {
-        /// Environment variable name to delete (e.g. TAVILY_API_KEY)
-        key: String,
+        /// Environment variable name to delete (omit to select interactively)
+        key: Option<String>,
         /// Preview the encrypted content without writing
         #[arg(long)]
         dry_run: bool,
@@ -90,7 +90,7 @@ pub fn run(cmd: ChezmoiCommands) -> anyhow::Result<()> {
             dry_run,
             no_apply,
         }) => secret::run_delete(secret::SecretDeleteArgs {
-            key: &key,
+            key,
             dry_run,
             skip_apply: no_apply,
         }),

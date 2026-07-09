@@ -50,6 +50,26 @@ fn test_key_exists_partial_match_avoided() {
 }
 
 #[test]
+fn test_list_keys_in_plaintext() {
+    let plaintext = "# firecrawl\nexport FIRECRAWL_API_KEY=x\n\n# takt\nexport TAKT_OPENCODE_API_KEY=y\n";
+    let keys = shared::list_keys_in_plaintext(plaintext);
+    assert_eq!(
+        keys,
+        vec![
+            "FIRECRAWL_API_KEY".to_string(),
+            "TAKT_OPENCODE_API_KEY".to_string()
+        ]
+    );
+}
+
+#[test]
+fn test_list_keys_in_plaintext_skips_invalid_and_duplicates() {
+    let plaintext = "export VALID=1\nexport 1BAD=2\nexport VALID=3\nnot an export\n";
+    let keys = shared::list_keys_in_plaintext(plaintext);
+    assert_eq!(keys, vec!["VALID".to_string()]);
+}
+
+#[test]
 fn test_remove_existing_block_with_header() {
     let plaintext = "export KEEP=keepval\n# MY_KEY（2026-06-30）\n\nexport MY_KEY=secret\n";
     let result = shared::remove_existing_block(plaintext, "MY_KEY");

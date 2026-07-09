@@ -94,6 +94,28 @@ pub fn key_exists_in_plaintext(plaintext: &str, key: &str) -> bool {
     })
 }
 
+/// List environment variable keys found as `export KEY=` lines.
+pub fn list_keys_in_plaintext(plaintext: &str) -> Vec<String> {
+    let mut keys = Vec::new();
+    for line in plaintext.lines() {
+        let trimmed = line.trim();
+        let Some(rest) = trimmed.strip_prefix("export ") else {
+            continue;
+        };
+        let Some((name, _)) = rest.split_once('=') else {
+            continue;
+        };
+        let name = name.trim();
+        if name.is_empty() || validate_env_key_name(name).is_err() {
+            continue;
+        }
+        if !keys.iter().any(|k| k == name) {
+            keys.push(name.to_string());
+        }
+    }
+    keys
+}
+
 /// Remove an existing secret block for `key` from the plaintext.
 ///
 /// A block consists of an optional comment line `# KEY（...）` followed by
