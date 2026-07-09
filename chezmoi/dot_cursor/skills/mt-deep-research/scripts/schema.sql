@@ -1,5 +1,5 @@
 -- mt-deep-research SQLite schema
--- Tables are normalized; intermediate artifacts (evidence, reviews, audits, iterations, logs)
+-- Tables are normalized; intermediate artifacts (evidence, reviews, iterations, logs)
 -- are stored here, while only plan.md and report.md are emitted as standalone files.
 
 PRAGMA foreign_keys = ON;
@@ -84,34 +84,13 @@ CREATE TABLE IF NOT EXISTS review_findings (
   created_at         TEXT    NOT NULL DEFAULT (datetime('now'))
 );
 
--- Audit results from the audit pipeline.
-CREATE TABLE IF NOT EXISTS audits (
-  id           INTEGER PRIMARY KEY AUTOINCREMENT,
-  target_type  TEXT    NOT NULL CHECK (target_type IN ('phase', 'cycle')),
-  target_phase TEXT,                              -- planner | researcher | writer | reviewer (for phase)
-  target_cycle TEXT,                              -- research | writer-reviewer (for cycle)
-  status       TEXT    NOT NULL CHECK (status IN ('pass', 'fail', 'error')),
-  summary      TEXT,
-  created_at   TEXT    NOT NULL DEFAULT (datetime('now'))
-);
-
--- Individual audit checks (one row per check_name per audit).
-CREATE TABLE IF NOT EXISTS audit_checks (
-  id         INTEGER PRIMARY KEY AUTOINCREMENT,
-  audit_id   INTEGER NOT NULL REFERENCES audits(id) ON DELETE CASCADE,
-  check_name TEXT    NOT NULL,
-  status     TEXT    NOT NULL CHECK (status IN ('pass', 'fail', 'error', 'skip')),
-  detail     TEXT,
-  created_at TEXT    NOT NULL DEFAULT (datetime('now'))
-);
-
 -- Improvement-loop iteration history.
 CREATE TABLE IF NOT EXISTS iterations (
   id                  INTEGER PRIMARY KEY AUTOINCREMENT,
   loop_number         INTEGER NOT NULL,
   iteration_type      TEXT    NOT NULL
                       CHECK (iteration_type IN ('writer_fix', 'researcher_revisit', 'audit_retry')),
-  triggered_by_audit  INTEGER REFERENCES audits(id) ON DELETE SET NULL,
+  triggered_by_audit  INTEGER,
   summary             TEXT,
   created_at          TEXT    NOT NULL DEFAULT (datetime('now'))
 );
@@ -134,7 +113,5 @@ CREATE INDEX IF NOT EXISTS idx_sources_round           ON sources(evidence_round
 CREATE INDEX IF NOT EXISTS idx_facts_round             ON facts(evidence_round_id);
 CREATE INDEX IF NOT EXISTS idx_reviews_aspect          ON reviews(aspect);
 CREATE INDEX IF NOT EXISTS idx_review_findings_review  ON review_findings(review_id);
-CREATE INDEX IF NOT EXISTS idx_audits_target           ON audits(target_type, target_phase, target_cycle);
-CREATE INDEX IF NOT EXISTS idx_audit_checks_audit      ON audit_checks(audit_id);
 CREATE INDEX IF NOT EXISTS idx_iterations_type         ON iterations(iteration_type);
 CREATE INDEX IF NOT EXISTS idx_execution_logs_ts       ON execution_logs(timestamp);

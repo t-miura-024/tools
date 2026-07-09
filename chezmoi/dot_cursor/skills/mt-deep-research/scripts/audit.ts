@@ -9,21 +9,22 @@
  * Phases:  planner | researcher | writer | reviewer
  * Cycles:  research | writer-reviewer
  *
- * The script always saves the audit + checks to the DB. The exit code reflects
+ * The script outputs audit results as JSON to stdout. Exit code reflects
  * the overall status: 0 = pass, 1 = fail, 2 = error.
  */
 
 import { Database } from "bun:sqlite";
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, isAbsolute, resolve } from "node:path";
+import { checkMermaid } from "./lint";
 
 // -----------------------------------------------------------------------------
 // CLI plumbing (mirrors db.ts)
 // -----------------------------------------------------------------------------
 
 type FlagMap = Record<string, string | boolean>;
-type Check = { check_name: string; status: "pass" | "fail" | "error" | "skip"; detail: string };
-type CheckResult = Check & { check_name: string };
+export type AuditCheck = { check_name: string; status: "pass" | "fail" | "error" | "skip"; detail: string };
+type CheckResult = AuditCheck & { check_name: string };
 
 function parseArgs(argv: string[]): { positional: string[]; flags: FlagMap } {
   const positional: string[] = [];
@@ -129,53 +130,11 @@ function deriveDefaultPath(dbPath: string, filename: string): string {
 }
 
 // -----------------------------------------------------------------------------
-// DB ops used by audit.ts (small wrappers, kept independent from db.ts)
-// -----------------------------------------------------------------------------
-
-function saveAudit(
-  db: Database,
-  payload: {
-    target_type: "phase" | "cycle";
-    target_phase?: string;
-    target_cycle?: string;
-    status: "pass" | "fail" | "error";
-    summary: string;
-    checks: Check[];
-  },
-): number {
-  const tx = db.transaction(() => {
-    const row = db
-      .query<
-        { id: number },
-        [string, string | null, string | null, string, string]
-      >(
-        `INSERT INTO audits (target_type, target_phase, target_cycle, status, summary)
-         VALUES (?, ?, ?, ?, ?) RETURNING id`,
-      )
-      .get(
-        payload.target_type,
-        payload.target_phase ?? null,
-        payload.target_cycle ?? null,
-        payload.status,
-        payload.summary,
-      );
-    if (!row) throw new Error("audit insert returned no id");
-    for (const c of payload.checks) {
-      db.query(
-        `INSERT INTO audit_checks (audit_id, check_name, status, detail) VALUES (?, ?, ?, ?)`,
-      ).run(row.id, c.check_name, c.status, c.detail);
-    }
-    return row.id;
-  });
-  return tx();
-}
-
-// -----------------------------------------------------------------------------
 // Phase audits
 // -----------------------------------------------------------------------------
 
-function auditPlanner(db: Database, planPath: string): Check[] {
-  const checks: Check[] = [];
+export function auditPlanner(db: Database, planPath: string): AuditCheck[] {
+  const checks: AuditCheck[] = [];
   const questionCount = db
     .query<{ c: number }, []>("SELECT COUNT(*) AS c FROM questions")
     .get()?.c ?? 0;
@@ -197,9 +156,20 @@ function auditPlanner(db: Database, planPath: string): Check[] {
       status: missing.length === 0 ? "pass" : "fail",
       detail: missing.length === 0 ? "all required sections present" : `missing: ${missing.join(", ")}`,
     });
+    const mermaidErrors = checkMermaid(planContent);
+    checks.push({
+      check_name: "plan_md_has_mermaid",
+      status: mermaidErrors.length === 0 ? "pass" : "fail",
+      detail: mermaidErrors.length === 0 ? "mermaid block found" : `mermaid errors: ${mermaidErrors.map((e) => e.message).join("; ")}`,
+    });
   } else {
     checks.push({
       check_name: "plan_md_required_sections",
+      status: "skip",
+      detail: "plan.md missing",
+    });
+    checks.push({
+      check_name: "plan_md_has_mermaid",
       status: "skip",
       detail: "plan.md missing",
     });
@@ -218,11 +188,11 @@ function auditPlanner(db: Database, planPath: string): Check[] {
   return checks;
 }
 
-function auditResearcher(
+export function auditResearcher(
   db: Database,
   questionId?: number,
-): Check[] {
-  const checks: Check[] = [];
+): AuditCheck[] {
+  const checks: AuditCheck[] = [];
   const targetQuestion = questionId
     ? db
         .query<{ id: number; status: string }, [number]>(
@@ -274,8 +244,8 @@ function auditResearcher(
   return checks;
 }
 
-function auditWriter(db: Database, reportPath: string): Check[] {
-  const checks: Check[] = [];
+export function auditWriter(db: Database, reportPath: string): AuditCheck[] {
+  const checks: AuditCheck[] = [];
   const content = readFileOrNull(reportPath);
   checks.push({
     check_name: "report_md_exists",
@@ -293,6 +263,11 @@ function auditWriter(db: Database, reportPath: string): Check[] {
       status: "skip",
       detail: "report.md missing",
     });
+    checks.push({
+      check_name: "report_md_has_mermaid",
+      status: "skip",
+      detail: "report.md missing",
+    });
     return checks;
   }
   const missing = checkMissingSections(content, REPORT_REQUIRED_SECTIONS);
@@ -307,11 +282,17 @@ function auditWriter(db: Database, reportPath: string): Check[] {
     status: citationCount > 0 ? "pass" : "fail",
     detail: `citation occurrences: ${citationCount}`,
   });
+  const mermaidErrors = checkMermaid(content);
+  checks.push({
+    check_name: "report_md_has_mermaid",
+    status: mermaidErrors.length === 0 ? "pass" : "fail",
+    detail: mermaidErrors.length === 0 ? "mermaid block found" : `mermaid errors: ${mermaidErrors.map((e) => e.message).join("; ")}`,
+  });
   return checks;
 }
 
-function auditReviewer(db: Database): Check[] {
-  const checks: Check[] = [];
+export function auditReviewer(db: Database): AuditCheck[] {
+  const checks: AuditCheck[] = [];
   const rows = db
     .query<{ aspect: string; c: number }, [string]>(
       `SELECT aspect, MAX(round_number) AS c
@@ -356,8 +337,8 @@ function auditReviewer(db: Database): Check[] {
 // Cycle audits
 // -----------------------------------------------------------------------------
 
-function auditResearchCycle(db: Database): Check[] {
-  const checks: Check[] = auditResearcher(db);
+export function auditResearchCycle(db: Database): AuditCheck[] {
+  const checks: AuditCheck[] = auditResearcher(db);
   const approved = db
     .query<{ id: number; content: string }, []>(
       "SELECT id, content FROM questions WHERE status = 'approved'",
@@ -404,8 +385,8 @@ function auditResearchCycle(db: Database): Check[] {
   return checks;
 }
 
-function auditWriterReviewerCycle(db: Database, reportPath: string): Check[] {
-  const checks: Check[] = [...auditWriter(db, reportPath), ...auditReviewer(db)];
+export function auditWriterReviewerCycle(db: Database, reportPath: string): AuditCheck[] {
+  const checks: AuditCheck[] = [...auditWriter(db, reportPath), ...auditReviewer(db)];
   const mustFix = db
     .query<{ c: number }, []>(
       `SELECT COUNT(*) AS c FROM review_findings WHERE category = 'must_fix'`,
@@ -460,7 +441,7 @@ function auditWriterReviewerCycle(db: Database, reportPath: string): Check[] {
 // Dispatch
 // -----------------------------------------------------------------------------
 
-function overallStatus(checks: Check[]): "pass" | "fail" | "error" {
+function overallStatus(checks: AuditCheck[]): "pass" | "fail" | "error" {
   if (checks.some((c) => c.status === "error")) return "error";
   if (checks.some((c) => c.status === "fail")) return "fail";
   return "pass";
@@ -473,7 +454,7 @@ function runPhase(flags: FlagMap): never {
   const planPath = optionalFlag(flags, "plan-path") ?? deriveDefaultPath(dbPath, "plan.md");
   const reportPath = optionalFlag(flags, "report-path") ?? deriveDefaultPath(dbPath, "report.md");
   const db = openDb(dbPath);
-  let checks: Check[];
+  let checks: AuditCheck[];
   try {
     switch (phase) {
       case "planner":
@@ -496,17 +477,9 @@ function runPhase(flags: FlagMap): never {
   }
   const status = overallStatus(checks);
   const summary = `${checks.filter((c) => c.status === "pass").length} pass / ${checks.filter((c) => c.status === "fail").length} fail / ${checks.filter((c) => c.status === "skip").length} skip`;
-  const auditId = saveAudit(db, {
-    target_type: "phase",
-    target_phase: phase,
-    status,
-    summary,
-    checks,
-  });
   out(
     {
       success: status !== "error",
-      audit_id: auditId,
       target_type: "phase",
       target_phase: phase,
       status,
@@ -523,7 +496,7 @@ function runCycle(flags: FlagMap): never {
   const planPath = optionalFlag(flags, "plan-path") ?? deriveDefaultPath(dbPath, "plan.md");
   const reportPath = optionalFlag(flags, "report-path") ?? deriveDefaultPath(dbPath, "report.md");
   const db = openDb(dbPath);
-  let checks: Check[];
+  let checks: AuditCheck[];
   try {
     switch (cycle) {
       case "research":
@@ -540,17 +513,9 @@ function runCycle(flags: FlagMap): never {
   }
   const status = overallStatus(checks);
   const summary = `${checks.filter((c) => c.status === "pass").length} pass / ${checks.filter((c) => c.status === "fail").length} fail / ${checks.filter((c) => c.status === "skip").length} skip`;
-  const auditId = saveAudit(db, {
-    target_type: "cycle",
-    target_cycle: cycle,
-    status,
-    summary,
-    checks,
-  });
   out(
     {
       success: status !== "error",
-      audit_id: auditId,
       target_type: "cycle",
       target_cycle: cycle,
       status,
@@ -578,4 +543,4 @@ function main(): void {
   }
 }
 
-main();
+if (import.meta.main) main();
