@@ -1,0 +1,7 @@
+{
+  "name": "mt-workflow",
+  "private": true,
+  "type": "module",
+  "dependencies": {},
+  "devDependencies": {}
+}
