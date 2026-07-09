@@ -59,9 +59,7 @@ pub fn run() -> anyhow::Result<()> {
     if check_post_commit_hook().is_ok() {
         style::success("post-commit hook: 設置済み");
     } else {
-        style::warn(
-            "post-commit hook: 未設置（`mt chezmoi install-hook` で設置可能）",
-        );
+        style::warn("post-commit hook: 未設置（`mt chezmoi install-hook` で設置可能）");
     }
 
     if check_agent_configs_removed(&home).is_ok() {
@@ -168,10 +166,7 @@ fn check_post_commit_hook() -> anyhow::Result<()> {
 
 fn locate_post_commit_hook(tools_repo: &Path) -> anyhow::Result<std::path::PathBuf> {
     if !tools_repo.join("Cargo.toml").is_file() {
-        anyhow::bail!(
-            "{} に Cargo.toml が見つかりません",
-            tools_repo.display()
-        );
+        anyhow::bail!("{} に Cargo.toml が見つかりません", tools_repo.display());
     }
     let candidate = tools_repo.join(".git").join("hooks").join("post-commit");
     if !candidate.is_file() {
@@ -203,14 +198,8 @@ fn locate_tools_repo(home: &Path) -> std::path::PathBuf {
 
 fn check_platform_settings(home: &Path) -> bool {
     let checks: &[(&str, PathBuf)] = &[
-        (
-            "Cursor hooks.json",
-            home.join(".cursor/hooks.json"),
-        ),
-        (
-            "Claude settings.json",
-            home.join(".claude/settings.json"),
-        ),
+        ("Cursor hooks.json", home.join(".cursor/hooks.json")),
+        ("Claude settings.json", home.join(".claude/settings.json")),
         (
             "opencode bridge",
             home.join(".config/opencode/plugins/cursor-hook-bridge.ts"),
@@ -224,7 +213,11 @@ fn check_platform_settings(home: &Path) -> bool {
     let mut all_ok = true;
     for (label, path) in checks {
         if !path.exists() {
-            style::warn(&format!("platform hook {}: 未配置 ({})", label, path.display()));
+            style::warn(&format!(
+                "platform hook {}: 未配置 ({})",
+                label,
+                path.display()
+            ));
             all_ok = false;
         }
     }

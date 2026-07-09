@@ -39,7 +39,9 @@ pub fn run() -> anyhow::Result<()> {
     if all_ok {
         style::success("install-hook: 完了");
     } else {
-        style::warn("install-hook: 一部 platform 設定に問題あり。`mt chezmoi doctor` で詳細を確認してください");
+        style::warn(
+            "install-hook: 一部 platform 設定に問題あり。`mt chezmoi doctor` で詳細を確認してください",
+        );
         std::process::exit(2);
     }
     style::outro("done");
@@ -49,8 +51,7 @@ pub fn run() -> anyhow::Result<()> {
 fn cleanup_legacy_hook(home: &Path) -> anyhow::Result<()> {
     let legacy = home.join(".claude/hooks/agent-hooks/block-cursor-config-direct-edit.ts");
     if legacy.exists() {
-        fs::remove_file(&legacy)
-            .with_context(|| format!("{} の削除に失敗", legacy.display()))?;
+        fs::remove_file(&legacy).with_context(|| format!("{} の削除に失敗", legacy.display()))?;
         style::info(&format!("✓ 旧 hook スクリプト削除: {}", legacy.display()));
     } else {
         style::info("✓ 旧 hook スクリプト: なし（cleanup 不要）");
@@ -61,14 +62,8 @@ fn cleanup_legacy_hook(home: &Path) -> anyhow::Result<()> {
 fn verify_platform_settings(home: &Path) -> anyhow::Result<bool> {
     let mut all_ok = true;
     let checks: &[(&str, PathBuf)] = &[
-        (
-            "Cursor hooks.json",
-            home.join(".cursor/hooks.json"),
-        ),
-        (
-            "Claude settings.json",
-            home.join(".claude/settings.json"),
-        ),
+        ("Cursor hooks.json", home.join(".cursor/hooks.json")),
+        ("Claude settings.json", home.join(".claude/settings.json")),
         (
             "opencode bridge",
             home.join(".config/opencode/plugins/cursor-hook-bridge.ts"),
@@ -97,7 +92,9 @@ mod tests {
     #[test]
     fn test_cleanup_legacy_hook_removes_file() {
         let temp = tempfile::tempdir().unwrap();
-        let legacy = temp.path().join(".claude/hooks/agent-hooks/block-cursor-config-direct-edit.ts");
+        let legacy = temp
+            .path()
+            .join(".claude/hooks/agent-hooks/block-cursor-config-direct-edit.ts");
         fs::create_dir_all(legacy.parent().unwrap()).unwrap();
         fs::write(&legacy, "#!/bin/sh\n").unwrap();
         assert!(legacy.exists());

@@ -13,33 +13,25 @@ fn test_mt_chezmoi_help() {
 #[test]
 fn test_mt_chezmoi_apply_help() {
     let mut cmd = Command::cargo_bin("mt").unwrap();
-    cmd.args(["chezmoi", "apply", "--help"])
-        .assert()
-        .success();
+    cmd.args(["chezmoi", "apply", "--help"]).assert().success();
 }
 
 #[test]
 fn test_mt_chezmoi_diff_help() {
     let mut cmd = Command::cargo_bin("mt").unwrap();
-    cmd.args(["chezmoi", "diff", "--help"])
-        .assert()
-        .success();
+    cmd.args(["chezmoi", "diff", "--help"]).assert().success();
 }
 
 #[test]
 fn test_mt_chezmoi_status_help() {
     let mut cmd = Command::cargo_bin("mt").unwrap();
-    cmd.args(["chezmoi", "status", "--help"])
-        .assert()
-        .success();
+    cmd.args(["chezmoi", "status", "--help"]).assert().success();
 }
 
 #[test]
 fn test_mt_chezmoi_init_help() {
     let mut cmd = Command::cargo_bin("mt").unwrap();
-    cmd.args(["chezmoi", "init", "--help"])
-        .assert()
-        .success();
+    cmd.args(["chezmoi", "init", "--help"]).assert().success();
 }
 
 #[test]
@@ -54,17 +46,13 @@ fn test_mt_chezmoi_doctor_help() {
 #[test]
 fn test_mt_chezmoi_add_help() {
     let mut cmd = Command::cargo_bin("mt").unwrap();
-    cmd.args(["chezmoi", "add", "--help"])
-        .assert()
-        .success();
+    cmd.args(["chezmoi", "add", "--help"]).assert().success();
 }
 
 #[test]
 fn test_mt_chezmoi_edit_help() {
     let mut cmd = Command::cargo_bin("mt").unwrap();
-    cmd.args(["chezmoi", "edit", "--help"])
-        .assert()
-        .success();
+    cmd.args(["chezmoi", "edit", "--help"]).assert().success();
 }
 
 #[test]

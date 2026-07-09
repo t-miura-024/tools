@@ -384,7 +384,11 @@ pub fn create(no_push: bool) -> anyhow::Result<()> {
     }
     style::info(&format!(
         "push 設定    : {}",
-        if no_push { "skip (--no-push)" } else { "origin へ push" }
+        if no_push {
+            "skip (--no-push)"
+        } else {
+            "origin へ push"
+        }
     ));
 
     let confirm = Confirm::new()
@@ -459,7 +463,10 @@ pub fn create(no_push: bool) -> anyhow::Result<()> {
 
 fn push_branch(repo_path: &Path, branch: &str) -> anyhow::Result<()> {
     let Some(path_str) = repo_path.to_str() else {
-        anyhow::bail!("worktree パスが UTF-8 ではありません: {}", repo_path.display());
+        anyhow::bail!(
+            "worktree パスが UTF-8 ではありません: {}",
+            repo_path.display()
+        );
     };
     let output = Command::new("git")
         .args(["-C", path_str, "push", "-u", "origin", branch])
