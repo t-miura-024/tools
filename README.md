@@ -278,6 +278,8 @@ doc_dir = "doc"
 
 Raycast の設定（Export 11 カテゴリ: Settings / Snippets / Quicklinks / Notes / MCP Servers / Extensions / Hotkeys / AI Chats 等）を chezmoi 経由でバックアップ・リストアします。
 
+Export/Import は Raycast アプリ内の GUI 操作で行い、`mt` は deeplink 起動・ファイル配置・手順表示を担当します。
+
 ### 初回セットアップ
 
 1. Raycast アプリをインストール（`brew install --cask raycast`）
@@ -294,25 +296,23 @@ Raycast の設定（Export 11 カテゴリ: Settings / Snippets / Quicklinks / N
 ### 使い方
 
 ```bash
-# Raycast 設定をエクスポートし、chezmoi 管理下に保存
+# Raycast 設定をエクスポートして chezmoi 管理下に保存
 mt raycast sync
-
-# バックアップをコミット（暗号化済み .rayconfig が保存される）
-cd ~/src/tools
-git add chezmoi/dot_Raycast.rayconfig
-git commit -m "backup: Raycast settings"
-git push
+# → Raycast Export 画面が開く → passphrase を表示 → .rayconfig を chezmoi に取り込み → コミット手順を表示
 
 # 別の Mac で復元
 mt raycast restore
+# → バックアップパスと passphrase を表示 → Raycast Import 画面が開く → GUI で Import 手順を案内
 ```
 
 ### 管理ファイル
 
 | ファイル | 種別 | 役割 |
 | --- | --- | --- |
-| `chezmoi/dot_Raycast.rayconfig` | Raycast 暗号化 | Export 11 カテゴリ全データ（passphrase で暗号化、git 追跡） |
-| `chezmoi/dot_raycast_passphrase.age` | age 暗号化 | Raycast 暗号化 passphrase（age 公開鍵で暗号化、git 追跡） |
+| `chezmoi/dot_Raycast.rayconfig` | Raycast 暗号化 | Export 11 カテゴリ全データ（passphrase で暗号化、chezmoi apply 対象外） |
+| `chezmoi/dot_raycast_passphrase.age` | age 暗号化 | Raycast Export passphrase（age 公開鍵で暗号化、chezmoi apply 対象外） |
+
+> `.rayconfig` と passphrase ファイルは `.chezmoiignore` により `chezmoi apply` の対象外です。誤って `~/` に展開されません。
 
 
 
