@@ -31,6 +31,32 @@ pub fn passphrase_path() -> anyhow::Result<PathBuf> {
     Ok(chezmoi_source_dir()?.join("dot_raycast_passphrase.age"))
 }
 
+pub fn age_identity_path() -> PathBuf {
+    let default = home_dir()
+        .map(|h| h.join(".config/chezmoi/key.txt"))
+        .unwrap_or_else(|_| PathBuf::from(".config/chezmoi/key.txt"));
+
+    if let Ok(config_path) = home_dir()
+        .map(|h| h.join(".config/chezmoi/chezmoi.toml"))
+        && config_path.exists()
+        && let Ok(content) = fs::read_to_string(&config_path)
+    {
+        for line in content.lines() {
+            let line = line.trim();
+            if let Some(path) = line.strip_prefix("identity = \"")
+                .and_then(|s| s.strip_suffix('\"'))
+            {
+                let p = PathBuf::from(path);
+                if p.exists() {
+                    return p;
+                }
+            }
+        }
+    }
+
+    default
+}
+
 pub fn raycast_app_present() -> bool {
     Path::new("/Applications/Raycast.app").exists()
 }
@@ -57,8 +83,22 @@ pub fn decrypt_passphrase(passphrase_path: &Path) -> anyhow::Result<zeroize::Zer
         );
     }
 
+    let identity = age_identity_path();
+    if !identity.exists() {
+        anyhow::bail!(
+            "age 秘密鍵が見つかりません: {}\n\
+             age-keygen -o ~/.config/chezmoi/key.txt で生成してください",
+            identity.display()
+        );
+    }
+
     let output = Command::new("age")
-        .args(["-d", &passphrase_path.to_string_lossy()])
+        .args([
+            "-d",
+            "-i",
+            &identity.to_string_lossy(),
+            &passphrase_path.to_string_lossy(),
+        ])
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
