@@ -53,9 +53,9 @@ mt chezmoi status
 
 `chezmoi/` 配下の編集後、git commit → push で Source of Truth を更新します。
 
-## secrets の追加・更新
+## secrets の追加・更新・削除
 
-`mt chezmoi secret set` で 1 コマンドで secret を追加・更新できます。
+`mt chezmoi secret set` / `mt chezmoi secret delete` で 1 コマンドで secret を追加・更新・削除できます。
 
 ```bash
 # KEY を追加（パスワードプロンプトで値を入力）
@@ -64,11 +64,15 @@ mt chezmoi secret set MY_API_KEY
 # 既存 KEY を更新（上書き確認あり）
 mt chezmoi secret set MY_API_KEY
 
+# KEY を削除（確認あり）
+mt chezmoi secret delete MY_API_KEY
+
 # 内容をプレビュー（ファイル変更なし）
 mt chezmoi secret set MY_API_KEY --dry-run
+mt chezmoi secret delete MY_API_KEY --dry-run
 ```
 
-内部的には `dot_zsh_secrets.age` を復号 → 追記 → 再暗号化し、原子書き換えのため破損しません。
+内部的には `dot_zsh_secrets.age` を復号 → 追記/削除 → 再暗号化し、原子書き換えのため破損しません。
 実行後に `mt chezmoi apply` を実行するか確認されます（`--no-apply` でスキップ可）。
 
 平文フォーマットは以下の 2 行ブロックです（タイムスタンプは自動付与）:
