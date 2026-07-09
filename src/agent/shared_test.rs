@@ -32,4 +32,37 @@ mod tests {
         let result = crate::agent::shared::parse_cursor_agent(&content).unwrap();
         assert_eq!(result.meta.color, "green");
     }
+
+    #[test]
+    fn test_generate_opencode_agent_readonly() {
+        let agent = crate::agent::shared::AgentFile {
+            meta: crate::agent::shared::AgentMeta {
+                name: "reviewer".to_string(),
+                description: "レビュアー".to_string(),
+                readonly: true,
+                color: "yellow".to_string(),
+            },
+            body: "# body".to_string(),
+        };
+        let out = crate::agent::shared::generate_opencode_agent(&agent);
+        assert!(out.contains("mode: \"subagent\""), "mode は subagent のべき: {}", out);
+        assert!(out.contains("permission:\n  edit: \"deny\"\n  bash: \"deny\""), "permission のインデントが壊れています:\n{}", out);
+        assert!(!out.contains("\nedit: \"deny\""), "edit がトップレベルキーになっています:\n{}", out);
+    }
+
+    #[test]
+    fn test_generate_opencode_agent_writable() {
+        let agent = crate::agent::shared::AgentFile {
+            meta: crate::agent::shared::AgentMeta {
+                name: "writer".to_string(),
+                description: "ライター".to_string(),
+                readonly: false,
+                color: "green".to_string(),
+            },
+            body: "# body".to_string(),
+        };
+        let out = crate::agent::shared::generate_opencode_agent(&agent);
+        assert!(out.contains("mode: \"subagent\""), "mode は subagent のべき: {}", out);
+        assert!(!out.contains("permission"), "writable agent に permission は不要: {}", out);
+    }
 }

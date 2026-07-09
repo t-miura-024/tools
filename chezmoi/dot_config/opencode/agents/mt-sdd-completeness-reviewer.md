@@ -3,8 +3,8 @@ description: "SDD 仕様の網羅性レビュアー。spec.md が要求・背景
 mode: "subagent"
 color: "warning"
 permission:
-edit: "deny"
-bash: "deny"
+  edit: "deny"
+  bash: "deny"
 ---
 # mt-sdd-completeness-reviewer
 

@@ -3,8 +3,8 @@ description: "SDD 仕様のリスクレビュアー。spec.md に潜むセキュ
 mode: "subagent"
 color: "error"
 permission:
-edit: "deny"
-bash: "deny"
+  edit: "deny"
+  bash: "deny"
 ---
 # mt-sdd-risk-reviewer
 
