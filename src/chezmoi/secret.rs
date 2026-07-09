@@ -47,19 +47,7 @@ pub fn run_set(args: SecretSetArgs<'_>) -> anyhow::Result<()> {
         .with_confirmation("確認のためもう一度入力", "値が一致しません")
         .interact()?;
 
-    let timestamp = chrono::Local::now().format("%Y-%m-%d").to_string();
-    let header = shared::build_secret_block_header(args.key, &timestamp);
-    let block = format!("{}\nexport {}={}\n", header, args.key, value);
-
-    let new_plaintext = {
-        let base = shared::remove_existing_block(&plaintext, args.key);
-        let mut s = base.trim_end().to_string();
-        if !s.is_empty() {
-            s.push('\n');
-        }
-        s.push_str(&block);
-        s
-    };
+    let new_plaintext = shared::set_secret_entry(&plaintext, args.key, &value);
 
     if args.dry_run {
         println!("=== dry-run: 書き込み内容 ===");
@@ -102,14 +90,7 @@ pub fn run_delete(args: SecretDeleteArgs) -> anyhow::Result<()> {
         return Ok(());
     }
 
-    let new_plaintext = shared::remove_existing_block(&plaintext, &key);
-    let new_plaintext = {
-        let mut s = new_plaintext.trim_end().to_string();
-        if !s.is_empty() {
-            s.push('\n');
-        }
-        s
-    };
+    let new_plaintext = shared::delete_secret_entry(&plaintext, &key);
 
     if args.dry_run {
         println!("=== dry-run: 書き込み内容 ===");

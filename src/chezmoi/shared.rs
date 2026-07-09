@@ -80,95 +80,85 @@ pub fn validate_env_key_name(key: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// Build a secret block header line using JST timestamp.
-pub fn build_secret_block_header(key: &str, timestamp: &str) -> String {
-    format!("# {}（{}）", key, timestamp)
-}
+/// Fixed header for the secrets file format.
+pub const SECRETS_HEADER: &str = "# Secrets（chezmoi で age 暗号化）";
 
-/// Check whether `key` exists as an export line in the plaintext content.
-pub fn key_exists_in_plaintext(plaintext: &str, key: &str) -> bool {
-    let prefix = format!("export {}=", key);
-    plaintext.lines().any(|line| {
-        let trimmed = line.trim();
-        trimmed.starts_with(&prefix)
-    })
-}
-
-/// List environment variable keys found as `export KEY=` lines.
-pub fn list_keys_in_plaintext(plaintext: &str) -> Vec<String> {
-    let mut keys = Vec::new();
+/// Parse `export KEY=VALUE` lines in order (first occurrence wins for duplicates).
+pub fn parse_export_entries(plaintext: &str) -> Vec<(String, String)> {
+    let mut entries = Vec::new();
     for line in plaintext.lines() {
         let trimmed = line.trim();
         let Some(rest) = trimmed.strip_prefix("export ") else {
             continue;
         };
-        let Some((name, _)) = rest.split_once('=') else {
+        let Some((name, value)) = rest.split_once('=') else {
             continue;
         };
         let name = name.trim();
         if name.is_empty() || validate_env_key_name(name).is_err() {
             continue;
         }
-        if !keys.iter().any(|k| k == name) {
-            keys.push(name.to_string());
+        if entries.iter().any(|(k, _)| k == name) {
+            continue;
         }
+        entries.push((name.to_string(), value.to_string()));
     }
-    keys
+    entries
 }
 
-/// Remove an existing secret block for `key` from the plaintext.
+/// Normalize secrets plaintext to the canonical format:
 ///
-/// A block consists of an optional comment line `# KEY（...）` followed by
-/// optional blank lines and an `export KEY=...` line.  Leading/trailing
-/// whitespace around the block is trimmed.
-pub fn remove_existing_block(plaintext: &str, key: &str) -> String {
-    let export_prefix = format!("export {}=", key);
-    let comment_prefix = format!("# {}", key);
-    let lines: Vec<&str> = plaintext.lines().collect();
-    let mut result: Vec<&str> = Vec::new();
-    let mut i = 0;
-    while i < lines.len() {
-        let line = lines[i];
-        // Detect block start: comment line that matches the key
-        if line.trim_start().starts_with(&comment_prefix) {
-            // Skip comment line and any following blank lines
-            i += 1;
-            while i < lines.len() && lines[i].trim().is_empty() {
-                i += 1;
-            }
-            // Skip the export line if it matches
-            if i < lines.len() && lines[i].trim().starts_with(&export_prefix) {
-                i += 1;
-            }
-            // Skip trailing blank lines after the block
-            while i < lines.len() && lines[i].trim().is_empty() {
-                i += 1;
-            }
-            continue;
-        }
-        // Also detect standalone export line (without comment header)
-        if line.trim().starts_with(&export_prefix) {
-            // Look back to remove preceding blank lines and comment header
-            while result.last().is_some_and(|l| l.trim().is_empty()) {
-                result.pop();
-            }
-            if result.last().is_some_and(|l| l.trim_start().starts_with(&comment_prefix)) {
-                result.pop();
-            }
-            i += 1;
-            while i < lines.len() && lines[i].trim().is_empty() {
-                i += 1;
-            }
-            continue;
-        }
-        result.push(line);
-        i += 1;
+/// ```text
+/// # Secrets（chezmoi で age 暗号化）
+/// export KEY1=value1
+/// export KEY2=value2
+/// ```
+pub fn normalize_secrets_plaintext(entries: &[(String, String)]) -> String {
+    let mut out = String::from(SECRETS_HEADER);
+    out.push('\n');
+    for (key, value) in entries {
+        out.push_str("export ");
+        out.push_str(key);
+        out.push('=');
+        out.push_str(value);
+        out.push('\n');
     }
-    // Trim trailing empty lines
-    while result.last().is_some_and(|l| l.trim().is_empty()) {
-        result.pop();
+    out
+}
+
+/// Set or update a secret key, returning normalized plaintext.
+pub fn set_secret_entry(plaintext: &str, key: &str, value: &str) -> String {
+    let mut entries = parse_export_entries(plaintext);
+    if let Some((_, existing)) = entries.iter_mut().find(|(k, _)| k == key) {
+        *existing = value.to_string();
+    } else {
+        entries.push((key.to_string(), value.to_string()));
     }
-    result.join("\n") + "\n"
+    normalize_secrets_plaintext(&entries)
+}
+
+/// Delete a secret key, returning normalized plaintext (header only if empty).
+pub fn delete_secret_entry(plaintext: &str, key: &str) -> String {
+    let entries: Vec<(String, String)> = parse_export_entries(plaintext)
+        .into_iter()
+        .filter(|(k, _)| k != key)
+        .collect();
+    normalize_secrets_plaintext(&entries)
+}
+
+/// Check whether `key` exists as an export line in the plaintext content.
+pub fn key_exists_in_plaintext(plaintext: &str, key: &str) -> bool {
+    parse_export_entries(plaintext)
+        .iter()
+        .any(|(k, _)| k == key)
+}
+
+/// List environment variable keys found as `export KEY=` lines.
+pub fn list_keys_in_plaintext(plaintext: &str) -> Vec<String> {
+    parse_export_entries(plaintext)
+        .into_iter()
+        .map(|(k, _)| k)
+        .collect()
 }
 
 /// Default chezmoi source dir, used when no env var is set and we want to
