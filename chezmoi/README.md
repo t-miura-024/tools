@@ -78,10 +78,12 @@ mt chezmoi secret delete MY_API_KEY --dry-run
 内部的には `dot_zsh_secrets.age` を復号 → 追記/削除 → 再暗号化し、原子書き換えのため破損しません。
 実行後に `mt chezmoi apply` を実行するか確認されます（`--no-apply` でスキップ可）。
 
-平文フォーマットは以下の 2 行ブロックです（タイムスタンプは自動付与）:
+平文フォーマットは固定ヘッダ + 連続 `export` です（set/delete 実行時に正規化）:
 
 ```
-# MY_API_KEY（2026-07-09）
+# Secrets（chezmoi で age 暗号化）
+export TAVILY_API_KEY=...
+export FIRECRAWL_API_KEY=...
 export MY_API_KEY=...
 ```
 

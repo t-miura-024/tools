@@ -30,27 +30,59 @@ fn test_validate_env_key_name_invalid_chars() {
 }
 
 #[test]
-fn test_build_secret_block_header() {
-    let header = shared::build_secret_block_header("TEST_KEY", "2026-06-30");
-    assert_eq!(header, "# TEST_KEY（2026-06-30）");
-}
-
-#[test]
-fn test_append_secret_block_inserts_blank_line_between_blocks() {
-    let existing = "# firecrawl\nexport FIRECRAWL_API_KEY=x\n\n# takt\nexport TAKT_OPENCODE_API_KEY=y\n";
-    let block = "# TEST_KEY（2026-07-09）\nexport TEST_KEY=z\n";
-    let result = shared::append_secret_block(existing, block);
+fn test_normalize_secrets_plaintext() {
+    let entries = vec![
+        ("TAVILY_API_KEY".to_string(), "a".to_string()),
+        ("FIRECRAWL_API_KEY".to_string(), "b".to_string()),
+    ];
+    let result = shared::normalize_secrets_plaintext(&entries);
     assert_eq!(
         result,
-        "# firecrawl\nexport FIRECRAWL_API_KEY=x\n\n# takt\nexport TAKT_OPENCODE_API_KEY=y\n\n# TEST_KEY（2026-07-09）\nexport TEST_KEY=z\n"
+        "# Secrets（chezmoi で age 暗号化）\nexport TAVILY_API_KEY=a\nexport FIRECRAWL_API_KEY=b\n"
     );
 }
 
 #[test]
-fn test_append_secret_block_empty_base() {
-    let block = "# ONLY（2026-07-09）\nexport ONLY=v\n";
-    let result = shared::append_secret_block("", block);
-    assert_eq!(result, block);
+fn test_normalize_secrets_plaintext_empty_keeps_header() {
+    let result = shared::normalize_secrets_plaintext(&[]);
+    assert_eq!(result, "# Secrets（chezmoi で age 暗号化）\n");
+}
+
+#[test]
+fn test_set_secret_entry_adds_new_key_and_normalizes() {
+    let plaintext = "export TAVILY_API_KEY=a\n\n# firecrawl\nexport FIRECRAWL_API_KEY=b\n";
+    let result = shared::set_secret_entry(plaintext, "NEW_KEY", "c");
+    assert_eq!(
+        result,
+        "# Secrets（chezmoi で age 暗号化）\nexport TAVILY_API_KEY=a\nexport FIRECRAWL_API_KEY=b\nexport NEW_KEY=c\n"
+    );
+}
+
+#[test]
+fn test_set_secret_entry_overwrites_existing() {
+    let plaintext = "export FOO=old\nexport BAR=keep\n";
+    let result = shared::set_secret_entry(plaintext, "FOO", "new");
+    assert_eq!(
+        result,
+        "# Secrets（chezmoi で age 暗号化）\nexport FOO=new\nexport BAR=keep\n"
+    );
+}
+
+#[test]
+fn test_delete_secret_entry() {
+    let plaintext = "export FOO=1\nexport BAR=2\nexport BAZ=3\n";
+    let result = shared::delete_secret_entry(plaintext, "BAR");
+    assert_eq!(
+        result,
+        "# Secrets（chezmoi で age 暗号化）\nexport FOO=1\nexport BAZ=3\n"
+    );
+}
+
+#[test]
+fn test_delete_secret_entry_last_key_keeps_header() {
+    let plaintext = "export ONLY=1\n";
+    let result = shared::delete_secret_entry(plaintext, "ONLY");
+    assert_eq!(result, "# Secrets（chezmoi で age 暗号化）\n");
 }
 
 #[test]
@@ -69,7 +101,8 @@ fn test_key_exists_partial_match_avoided() {
 
 #[test]
 fn test_list_keys_in_plaintext() {
-    let plaintext = "# firecrawl\nexport FIRECRAWL_API_KEY=x\n\n# takt\nexport TAKT_OPENCODE_API_KEY=y\n";
+    let plaintext =
+        "# firecrawl\nexport FIRECRAWL_API_KEY=x\n\n# takt\nexport TAKT_OPENCODE_API_KEY=y\n";
     let keys = shared::list_keys_in_plaintext(plaintext);
     assert_eq!(
         keys,
@@ -85,29 +118,6 @@ fn test_list_keys_in_plaintext_skips_invalid_and_duplicates() {
     let plaintext = "export VALID=1\nexport 1BAD=2\nexport VALID=3\nnot an export\n";
     let keys = shared::list_keys_in_plaintext(plaintext);
     assert_eq!(keys, vec!["VALID".to_string()]);
-}
-
-#[test]
-fn test_remove_existing_block_with_header() {
-    let plaintext = "export KEEP=keepval\n# MY_KEY（2026-06-30）\n\nexport MY_KEY=secret\n";
-    let result = shared::remove_existing_block(plaintext, "MY_KEY");
-    assert!(!result.contains("MY_KEY"));
-    assert!(result.contains("export KEEP=keepval"));
-}
-
-#[test]
-fn test_remove_existing_block_standalone_export() {
-    let plaintext = "export KEEP=keepval\nexport STANDALONE=val\n";
-    let result = shared::remove_existing_block(plaintext, "STANDALONE");
-    assert!(!result.contains("STANDALONE"));
-    assert!(result.contains("export KEEP=keepval"));
-}
-
-#[test]
-fn test_remove_existing_block_not_found() {
-    let plaintext = "export FOO=bar\n";
-    let result = shared::remove_existing_block(plaintext, "BAZ");
-    assert_eq!(result.trim(), "export FOO=bar");
 }
 
 #[test]
@@ -128,7 +138,9 @@ fn test_parse_chezmoi_toml_source_dir() {
     assert_eq!(result, Some(std::path::PathBuf::from("/custom/path")));
 
     if let Some(v) = prev {
-        unsafe { std::env::set_var("HOME", v); }
+        unsafe {
+            std::env::set_var("HOME", v);
+        }
     }
 
     drop(guard);
@@ -148,7 +160,9 @@ fn test_parse_chezmoi_toml_not_exists() {
     assert_eq!(result, None);
 
     if let Some(v) = prev {
-        unsafe { std::env::set_var("HOME", v); }
+        unsafe {
+            std::env::set_var("HOME", v);
+        }
     }
 
     drop(guard);
@@ -167,9 +181,13 @@ fn test_resolve_chezmoi_source_dir_env_var() {
     assert_eq!(result, std::path::PathBuf::from("/tmp/from-env"));
 
     if let Some(v) = prev {
-        unsafe { std::env::set_var(key, v); }
+        unsafe {
+            std::env::set_var(key, v);
+        }
     } else {
-        unsafe { std::env::remove_var(key); }
+        unsafe {
+            std::env::remove_var(key);
+        }
     }
 
     drop(guard);
@@ -194,10 +212,14 @@ fn test_resolve_chezmoi_source_dir_default() {
     );
 
     if let Some(v) = prev_source {
-        unsafe { std::env::set_var("CHEZMOI_SOURCE_DIR", v); }
+        unsafe {
+            std::env::set_var("CHEZMOI_SOURCE_DIR", v);
+        }
     }
     if let Some(v) = prev_home {
-        unsafe { std::env::set_var("HOME", v); }
+        unsafe {
+            std::env::set_var("HOME", v);
+        }
     }
 
     drop(guard);
