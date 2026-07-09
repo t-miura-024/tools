@@ -43,3 +43,6 @@ rp() {
   [[ -n "$target" ]] || return
   cd -- "$target"
 }
+
+# ターミナル上のデフォルトエディタ指定
+export EDITOR="code --wait"
