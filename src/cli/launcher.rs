@@ -10,6 +10,7 @@ use crate::cli::self_cmd::{self, SelfCommands};
 use crate::cli::style;
 use crate::git::{self, GitCommands, GitRepoCommands, GitWorktreeCommands};
 use crate::opencode::{self, OpencodeCommands, OpencodeOauthCommands, OpencodeWebCommands};
+use crate::raycast::{self, RaycastCommands};
 use crate::tool::{self, ToolBrewCommands, ToolCommands};
 use crate::vector::{self, VectorCommands};
 
@@ -118,6 +119,16 @@ const SCRIPTS: &[ScriptEntry] = &[
         category: "dotfiles",
         description: "chezmoi + mt 固有 doctor を実行",
     },
+    ScriptEntry {
+        name: "raycast sync",
+        category: "raycast",
+        description: "Raycast 設定をエクスポートして chezmoi 管理下に保存",
+    },
+    ScriptEntry {
+        name: "raycast restore",
+        category: "raycast",
+        description: "バックアップから Raycast 設定を復元",
+    },
 ];
 
 pub fn run() -> anyhow::Result<()> {
@@ -168,6 +179,8 @@ fn run_script(name: &str) -> anyhow::Result<()> {
         "chezmoi apply" => chezmoi::run(ChezmoiCommands::Apply),
         "chezmoi diff" => chezmoi::run(ChezmoiCommands::Diff),
         "chezmoi doctor" => chezmoi::run(ChezmoiCommands::Doctor),
+        "raycast sync" => raycast::run(RaycastCommands::Sync),
+        "raycast restore" => raycast::run(RaycastCommands::Restore),
         _ => anyhow::bail!("Unknown script: {}", name),
     }
 }
