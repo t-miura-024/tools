@@ -324,17 +324,8 @@ fn run_chezmoi_secret_set() -> anyhow::Result<()> {
 }
 
 fn run_chezmoi_secret_delete() -> anyhow::Result<()> {
-    let key: String = Input::new()
-        .with_prompt("削除する環境変数名（例: TAVILY_API_KEY）")
-        .interact_text()
-        .context("KEY の入力に失敗しました")?;
-    let key = key.trim().to_string();
-    if key.is_empty() {
-        style::info("KEY が空のためキャンセルしました");
-        return Ok(());
-    }
     chezmoi::run(ChezmoiCommands::Secret(SecretCommands::Delete {
-        key,
+        key: None,
         dry_run: false,
         no_apply: false,
     }))

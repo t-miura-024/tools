@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 use anyhow::{Context, bail};
-use dialoguer::{Confirm, Password};
+use dialoguer::{Confirm, Password, Select};
 
 use super::shared;
 
@@ -13,8 +13,8 @@ pub struct SecretSetArgs<'a> {
     pub skip_apply: bool,
 }
 
-pub struct SecretDeleteArgs<'a> {
-    pub key: &'a str,
+pub struct SecretDeleteArgs {
+    pub key: Option<String>,
     pub dry_run: bool,
     pub skip_apply: bool,
 }
@@ -74,20 +74,25 @@ pub fn run_set(args: SecretSetArgs<'_>) -> anyhow::Result<()> {
     Ok(())
 }
 
-pub fn run_delete(args: SecretDeleteArgs<'_>) -> anyhow::Result<()> {
-    if let Err(msg) = shared::validate_env_key_name(args.key) {
-        bail!("{}", msg);
-    }
-
+pub fn run_delete(args: SecretDeleteArgs) -> anyhow::Result<()> {
     let age_file = resolve_age_file()?;
     let public_key = get_age_public_key()?;
     let plaintext = decrypt_age(&age_file)?;
 
-    if !shared::key_exists_in_plaintext(&plaintext, args.key) {
-        bail!("KEY '{}' は存在しません", args.key);
-    }
+    let key = match args.key {
+        Some(ref k) if !k.is_empty() => {
+            if let Err(msg) = shared::validate_env_key_name(k) {
+                bail!("{}", msg);
+            }
+            if !shared::key_exists_in_plaintext(&plaintext, k) {
+                bail!("KEY '{}' は存在しません", k);
+            }
+            k.clone()
+        }
+        _ => select_key_to_delete(&plaintext)?,
+    };
 
-    let prompt = format!("KEY '{}' を削除しますか？", args.key);
+    let prompt = format!("KEY '{}' を削除しますか？", key);
     if !Confirm::new()
         .with_prompt(&prompt)
         .default(false)
@@ -97,7 +102,7 @@ pub fn run_delete(args: SecretDeleteArgs<'_>) -> anyhow::Result<()> {
         return Ok(());
     }
 
-    let new_plaintext = shared::remove_existing_block(&plaintext, args.key);
+    let new_plaintext = shared::remove_existing_block(&plaintext, &key);
     let new_plaintext = {
         let mut s = new_plaintext.trim_end().to_string();
         if !s.is_empty() {
@@ -114,9 +119,24 @@ pub fn run_delete(args: SecretDeleteArgs<'_>) -> anyhow::Result<()> {
     }
 
     encrypt_age(new_plaintext.as_bytes(), &public_key, &age_file)?;
-    println!("dot_zsh_secrets.age から '{}' を削除しました", args.key);
+    println!("dot_zsh_secrets.age から '{}' を削除しました", key);
     maybe_apply(args.skip_apply)?;
     Ok(())
+}
+
+fn select_key_to_delete(plaintext: &str) -> anyhow::Result<String> {
+    let keys = shared::list_keys_in_plaintext(plaintext);
+    if keys.is_empty() {
+        bail!("削除可能な KEY がありません");
+    }
+
+    let selection = Select::new()
+        .with_prompt("削除する KEY を選択")
+        .items(&keys)
+        .default(0)
+        .interact()?;
+
+    Ok(keys[selection].clone())
 }
 
 fn resolve_age_file() -> anyhow::Result<PathBuf> {

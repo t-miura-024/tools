@@ -67,6 +67,9 @@ mt chezmoi secret set MY_API_KEY
 # KEY を削除（確認あり）
 mt chezmoi secret delete MY_API_KEY
 
+# KEY 省略時は一覧から選択
+mt chezmoi secret delete
+
 # 内容をプレビュー（ファイル変更なし）
 mt chezmoi secret set MY_API_KEY --dry-run
 mt chezmoi secret delete MY_API_KEY --dry-run
