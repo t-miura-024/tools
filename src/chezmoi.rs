@@ -7,6 +7,7 @@ pub mod doctor;
 pub mod edit;
 pub mod init;
 pub mod install_hook;
+pub mod secret;
 pub mod shared;
 pub mod status;
 pub mod uninstall_hook;
@@ -29,8 +30,27 @@ pub enum ChezmoiCommands {
     Edit,
     /// Install the mt post-commit hook (Phase 2 で本実装)
     InstallHook,
+    /// Manage secrets in dot_zsh_secrets.age
+    #[command(subcommand)]
+    Secret(SecretCommands),
     /// Remove the mt post-commit hook (Phase 2 で本実装)
     UninstallHook,
+}
+
+#[derive(Subcommand)]
+pub enum SecretCommands {
+    /// Set or update a secret value (encrypts into dot_zsh_secrets.age)
+    #[command(name = "set")]
+    Set {
+        /// Environment variable name to set (e.g. TAVILY_API_KEY)
+        key: String,
+        /// Preview the encrypted content without writing
+        #[arg(long)]
+        dry_run: bool,
+        /// Skip the apply prompt after setting
+        #[arg(long)]
+        no_apply: bool,
+    },
 }
 
 pub fn run(cmd: ChezmoiCommands) -> anyhow::Result<()> {
@@ -44,5 +64,14 @@ pub fn run(cmd: ChezmoiCommands) -> anyhow::Result<()> {
         ChezmoiCommands::Edit => edit::run(&[]),
         ChezmoiCommands::InstallHook => install_hook::run(),
         ChezmoiCommands::UninstallHook => uninstall_hook::run(),
+        ChezmoiCommands::Secret(SecretCommands::Set {
+            key,
+            dry_run,
+            no_apply,
+        }) => secret::run(secret::SecretSetArgs {
+            key: &key,
+            dry_run,
+            skip_apply: no_apply,
+        }),
     }
 }

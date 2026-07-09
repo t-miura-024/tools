@@ -21,6 +21,134 @@ pub fn resolve_source_dir() -> Option<String> {
     None
 }
 
+/// Resolve the chezmoi source directory with full fallback chain.
+///
+/// 1. `CHEZMOI_SOURCE_DIR` env var
+/// 2. `sourceDir` from `~/.config/chezmoi/chezmoi.toml`
+/// 3. Default `~/src/tools/chezmoi`
+pub fn resolve_chezmoi_source_dir() -> anyhow::Result<PathBuf> {
+    if let Ok(dir) = std::env::var("CHEZMOI_SOURCE_DIR")
+        && !dir.is_empty()
+    {
+        return Ok(PathBuf::from(dir));
+    }
+    if let Some(dir) = parse_chezmoi_toml_source_dir() {
+        return Ok(dir);
+    }
+    let home = std::env::var("HOME").context("HOME 環境変数が設定されていません")?;
+    Ok(PathBuf::from(format!("{}/src/tools/chezmoi", home)))
+}
+
+/// Parse `sourceDir` from `~/.config/chezmoi/chezmoi.toml`.
+pub fn parse_chezmoi_toml_source_dir() -> Option<PathBuf> {
+    let home = std::env::var("HOME").ok()?;
+    let config_path = PathBuf::from(format!("{}/.config/chezmoi/chezmoi.toml", home));
+    let content = std::fs::read_to_string(&config_path).ok()?;
+    for line in content.lines() {
+        let trimmed = line.trim();
+        if let Some(value) = trimmed.strip_prefix("sourceDir") {
+            let value = value.trim_start().strip_prefix('=')?.trim().trim_matches('"');
+            if !value.is_empty() {
+                return Some(PathBuf::from(value));
+            }
+        }
+    }
+    None
+}
+
+/// Validate that `key` is a legal shell environment variable name.
+pub fn validate_env_key_name(key: &str) -> Result<(), String> {
+    if key.is_empty() {
+        return Err("KEY が空です".to_string());
+    }
+    let first = key.chars().next().unwrap();
+    if !first.is_ascii_alphabetic() && first != '_' {
+        return Err(format!(
+            "KEY の先頭文字が無効です '{}': 英字または '_' で始めてください",
+            first
+        ));
+    }
+    for (i, c) in key.chars().enumerate() {
+        if !c.is_ascii_alphanumeric() && c != '_' {
+            return Err(format!(
+                "KEY の {} 文字目 '{}' が無効です: 英数字と '_' のみ使用できます",
+                i + 1,
+                c
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// Build a secret block header line using JST timestamp.
+pub fn build_secret_block_header(key: &str, timestamp: &str) -> String {
+    format!("# {}（{}）", key, timestamp)
+}
+
+/// Check whether `key` exists as an export line in the plaintext content.
+pub fn key_exists_in_plaintext(plaintext: &str, key: &str) -> bool {
+    let prefix = format!("export {}=", key);
+    plaintext.lines().any(|line| {
+        let trimmed = line.trim();
+        trimmed.starts_with(&prefix)
+    })
+}
+
+/// Remove an existing secret block for `key` from the plaintext.
+///
+/// A block consists of an optional comment line `# KEY（...）` followed by
+/// optional blank lines and an `export KEY=...` line.  Leading/trailing
+/// whitespace around the block is trimmed.
+pub fn remove_existing_block(plaintext: &str, key: &str) -> String {
+    let export_prefix = format!("export {}=", key);
+    let comment_prefix = format!("# {}", key);
+    let lines: Vec<&str> = plaintext.lines().collect();
+    let mut result: Vec<&str> = Vec::new();
+    let mut i = 0;
+    while i < lines.len() {
+        let line = lines[i];
+        // Detect block start: comment line that matches the key
+        if line.trim_start().starts_with(&comment_prefix) {
+            // Skip comment line and any following blank lines
+            i += 1;
+            while i < lines.len() && lines[i].trim().is_empty() {
+                i += 1;
+            }
+            // Skip the export line if it matches
+            if i < lines.len() && lines[i].trim().starts_with(&export_prefix) {
+                i += 1;
+            }
+            // Skip trailing blank lines after the block
+            while i < lines.len() && lines[i].trim().is_empty() {
+                i += 1;
+            }
+            continue;
+        }
+        // Also detect standalone export line (without comment header)
+        if line.trim().starts_with(&export_prefix) {
+            // Look back to remove preceding blank lines and comment header
+            while result.last().is_some_and(|l| l.trim().is_empty()) {
+                result.pop();
+            }
+            if result.last().is_some_and(|l| l.trim_start().starts_with(&comment_prefix)) {
+                result.pop();
+            }
+            i += 1;
+            while i < lines.len() && lines[i].trim().is_empty() {
+                i += 1;
+            }
+            continue;
+        }
+        result.push(line);
+        i += 1;
+    }
+    // Trim trailing empty lines
+    while result.last().is_some_and(|l| l.trim().is_empty()) {
+        result.pop();
+    }
+    result.join("\n") + "\n"
+}
+
 /// Default chezmoi source dir, used when no env var is set and we want to
 /// surface the expected location in help/error messages.
 #[allow(dead_code)]
