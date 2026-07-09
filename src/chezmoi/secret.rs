@@ -53,7 +53,7 @@ pub fn run(args: SecretSetArgs<'_>) -> anyhow::Result<()> {
 
     let timestamp = chrono::Local::now().format("%Y-%m-%d").to_string();
     let header = shared::build_secret_block_header(args.key, &timestamp);
-    let block = format!("{}\n\nexport {}={}\n", header, args.key, value);
+    let block = format!("{}\nexport {}={}\n", header, args.key, value);
 
     let new_plaintext = {
         let base = shared::remove_existing_block(&plaintext, args.key);
