@@ -85,6 +85,19 @@ pub fn build_secret_block_header(key: &str, timestamp: &str) -> String {
     format!("# {}（{}）", key, timestamp)
 }
 
+/// Append a secret block to existing plaintext with one blank line between blocks.
+pub fn append_secret_block(plaintext: &str, block: &str) -> String {
+    let mut s = plaintext.trim_end().to_string();
+    if !s.is_empty() {
+        s.push_str("\n\n");
+    }
+    s.push_str(block);
+    if !s.ends_with('\n') {
+        s.push('\n');
+    }
+    s
+}
+
 /// Check whether `key` exists as an export line in the plaintext content.
 pub fn key_exists_in_plaintext(plaintext: &str, key: &str) -> bool {
     let prefix = format!("export {}=", key);

@@ -53,12 +53,7 @@ pub fn run_set(args: SecretSetArgs<'_>) -> anyhow::Result<()> {
 
     let new_plaintext = {
         let base = shared::remove_existing_block(&plaintext, args.key);
-        let mut s = base.trim_end().to_string();
-        if !s.is_empty() {
-            s.push('\n');
-        }
-        s.push_str(&block);
-        s
+        shared::append_secret_block(&base, &block)
     };
 
     if args.dry_run {

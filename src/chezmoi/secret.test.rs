@@ -36,6 +36,24 @@ fn test_build_secret_block_header() {
 }
 
 #[test]
+fn test_append_secret_block_inserts_blank_line_between_blocks() {
+    let existing = "# firecrawl\nexport FIRECRAWL_API_KEY=x\n\n# takt\nexport TAKT_OPENCODE_API_KEY=y\n";
+    let block = "# TEST_KEY（2026-07-09）\nexport TEST_KEY=z\n";
+    let result = shared::append_secret_block(existing, block);
+    assert_eq!(
+        result,
+        "# firecrawl\nexport FIRECRAWL_API_KEY=x\n\n# takt\nexport TAKT_OPENCODE_API_KEY=y\n\n# TEST_KEY（2026-07-09）\nexport TEST_KEY=z\n"
+    );
+}
+
+#[test]
+fn test_append_secret_block_empty_base() {
+    let block = "# ONLY（2026-07-09）\nexport ONLY=v\n";
+    let result = shared::append_secret_block("", block);
+    assert_eq!(result, block);
+}
+
+#[test]
 fn test_key_exists_in_plaintext() {
     let plaintext = "export EXISTING=foo\n# comment\n";
     assert!(shared::key_exists_in_plaintext(plaintext, "EXISTING"));
