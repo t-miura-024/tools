@@ -59,7 +59,7 @@ GitHub Issue ベースで対象プロジェクトの計画 Issue を実行する
 
 ユーザーの入力から実行対象の計画 Issue を特定する。
 
-**Issue 番号が直接指定されている場合:**
+**Issue 番号（`<number>` または `#<number>`）が直接指定されている場合:**
 
 1. `gh issue view <number> --json state,labels` で Issue の存在と state を確認
 2. `kind/plan` label が付与されているか確認
