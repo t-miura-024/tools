@@ -314,7 +314,11 @@ fn prompt_title() -> anyhow::Result<String> {
 }
 
 fn open_editor_for_description() -> anyhow::Result<String> {
-    let editor = resolve_editor();
+    let editor_value = resolve_editor();
+
+    let mut parts = editor_value.split_whitespace();
+    let editor_cmd = parts.next().unwrap_or("vim");
+    let editor_args: Vec<&str> = parts.collect();
 
     let mut temp_path = std::env::temp_dir();
     temp_path.push("mt-plan-draft-description.md");
@@ -322,16 +326,18 @@ fn open_editor_for_description() -> anyhow::Result<String> {
     fs::write(&temp_path, "")
         .with_context(|| format!("一時ファイルの作成に失敗しました: {}", temp_path.display()))?;
 
-    let status = Command::new(&editor)
-        .arg(&temp_path)
+    let mut cmd = Command::new(editor_cmd);
+    cmd.args(&editor_args);
+    cmd.arg(&temp_path);
+    let status = cmd
         .status()
         .context(format!(
-            "エディタの起動に失敗しました: {editor} {}",
+            "エディタの起動に失敗しました: {editor_value} {}",
             temp_path.display()
         ))?;
 
     if !status.success() {
-        bail!("エディタがエラーで終了しました: {editor}");
+        bail!("エディタがエラーで終了しました: {editor_value}");
     }
 
     let description = fs::read_to_string(&temp_path)
