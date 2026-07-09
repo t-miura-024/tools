@@ -1,5 +1,5 @@
 use std::io::Write;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 use anyhow::{Context, bail};
@@ -13,22 +13,18 @@ pub struct SecretSetArgs<'a> {
     pub skip_apply: bool,
 }
 
-pub fn run(args: SecretSetArgs<'_>) -> anyhow::Result<()> {
+pub struct SecretDeleteArgs<'a> {
+    pub key: &'a str,
+    pub dry_run: bool,
+    pub skip_apply: bool,
+}
+
+pub fn run_set(args: SecretSetArgs<'_>) -> anyhow::Result<()> {
     if let Err(msg) = shared::validate_env_key_name(args.key) {
         bail!("{}", msg);
     }
 
-    let source_dir = shared::resolve_chezmoi_source_dir()?;
-    let age_file = source_dir.join("dot_zsh_secrets.age");
-
-    if !age_file.exists() {
-        bail!(
-            "{} が見つかりません（source dir: {}）",
-            age_file.display(),
-            source_dir.display()
-        );
-    }
-
+    let age_file = resolve_age_file()?;
     let public_key = get_age_public_key()?;
     let plaintext = decrypt_age(&age_file)?;
 
@@ -53,7 +49,7 @@ pub fn run(args: SecretSetArgs<'_>) -> anyhow::Result<()> {
 
     let timestamp = chrono::Local::now().format("%Y-%m-%d").to_string();
     let header = shared::build_secret_block_header(args.key, &timestamp);
-    let block = format!("{}\n\nexport {}={}\n", header, args.key, value);
+    let block = format!("{}\nexport {}={}\n", header, args.key, value);
 
     let new_plaintext = {
         let base = shared::remove_existing_block(&plaintext, args.key);
@@ -73,10 +69,71 @@ pub fn run(args: SecretSetArgs<'_>) -> anyhow::Result<()> {
     }
 
     encrypt_age(new_plaintext.as_bytes(), &public_key, &age_file)?;
-
     println!("dot_zsh_secrets.age を '{}' で更新しました", args.key);
+    maybe_apply(args.skip_apply)?;
+    Ok(())
+}
 
-    if !args.skip_apply
+pub fn run_delete(args: SecretDeleteArgs<'_>) -> anyhow::Result<()> {
+    if let Err(msg) = shared::validate_env_key_name(args.key) {
+        bail!("{}", msg);
+    }
+
+    let age_file = resolve_age_file()?;
+    let public_key = get_age_public_key()?;
+    let plaintext = decrypt_age(&age_file)?;
+
+    if !shared::key_exists_in_plaintext(&plaintext, args.key) {
+        bail!("KEY '{}' は存在しません", args.key);
+    }
+
+    let prompt = format!("KEY '{}' を削除しますか？", args.key);
+    if !Confirm::new()
+        .with_prompt(&prompt)
+        .default(false)
+        .interact()?
+    {
+        println!("キャンセルしました。");
+        return Ok(());
+    }
+
+    let new_plaintext = shared::remove_existing_block(&plaintext, args.key);
+    let new_plaintext = {
+        let mut s = new_plaintext.trim_end().to_string();
+        if !s.is_empty() {
+            s.push('\n');
+        }
+        s
+    };
+
+    if args.dry_run {
+        println!("=== dry-run: 書き込み内容 ===");
+        print!("{}", new_plaintext);
+        println!("=== dry-run 終了（ファイルは変更されていません） ===");
+        return Ok(());
+    }
+
+    encrypt_age(new_plaintext.as_bytes(), &public_key, &age_file)?;
+    println!("dot_zsh_secrets.age から '{}' を削除しました", args.key);
+    maybe_apply(args.skip_apply)?;
+    Ok(())
+}
+
+fn resolve_age_file() -> anyhow::Result<PathBuf> {
+    let source_dir = shared::resolve_chezmoi_source_dir()?;
+    let age_file = source_dir.join("dot_zsh_secrets.age");
+    if !age_file.exists() {
+        bail!(
+            "{} が見つかりません（source dir: {}）",
+            age_file.display(),
+            source_dir.display()
+        );
+    }
+    Ok(age_file)
+}
+
+fn maybe_apply(skip_apply: bool) -> anyhow::Result<()> {
+    if !skip_apply
         && Confirm::new()
             .with_prompt("mt chezmoi apply を実行しますか？")
             .default(true)
@@ -84,7 +141,6 @@ pub fn run(args: SecretSetArgs<'_>) -> anyhow::Result<()> {
     {
         super::apply::run(&[])?;
     }
-
     Ok(())
 }
 
