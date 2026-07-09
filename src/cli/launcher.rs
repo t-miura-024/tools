@@ -5,7 +5,7 @@ use std::process::{Command, Stdio};
 use anyhow::Context;
 use dialoguer::Input;
 
-use crate::chezmoi::{self, ChezmoiCommands};
+use crate::chezmoi::{self, ChezmoiCommands, SecretCommands};
 use crate::cli::self_cmd::{self, SelfCommands};
 use crate::cli::style;
 use crate::git::{self, GitCommands, GitRepoCommands, GitWorktreeCommands};
@@ -120,6 +120,11 @@ const SCRIPTS: &[ScriptEntry] = &[
         description: "chezmoi + mt 固有 doctor を実行",
     },
     ScriptEntry {
+        name: "chezmoi secret set",
+        category: "dotfiles",
+        description: "dot_zsh_secrets.age に API キー等を追加・更新",
+    },
+    ScriptEntry {
         name: "raycast sync",
         category: "raycast",
         description: "Raycast 設定をエクスポートして chezmoi 管理下に保存",
@@ -179,6 +184,7 @@ fn run_script(name: &str) -> anyhow::Result<()> {
         "chezmoi apply" => chezmoi::run(ChezmoiCommands::Apply),
         "chezmoi diff" => chezmoi::run(ChezmoiCommands::Diff),
         "chezmoi doctor" => chezmoi::run(ChezmoiCommands::Doctor),
+        "chezmoi secret set" => run_chezmoi_secret_set(),
         "raycast sync" => raycast::run(RaycastCommands::Sync),
         "raycast restore" => raycast::run(RaycastCommands::Restore),
         _ => anyhow::bail!("Unknown script: {}", name),
@@ -275,6 +281,23 @@ fn ensure_fzf() -> anyhow::Result<()> {
     }
 
     Ok(())
+}
+
+fn run_chezmoi_secret_set() -> anyhow::Result<()> {
+    let key: String = Input::new()
+        .with_prompt("環境変数名（例: TAVILY_API_KEY）")
+        .interact_text()
+        .context("KEY の入力に失敗しました")?;
+    let key = key.trim().to_string();
+    if key.is_empty() {
+        style::info("KEY が空のためキャンセルしました");
+        return Ok(());
+    }
+    chezmoi::run(ChezmoiCommands::Secret(SecretCommands::Set {
+        key,
+        dry_run: false,
+        no_apply: false,
+    }))
 }
 
 fn default_vector_config_path() -> PathBuf {

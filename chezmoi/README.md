@@ -55,7 +55,33 @@ mt chezmoi status
 
 ## secrets の追加・更新
 
-`dot_zsh_secrets.age` を更新する手順:
+`mt chezmoi secret set` で 1 コマンドで secret を追加・更新できます。
+
+```bash
+# KEY を追加（パスワードプロンプトで値を入力）
+mt chezmoi secret set MY_API_KEY
+
+# 既存 KEY を更新（上書き確認あり）
+mt chezmoi secret set MY_API_KEY
+
+# 内容をプレビュー（ファイル変更なし）
+mt chezmoi secret set MY_API_KEY --dry-run
+```
+
+内部的には `dot_zsh_secrets.age` を復号 → 追記 → 再暗号化し、原子書き換えのため破損しません。
+実行後に `mt chezmoi apply` を実行するか確認されます（`--no-apply` でスキップ可）。
+
+平文フォーマットは以下の 3 行ブロックです（タイムスタンプは自動付与）:
+
+```
+# MY_API_KEY（2026-07-09）
+
+export MY_API_KEY=...
+```
+
+### 旧手順（手動）
+
+手動で行う場合の参考手順:
 
 1. 公開鍵を確認: `age-keygen -y ~/.config/chezmoi/key.txt`
 2. 平文ファイル（git コミット対象外）を作成:
