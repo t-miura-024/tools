@@ -52,7 +52,7 @@ fn test_parse_with_crlf_line_endings() {
 
 #[test]
 fn test_from_value_with_non_string_values() {
-    let value: serde_yaml::Value = serde_yaml::from_str("title: 123\nsource: [a, b]").unwrap();
+    let value: yaml_serde::Value = yaml_serde::from_str("title: 123\nsource: [a, b]").unwrap();
     let fm = DocFrontmatter::from_value(&value, "title", "source");
     assert_eq!(fm.title, "");
     assert_eq!(fm.source, "");

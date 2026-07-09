@@ -8,10 +8,16 @@ use crate::cli::style;
 pub fn run() -> anyhow::Result<()> {
     style::intro("mt chezmoi uninstall-hook: platform-native hook 無効化");
     style::warn("chezmoi source 内の platform-native hook 設定を無効化するには以下を実行:");
-    style::info("  1. tools/chezmoi/dot_cursor/hooks.json から 'preToolUse' を除去（または空配列に）");
+    style::info(
+        "  1. tools/chezmoi/dot_cursor/hooks.json から 'preToolUse' を除去（または空配列に）",
+    );
     style::info("  2. tools/chezmoi/dot_claude/settings.json から 'PreToolUse' matcher を除去");
-    style::info("  3. tools/chezmoi/dot_config/opencode/plugins/cursor-hook-bridge.ts を `chezmoi forget` で管理外にする");
-    style::info("  4. tools/chezmoi/dot_config/opencode/config.json から './plugins/cursor-hook-bridge.ts' エントリを除去");
+    style::info(
+        "  3. tools/chezmoi/dot_config/opencode/plugins/cursor-hook-bridge.ts を `chezmoi forget` で管理外にする",
+    );
+    style::info(
+        "  4. tools/chezmoi/dot_config/opencode/config.json から './plugins/cursor-hook-bridge.ts' エントリを除去",
+    );
     style::info("  5. `mt chezmoi apply` 実行");
     style::outro("完了");
     Ok(())

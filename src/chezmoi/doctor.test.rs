@@ -2,7 +2,9 @@ use super::*;
 
 #[test]
 fn test_check_source_dir_config_accepts_env_var() {
-    let _guard = super::super::shared::ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let _guard = super::super::shared::ENV_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
     let prev = std::env::var("CHEZMOI_SOURCE_DIR").ok();
     unsafe {
         std::env::set_var("CHEZMOI_SOURCE_DIR", "/some/path");
@@ -21,7 +23,9 @@ fn test_check_source_dir_config_accepts_env_var() {
 
 #[test]
 fn test_check_age_key_missing_file_fails() {
-    let _guard = super::super::shared::ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let _guard = super::super::shared::ENV_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
     let prev = std::env::var("HOME").ok();
     unsafe {
         std::env::set_var("HOME", "/nonexistent-chezmoi-doctor-test-home");

@@ -431,10 +431,7 @@ fn make_temp_bare_repo() -> (tempfile::TempDir, PathBuf) {
 }
 
 fn attach_origin(local: &Path, bare: &Path) {
-    run_git(
-        local,
-        &["remote", "add", "origin", bare.to_str().unwrap()],
-    );
+    run_git(local, &["remote", "add", "origin", bare.to_str().unwrap()]);
 }
 
 #[test]
@@ -468,9 +465,18 @@ fn test_push_branch_success() {
     );
 
     // upstream が origin/tools-wt-test に設定されているはず
-    let upstream =
-        command_output("git", &["-C", local.to_str().unwrap(), "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"])
-            .expect("upstream 取得");
+    let upstream = command_output(
+        "git",
+        &[
+            "-C",
+            local.to_str().unwrap(),
+            "rev-parse",
+            "--abbrev-ref",
+            "--symbolic-full-name",
+            "@{u}",
+        ],
+    )
+    .expect("upstream 取得");
     assert_eq!(upstream, "origin/tools-wt-test");
 }
 
@@ -484,7 +490,10 @@ fn test_push_branch_no_origin_fails() {
 
     // origin が未設定なら push は失敗する
     let result = push_branch(&local, "tools-wt-noorigin");
-    let err = format!("{:#}", result.expect_err("origin 無しで push が成功してはいけない"));
+    let err = format!(
+        "{:#}",
+        result.expect_err("origin 無しで push が成功してはいけない")
+    );
     assert!(
         err.contains("git push"),
         "エラーメッセージに 'git push' が含まれるべき: {err}"

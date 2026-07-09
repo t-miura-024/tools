@@ -115,7 +115,7 @@ pub(super) fn read_npm_global_packages(path: &Path) -> anyhow::Result<Vec<NpmGlo
         )
     })?;
 
-    let manifest: NpmGlobalManifest = serde_yaml::from_str(&content).with_context(|| {
+    let manifest: NpmGlobalManifest = yaml_serde::from_str(&content).with_context(|| {
         format!(
             "npm-global.yml の YAML 解析に失敗しました: {}",
             path.display()

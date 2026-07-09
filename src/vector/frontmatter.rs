@@ -1,5 +1,5 @@
 use anyhow::{Context, Result};
-use serde_yaml::Value;
+use yaml_serde::Value;
 
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct DocFrontmatter {
@@ -46,7 +46,7 @@ pub fn parse(content: &str, title_key: &str, source_key: &str) -> Result<(DocFro
     let body_text = body[body_start..].to_string();
 
     let value: Value =
-        serde_yaml::from_str(frontmatter_str).context("frontmatter の YAML 解析に失敗しました")?;
+        yaml_serde::from_str(frontmatter_str).context("frontmatter の YAML 解析に失敗しました")?;
     let frontmatter = DocFrontmatter::from_value(&value, title_key, source_key);
 
     Ok((frontmatter, body_text))
