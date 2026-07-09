@@ -1,6 +1,6 @@
 ---
 description: "SDD 実装計画 SubAgent。確定仕様を実装タスクへ分解し、implementation-plan.md の作成・修正を担当する。"
-mode: "subagent"
+mode: "all"
 color: "primary"
 ---
 # mt-sdd-implementation-planner

@@ -3,8 +3,8 @@ description: "Deep Research のサイクル後（research / writer-reviewer）�
 mode: "subagent"
 color: "warning"
 permission:
-  edit: "deny"
-  bash: "deny"
+edit: "deny"
+bash: "deny"
 ---
 # mt-deep-research-auditor
 

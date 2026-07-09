@@ -1,6 +1,6 @@
 ---
 description: "Deep Research 用の調査計画を立案する SubAgent。ユーザーから渡された背景・目的・前提知識・制約をもとに、軽い事前調査を行い、研究計画書 plan.md を作成すると同時に、questions テーブルへ SQLite 経由で主要な問いを登録する。"
-mode: "subagent"
+mode: "all"
 color: "primary"
 ---
 # mt-deep-research-planner
