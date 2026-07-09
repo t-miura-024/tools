@@ -43,6 +43,8 @@ cargo install --path .
 | `mt tool brew upgrade`         | Homebrew パッケージを更新              |
 | `mt vector ingest`             | Markdown 群を Qdrant に投入（設定ファイル駆動）|
 | `mt vector search`             | Qdrant コレクションをベクトル検索        |
+| `mt raycast sync`              | Raycast 設定をエクスポートして chezmoi 管理下に保存 |
+| `mt raycast restore`           | バックアップから Raycast 設定を復元      |
 
 ## Dotfiles Management with chezmoi
 
@@ -274,6 +276,48 @@ doc_dir = "doc"
 
 埋め込みは Phase 1 では SHA-256 ベースのダミー実装で、ONNX ランタイム統合は別計画で取り組む。
 
+## Raycast Settings Backup
+
+Raycast の設定（Export 11 カテゴリ: Settings / Snippets / Quicklinks / Notes / MCP Servers / Extensions / Hotkeys / AI Chats 等）を chezmoi 経由でバックアップ・リストアします。
+
+### 初回セットアップ
+
+1. Raycast アプリをインストール（`brew install --cask raycast`）
+2. age 秘密鍵を生成（既存の chezmoi セットアップ時に生成済み）:
+   `age-keygen -o ~/.config/chezmoi/key.txt`
+3. passphrase（8 文字以上）を決めて暗号化:
+
+   ```bash
+   printf 'your-passphrase-here' | age -r <公開鍵> -o ~/src/tools/chezmoi/dot_raycast_passphrase.age
+   ```
+
+   （公開鍵は `age-keygen -y ~/.config/chezmoi/key.txt` で確認）
+
+### 使い方
+
+```bash
+# Raycast 設定をエクスポートし、chezmoi 管理下に保存
+mt raycast sync
+
+# バックアップをコミット（暗号化済み .rayconfig が保存される）
+cd ~/src/tools
+git add chezmoi/dot_Raycast.rayconfig
+git commit -m "backup: Raycast settings"
+git push
+
+# 別の Mac で復元
+mt raycast restore
+```
+
+### 管理ファイル
+
+| ファイル | 種別 | 役割 |
+| --- | --- | --- |
+| `chezmoi/dot_Raycast.rayconfig` | Raycast 暗号化 | Export 11 カテゴリ全データ（passphrase で暗号化、git 追跡） |
+| `chezmoi/dot_raycast_passphrase.age` | age 暗号化 | Raycast 暗号化 passphrase（age 公開鍵で暗号化、git 追跡） |
+
+
+
 ## Worktree Workflow
 
 Git worktree での一連の作業を `mt git` の 4 ステップで標準化します。
@@ -367,6 +411,7 @@ src/
   tool.rs       # Homebrew and mise tool management
   agent_config/ # Cursor/Claude/OpenCode config sync
   vector/       # Markdown ベクトル検索（config / chunk / embed / qdrant / ingest / search）
+  raycast/      # Raycast 設定バックアップ（sync / restore / shared）
   main.rs       # Entry point with clap subcommands
 agent-configs/  # AI agent configs (Source of Truth)
   agents/       # SubAgent definitions

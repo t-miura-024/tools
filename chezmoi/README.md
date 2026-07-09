@@ -11,6 +11,8 @@
 | `dot_zprofile` | plain | `~/.zprofile` の plain コピー |
 | `dot_gitconfig` | plain | `~/.gitconfig` の plain コピー |
 | `dot_zsh_secrets.age` | age 暗号化 | API キーなどの secrets（age 公開鍵で暗号化） |
+| `dot_Raycast.rayconfig` | Raycast 暗号化 | Raycast Export 全データ（passphrase で暗号化、git 追跡） |
+| `dot_raycast_passphrase.age` | age 暗号化 | Raycast 暗号化 passphrase（age 公開鍵で暗号化） |
 | `.chezmoiignore` | chezmoi | この README を chezmoi apply の対象外にする |
 | `README.md` | doc | このファイル（chezmoi ソースの doc であって dotfile ではない） |
 
@@ -67,4 +69,42 @@ mt chezmoi status
 5. git commit
 
 平文ファイル（`/tmp/zsh_secrets.txt` 等）は必ず削除してください。
+
+## Raycast 設定の管理
+
+`dot_Raycast.rayconfig` は Raycast の Export Settings & Data 機能で生成される暗号化ファイルです。
+`dot_raycast_passphrase.age` に age 暗号化された passphrase を格納します。
+
+### 初回セットアップ
+
+```bash
+# passphrase を決める（8 文字以上）
+PASSPHRASE="your-secure-passphrase-here"
+
+# 公開鍵を確認
+age-keygen -y ~/.config/chezmoi/key.txt
+
+# passphrase を暗号化して chezmoi ソースに配置
+printf '%s' "$PASSPHRASE" | age -r age1... -o ~/src/tools/chezmoi/dot_raycast_passphrase.age
+```
+
+### 更新ワークフロー
+
+```bash
+# 1. Raycast 設定をエクスポート
+mt raycast sync
+
+# 2. 差分確認
+git diff chezmoi/dot_Raycast.rayconfig
+
+# 3. コミット
+git add chezmoi/dot_Raycast.rayconfig
+git commit -m "backup: Raycast settings $(date +%Y-%m-%d)"
+```
+
+### 復元
+
+```bash
+mt raycast restore
+```
 
