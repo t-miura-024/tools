@@ -89,17 +89,7 @@ pub fn run(args: SecretSetArgs<'_>) -> anyhow::Result<()> {
 }
 
 fn get_age_public_key() -> anyhow::Result<String> {
-    let key_path = shared::home_dir()?
-        .join(".config")
-        .join("chezmoi")
-        .join("key.txt");
-
-    if !key_path.exists() {
-        bail!(
-            "age 秘密鍵が見つかりません（{}）。先に age-keygen で生成してください",
-            key_path.display()
-        );
-    }
+    let key_path = age_identity_path()?;
 
     let output = Command::new("age-keygen")
         .arg("-y")
@@ -120,8 +110,12 @@ fn get_age_public_key() -> anyhow::Result<String> {
 }
 
 fn decrypt_age(age_file: &Path) -> anyhow::Result<String> {
+    let identity = age_identity_path()?;
+
     let output = Command::new("age")
         .arg("-d")
+        .arg("-i")
+        .arg(&identity)
         .arg(age_file)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -171,6 +165,22 @@ fn encrypt_age(plaintext: &[u8], public_key: &str, dest_age_path: &Path) -> anyh
         .context("暗号化ファイルの atomic rename に失敗しました")?;
 
     Ok(())
+}
+
+fn age_identity_path() -> anyhow::Result<std::path::PathBuf> {
+    let path = shared::home_dir()?
+        .join(".config")
+        .join("chezmoi")
+        .join("key.txt");
+
+    if !path.exists() {
+        bail!(
+            "age 秘密鍵が見つかりません（{}）。先に age-keygen で生成してください",
+            path.display()
+        );
+    }
+
+    Ok(path)
 }
 
 #[cfg(test)]
