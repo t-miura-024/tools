@@ -3,8 +3,8 @@ description: "Deep Research 用のレビュアー SubAgent。SQLite から quest
 mode: "subagent"
 color: "warning"
 permission:
-edit: "deny"
-bash: "deny"
+  edit: "deny"
+  bash: "deny"
 ---
 # mt-deep-research-reviewer
 
