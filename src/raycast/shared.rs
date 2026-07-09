@@ -1,7 +1,13 @@
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 use anyhow::Context;
+
+pub const EXPORT_DEEPLINK: &str =
+    "raycast://extensions/raycast/raycast/export-settings-data";
+pub const IMPORT_DEEPLINK: &str =
+    "raycast://extensions/raycast/raycast/import-settings-data";
 
 pub fn home_dir() -> anyhow::Result<PathBuf> {
     let home = std::env::var("HOME").context("HOME 環境変数が設定されていません")?;
@@ -25,14 +31,8 @@ pub fn passphrase_path() -> anyhow::Result<PathBuf> {
     Ok(chezmoi_source_dir()?.join("dot_raycast_passphrase.age"))
 }
 
-pub fn raycast_binary_present() -> bool {
-    Command::new("raycast")
-        .arg("--version")
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
-        .map(|s| s.success())
-        .unwrap_or(false)
+pub fn raycast_app_present() -> bool {
+    Path::new("/Applications/Raycast.app").exists()
 }
 
 pub fn age_binary_present() -> bool {
@@ -78,35 +78,60 @@ pub fn decrypt_passphrase(passphrase_path: &Path) -> anyhow::Result<zeroize::Zer
     Ok(zeroize::Zeroizing::new(passphrase))
 }
 
-pub fn run_raycast_export(passphrase: &str, output_path: &Path) -> anyhow::Result<()> {
-    let status = Command::new("raycast")
-        .args(["export", "--password", passphrase, "--output"])
-        .arg(output_path)
-        .stdin(Stdio::inherit())
-        .stdout(Stdio::inherit())
-        .stderr(Stdio::inherit())
+pub fn open_deeplink(url: &str) -> anyhow::Result<()> {
+    let status = Command::new("open")
+        .arg(url)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
         .status()
-        .context("raycast export の起動に失敗")?;
+        .with_context(|| format!("deeplink を開けませんでした: {}", url))?;
 
     if !status.success() {
-        anyhow::bail!("raycast export が失敗しました (exit code: {:?})", status.code());
+        anyhow::bail!("open コマンドが失敗しました (exit code: {:?})", status.code());
     }
     Ok(())
 }
 
-pub fn run_raycast_import(passphrase: &str, input_path: &Path) -> anyhow::Result<()> {
-    let status = Command::new("raycast")
-        .args(["import", "--password", passphrase, "--input"])
-        .arg(input_path)
-        .stdin(Stdio::inherit())
-        .stdout(Stdio::inherit())
-        .stderr(Stdio::inherit())
-        .status()
-        .context("raycast import の起動に失敗")?;
+pub fn find_latest_rayconfig_in_downloads() -> Option<PathBuf> {
+    let downloads = home_dir()
+        .ok()?
+        .join("Downloads");
 
-    if !status.success() {
-        anyhow::bail!("raycast import が失敗しました (exit code: {:?})", status.code());
+    let mut entries: Vec<_> = fs::read_dir(&downloads)
+        .ok()?
+        .filter_map(|e| e.ok())
+        .filter(|e| {
+            e.file_name()
+                .to_string_lossy()
+                .ends_with(".rayconfig")
+        })
+        .collect();
+
+    entries.sort_by_key(|e| {
+        e.metadata()
+            .ok()
+            .and_then(|m| m.modified().ok())
+            .unwrap_or(std::time::SystemTime::UNIX_EPOCH)
+    });
+    entries.reverse();
+
+    entries.first().map(|e| e.path())
+}
+
+pub fn copy_file(src: &Path, dest: &Path) -> anyhow::Result<()> {
+    if let Some(parent) = dest.parent() {
+        fs::create_dir_all(parent)
+            .with_context(|| format!("ディレクトリを作成できません: {}", parent.display()))?;
     }
+    fs::copy(src, dest)
+        .with_context(|| {
+            format!(
+                "ファイルをコピーできません: {} -> {}",
+                src.display(),
+                dest.display()
+            )
+        })?;
     Ok(())
 }
 

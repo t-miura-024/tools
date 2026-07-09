@@ -72,8 +72,10 @@ mt chezmoi status
 
 ## Raycast 設定の管理
 
-`dot_Raycast.rayconfig` は Raycast の Export Settings & Data 機能で生成される暗号化ファイルです。
+`dot_Raycast.rayconfig` は Raycast の Export Settings & Data 機能（GUI）で生成される暗号化ファイルです。
 `dot_raycast_passphrase.age` に age 暗号化された passphrase を格納します。
+
+両ファイルとも `.chezmoiignore` により `chezmoi apply` の対象から除外されており、`~/` に誤展開されません。
 
 ### 初回セットアップ
 
@@ -91,7 +93,7 @@ printf '%s' "$PASSPHRASE" | age -r age1... -o ~/src/tools/chezmoi/dot_raycast_pa
 ### 更新ワークフロー
 
 ```bash
-# 1. Raycast 設定をエクスポート
+# 1. mt が Export 画面を開き、passphrase を表示 → Raycast GUI で Export 実行 → ファイルを chezmoi に取り込み
 mt raycast sync
 
 # 2. 差分確認
@@ -105,6 +107,7 @@ git commit -m "backup: Raycast settings $(date +%Y-%m-%d)"
 ### 復元
 
 ```bash
+# mt がバックアップパスと passphrase を表示 → Raycast GUI で Import Settings & Data を実行
 mt raycast restore
 ```
 

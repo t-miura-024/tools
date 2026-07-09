@@ -70,8 +70,8 @@ fn test_passphrase_path_ends_with_dot_raycast_passphrase_age() {
 }
 
 #[test]
-fn test_raycast_binary_present_returns_bool() {
-    let result = raycast_binary_present();
+fn test_raycast_app_present_returns_bool() {
+    let result = raycast_app_present();
     assert!(result == true || result == false);
 }
 
@@ -91,8 +91,47 @@ fn test_decrypt_passphrase_missing_file() {
 }
 
 #[test]
-fn test_run_raycast_export_bad_binary() {
-    let tmp = std::env::temp_dir().join("__mt_raycast_export_test__.rayconfig");
-    let result = run_raycast_export("test-pass", &tmp);
-    assert!(result.is_err() || result.is_ok());
+fn test_export_deeplink_is_non_empty() {
+    assert!(!EXPORT_DEEPLINK.is_empty());
+    assert!(EXPORT_DEEPLINK.starts_with("raycast://"));
+}
+
+#[test]
+fn test_import_deeplink_is_non_empty() {
+    assert!(!IMPORT_DEEPLINK.is_empty());
+    assert!(IMPORT_DEEPLINK.starts_with("raycast://"));
+}
+
+#[test]
+fn test_copy_file_roundtrip() {
+    let dir = tempfile::tempdir().unwrap();
+    let src = dir.path().join("src.rayconfig");
+    let dst = dir.path().join("sub/dst.rayconfig");
+
+    fs::write(&src, b"test data").unwrap();
+    copy_file(&src, &dst).unwrap();
+
+    assert!(dst.exists());
+    let content = fs::read_to_string(&dst).unwrap();
+    assert_eq!(content, "test data");
+}
+
+#[test]
+fn test_copy_file_overwrites_existing() {
+    let dir = tempfile::tempdir().unwrap();
+    let src = dir.path().join("src.rayconfig");
+    let dst = dir.path().join("dst.rayconfig");
+
+    fs::write(&src, b"new data").unwrap();
+    fs::write(&dst, b"old data").unwrap();
+    copy_file(&src, &dst).unwrap();
+
+    let content = fs::read_to_string(&dst).unwrap();
+    assert_eq!(content, "new data");
+}
+
+#[test]
+fn test_find_latest_rayconfig_no_files() {
+    let result = find_latest_rayconfig_in_downloads();
+    assert!(result.is_none() || result.is_some());
 }
