@@ -58,8 +58,6 @@ describe("init", () => {
       "off_topic_questions",
       "reviews",
       "review_findings",
-      "audits",
-      "audit_checks",
       "iterations",
       "execution_logs",
     ]) {
@@ -183,7 +181,7 @@ describe("evidence save", () => {
   });
 });
 
-describe("review / audit / iteration / log save", () => {
+describe("review / iteration / log save", () => {
   beforeEach(async () => {
     const r = await run(["init", ...dbArgs()]);
     if (r.exitCode !== 0) throw new Error("init failed");
@@ -209,28 +207,6 @@ describe("review / audit / iteration / log save", () => {
     expect(r.exitCode).toBe(0);
     const out = JSON.parse(r.stdout);
     expect(out.finding_count).toBe(2);
-  });
-
-  it("saves an audit with checks", async () => {
-    const r = await run([
-      "audit",
-      "save",
-      ...dbArgs([
-        "--data",
-        JSON.stringify({
-          target_type: "phase",
-          target_phase: "planner",
-          status: "pass",
-          summary: "all good",
-          checks: [
-            { check_name: "schema_check", status: "pass" },
-            { check_name: "required_records_check", status: "pass" },
-          ],
-        }),
-      ]),
-    ]);
-    expect(r.exitCode).toBe(0);
-    expect(JSON.parse(r.stdout).check_count).toBe(2);
   });
 
   it("saves an iteration", async () => {

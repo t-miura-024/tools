@@ -406,26 +406,3 @@ describe("cycle audit: writer-reviewer", () => {
     expect(JSON.parse(r.stdout).status).toBe("pass");
   });
 });
-
-describe("audit persistence", () => {
-  it("writes audit + checks to the DB so the orchestrator can read them back", async () => {
-    await addQuestion("Q?", 1);
-    writeFileSync(planPath, VALID_PLAN, "utf-8");
-    await cli(["phase", "--phase", "planner", "--db-path", dbPath, "--plan-path", planPath]);
-
-    const proc = Bun.spawn(
-      ["bun", "run", DB, "snapshot", "--cycle", "research", "--db-path", dbPath],
-      { stdout: "pipe" },
-    );
-    const out = await new Response(proc.stdout).text();
-    const snap = JSON.parse(out);
-    // snapshot only returns research-shaped data, so we query the DB directly via bun:sqlite
-    const { Database } = await import("bun:sqlite");
-    const db = new Database(dbPath, { readonly: true });
-    const audits = db.query("SELECT * FROM audits").all();
-    const checks = db.query("SELECT * FROM audit_checks").all();
-    expect(audits.length).toBeGreaterThan(0);
-    expect(checks.length).toBeGreaterThan(0);
-    db.close();
-  });
-});

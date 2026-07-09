@@ -7,7 +7,6 @@
  *   question <action> [args...]      create | list | get | update
  *   evidence save --data <json>      Atomic bulk save for a research round.
  *   review save --data <json>        Atomic bulk save for a review.
- *   audit save --data <json>         Atomic bulk save for an audit.
  *   iteration save --data <json>     Save an iteration record.
  *   log save --data <json>           Save a script execution log.
  *   snapshot --cycle <name>          Emit a JSON snapshot for the auditor.
@@ -400,67 +399,6 @@ function nextReviewRound(db: Database, aspect: string): number {
 }
 
 // -----------------------------------------------------------------------------
-// audit save
-// -----------------------------------------------------------------------------
-
-function cmdAuditSave(flags: FlagMap): never {
-  const db = openDb(resolveDbPath(flags));
-  const data = parseJsonFlag(flags, "data") as {
-    target_type: "phase" | "cycle";
-    target_phase?: string;
-    target_cycle?: string;
-    status: "pass" | "fail" | "error";
-    summary?: string;
-    checks: { check_name: string; status: "pass" | "fail" | "error" | "skip"; detail?: string }[];
-  };
-  if (data.target_type !== "phase" && data.target_type !== "cycle") {
-    fail("data.target_type must be 'phase' or 'cycle'");
-  }
-  if (data.target_type === "phase" && !data.target_phase) fail("data.target_phase required for phase audit");
-  if (data.target_type === "cycle" && !data.target_cycle) fail("data.target_cycle required for cycle audit");
-  if (!Array.isArray(data.checks)) fail("data.checks must be an array");
-
-  const tx = db.transaction(() => {
-    const auditRow = db
-      .query<
-        { id: number },
-        [string, string | null, string | null, string, string | null]
-      >(
-        `INSERT INTO audits (target_type, target_phase, target_cycle, status, summary)
-         VALUES (?, ?, ?, ?, ?)
-         RETURNING id`,
-      )
-      .get(
-        data.target_type,
-        data.target_phase ?? null,
-        data.target_cycle ?? null,
-        data.status,
-        data.summary ?? null,
-      );
-    if (!auditRow) fail("Failed to insert audit");
-
-    let checkCount = 0;
-    for (const c of data.checks) {
-      db.query(
-        `INSERT INTO audit_checks (audit_id, check_name, status, detail)
-         VALUES (?, ?, ?, ?)`,
-      ).run(auditRow.id, c.check_name, c.status, c.detail ?? null);
-      checkCount++;
-    }
-    return { audit_id: auditRow.id, check_count: checkCount };
-  });
-
-  try {
-    const result = tx();
-    output({ success: true, ...result });
-  } catch (e) {
-    fail("audit save failed", { detail: String(e) });
-  } finally {
-    db.close();
-  }
-}
-
-// -----------------------------------------------------------------------------
 // iteration save
 // -----------------------------------------------------------------------------
 
@@ -731,9 +669,6 @@ function main(): void {
     case "review":
       if (action === "save") return cmdReviewSave(flags);
       fail("review: only 'save' is supported");
-    case "audit":
-      if (action === "save") return cmdAuditSave(flags);
-      fail("audit: only 'save' is supported");
     case "iteration":
       if (action === "save") return cmdIterationSave(flags);
       fail("iteration: only 'save' is supported");
@@ -744,7 +679,7 @@ function main(): void {
       return cmdSnapshot(flags);
     case undefined:
     case "":
-      fail("Usage: db.ts <init|question|evidence|review|audit|iteration|log|snapshot> ...");
+      fail("Usage: db.ts <init|question|evidence|review|iteration|log|snapshot> ...");
     default:
       fail(`Unknown subcommand: ${resource}`);
   }
