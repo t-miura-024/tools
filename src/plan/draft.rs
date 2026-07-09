@@ -385,9 +385,11 @@ fn add_to_project_and_set_status(config: &PlanConfig, issue_url: &str) -> anyhow
         .args([
             "project",
             "item-add",
-            issue_url,
+            &config.project_number.to_string(),
             "--owner",
             &config.owner,
+            "--url",
+            issue_url,
             "--format",
             "json",
         ])
