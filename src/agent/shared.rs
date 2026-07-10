@@ -261,55 +261,12 @@ pub fn list_agent_files(dir: &Path) -> anyhow::Result<Vec<String>> {
     Ok(files)
 }
 
-pub fn symlink_dir(src: &Path, dst: &Path) -> anyhow::Result<()> {
-    if let Some(parent) = dst.parent() {
-        fs::create_dir_all(parent)?;
-    }
-    let rel = relative_path(src, dst.parent().unwrap_or(Path::new(".")));
-
-    if dst.exists() {
-        if dst.is_symlink() {
-            let target = fs::read_link(dst)?;
-            if target == rel {
-                return Ok(());
-            }
-            fs::remove_file(dst)?;
-        } else {
-            fs::remove_dir_all(dst)?;
-        }
-    }
-    #[cfg(unix)]
-    {
-        std::os::unix::fs::symlink(&rel, dst)
-            .with_context(|| format!("symlink を作成できません: {} -> {}", dst.display(), rel.display()))?;
-    }
-    #[cfg(not(unix))]
-    {
-        anyhow::bail!("symlink は UNIX のみ対応しています");
-    }
-    Ok(())
+pub fn opencode_skill_symlink_target(skill_name: &str) -> String {
+    format!("../../../.cursor/skills/{}", skill_name)
 }
 
-pub fn relative_path(src: &Path, base: &Path) -> PathBuf {
-    let src = src.canonicalize().unwrap_or_else(|_| src.to_path_buf());
-    let base = base.canonicalize().unwrap_or_else(|_| base.to_path_buf());
-
-    let mut src_components = src.components().peekable();
-    let mut base_components = base.components().peekable();
-
-    while src_components.peek() == base_components.peek() {
-        src_components.next();
-        base_components.next();
-    }
-
-    let mut rel = PathBuf::new();
-    for _ in base_components {
-        rel.push("..");
-    }
-    for comp in src_components {
-        rel.push(comp);
-    }
-    rel
+pub fn claude_skill_symlink_target(skill_name: &str) -> String {
+    format!("../../.cursor/skills/{}", skill_name)
 }
 
 pub fn check_sync_status(source_dir: &Path) -> anyhow::Result<Option<String>> {
@@ -352,17 +309,29 @@ pub fn check_sync_status(source_dir: &Path) -> anyhow::Result<Option<String>> {
         let target_dir = &platform.1;
         let platform_name = platform.0;
 
+        // Check for old-style directory symlinks (transition cleanup needed)
         for skill_name in &cursor_skills {
-            let src = cursor_skills_dir_path.join(skill_name);
-            let dst = target_dir.join(skill_name);
-            let expected_rel = relative_path(&src, target_dir);
-            let exists_as_symlink = dst.is_symlink() && std::fs::read_link(&dst).ok().as_deref() == Some(&expected_rel);
-            if !exists_as_symlink {
-                issues.push(format!("skill {} ({}) が未同期（symlink未設定）", skill_name, platform_name));
+            let old_dir = target_dir.join(skill_name);
+            if old_dir.exists() {
+                issues.push(format!("skill {} ({}) に旧方式のディレクトリが残存しています", skill_name, platform_name));
             }
         }
 
-        let existing = list_skill_dirs(target_dir)?;
+        // Check symlink_* files
+        for skill_name in &cursor_skills {
+            let symlink_file = target_dir.join(format!("symlink_{}", skill_name));
+            let expected_target = if platform_name == "opencode" {
+                opencode_skill_symlink_target(skill_name)
+            } else {
+                claude_skill_symlink_target(skill_name)
+            };
+            let content_ok = read_possible(&symlink_file).as_deref() == Some(&expected_target);
+            if !content_ok {
+                issues.push(format!("skill {} ({}) が未同期（symlinkファイル不一致）", skill_name, platform_name));
+            }
+        }
+
+        let existing = list_symlink_skills(target_dir)?;
         for name in &existing {
             if !cursor_skills.contains(name) {
                 issues.push(format!("skill {} ({}) が canonical から削除されたが派生側に残存", name, platform_name));
@@ -377,7 +346,7 @@ pub fn check_sync_status(source_dir: &Path) -> anyhow::Result<Option<String>> {
     }
 }
 
-fn read_possible(path: &Path) -> Option<String> {
+pub fn read_possible(path: &Path) -> Option<String> {
     std::fs::read_to_string(path).ok()
 }
 
@@ -396,6 +365,24 @@ pub fn list_skill_dirs(dir: &Path) -> anyhow::Result<Vec<String>> {
     }
     dirs.sort();
     Ok(dirs)
+}
+
+pub fn list_symlink_skills(dir: &Path) -> anyhow::Result<Vec<String>> {
+    if !dir.exists() {
+        return Ok(Vec::new());
+    }
+    let mut skills = Vec::new();
+    for entry in std::fs::read_dir(dir)
+        .with_context(|| format!("ディレクトリを読めません: {}", dir.display()))?
+    {
+        let entry = entry?;
+        let name = entry.file_name().to_string_lossy().to_string();
+        if let Some(skill_name) = name.strip_prefix("symlink_") {
+            skills.push(skill_name.to_string());
+        }
+    }
+    skills.sort();
+    Ok(skills)
 }
 
 #[cfg(test)]

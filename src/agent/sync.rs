@@ -3,7 +3,7 @@ use std::path::Path;
 use console::style;
 
 use super::shared;
-use super::shared::{claude_agents_dir, opencode_agents_dir, symlink_dir};
+use super::shared::{claude_agents_dir, opencode_agents_dir};
 
 #[derive(Debug, Clone, Copy)]
 pub enum SyncMode {
@@ -156,13 +156,29 @@ fn sync_skills(
         let platform_name = platform.0;
 
         for skill_name in &cursor_skills {
-            let src = cursor_dir.join(skill_name);
-            let dst = target_dir.join(skill_name);
-            let expected_rel = shared::relative_path(&src, target_dir);
+            // Transition cleanup: remove old-style directory symlinks/dirs
+            let old_dir = target_dir.join(skill_name);
+            if old_dir.exists() {
+                drift_entries.push((
+                    skill_name.clone(),
+                    platform_name.to_string(),
+                    "migrate (remove old dir)".to_string(),
+                ));
+                match mode {
+                    SyncMode::Sync => shared::remove_dir_all_if_exists(&old_dir)?,
+                    SyncMode::DryRun | SyncMode::Check => {}
+                }
+            }
 
-            let needs_sync = !dst.exists()
-                || (dst.is_symlink() && std::fs::read_link(&dst).ok().as_deref() != Some(&expected_rel))
-                || !dst.is_symlink();
+            let symlink_file = target_dir.join(format!("symlink_{}", skill_name));
+            let expected_target = if platform_name == "opencode" {
+                shared::opencode_skill_symlink_target(skill_name)
+            } else {
+                shared::claude_skill_symlink_target(skill_name)
+            };
+
+            let needs_sync = !symlink_file.exists()
+                || shared::read_possible(&symlink_file).as_deref() != Some(&expected_target);
 
             if needs_sync {
                 drift_entries.push((
@@ -172,14 +188,14 @@ fn sync_skills(
                 ));
                 match mode {
                     SyncMode::Sync => {
-                        symlink_dir(&src, &dst)?;
+                        shared::write_file_content(&symlink_file, &expected_target)?;
                     }
                     SyncMode::DryRun | SyncMode::Check => {}
                 }
             }
         }
 
-        cleanup_orphan_skills(&cursor_dir, target_dir.clone(), &cursor_skills, mode, &mut drift_entries, platform_name)?;
+        cleanup_orphan_skills(&cursor_skills, target_dir.clone(), mode, &mut drift_entries, platform_name)?;
     }
 
     Ok(drift_entries)
@@ -188,18 +204,29 @@ fn sync_skills(
 
 
 fn cleanup_orphan_skills(
-    _cursor_dir: &std::path::Path,
-    target_dir: std::path::PathBuf,
     cursor_skills: &[String],
+    target_dir: std::path::PathBuf,
     mode: SyncMode,
     drift_entries: &mut Vec<(String, String, String)>,
     platform_name: &str,
 ) -> anyhow::Result<()> {
-    let existing = shared::list_skill_dirs(&target_dir)?;
+    let existing = shared::list_symlink_skills(&target_dir)?;
     for name in &existing {
         if !cursor_skills.contains(name) {
-            let path = target_dir.join(name);
+            let path = target_dir.join(format!("symlink_{}", name));
             drift_entries.push((name.clone(), platform_name.to_string(), "delete".to_string()));
+            match mode {
+                SyncMode::Sync => shared::remove_file(&path)?,
+                SyncMode::DryRun | SyncMode::Check => {}
+            }
+        }
+    }
+    // Also clean up any leftover old-style directories/symlinks (transition)
+    let dir_entries = shared::list_skill_dirs(&target_dir)?;
+    for name in &dir_entries {
+        if !cursor_skills.contains(name) {
+            let path = target_dir.join(name);
+            drift_entries.push((name.clone(), platform_name.to_string(), "delete (old dir)".to_string()));
             match mode {
                 SyncMode::Sync => shared::remove_dir_all_if_exists(&path)?,
                 SyncMode::DryRun | SyncMode::Check => {}
