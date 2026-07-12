@@ -9,10 +9,12 @@ description: ローカル SearXNG、curl、pandoc、jq を使い、Planner / Res
 
 ## 使い方
 
-### 1. 事前ヒアリング
+### 1. 事前ヒアリングと計画確認
 
-ユーザーから調査の背景・目的・前提知識を引き出す。
-主要な問い・制約・スコープは Planner に任せる。
+ワークフロー実行中に以下の Human Gate が含まれる:
+
+- **Phase 1**: ユーザーから調査の背景・目的・前提知識を引き出す（ヒアリング）
+- **Phase 3b**: plan.md の要約をユーザーに提示し、承認を得る。必要に応じて Planner を再実行
 
 ### 2. ワークフロー初期化
 
@@ -46,10 +48,12 @@ bun run ~/.cursor/skills/mt-workflow/cli.ts status --session <id>
 
 | Phase | 内容 | タイプ |
 |---|---|---|
+| 1 | 事前ヒアリング | human_gate |
 | 3 | 計画立案（Planner） | task (subagent) |
+| 3b | 計画承認 | human_gate |
 | 4 | 調査（Researcher、並列） | task (orchestrate) |
 | 5 | research サイクル監査 | task (orchestrate) |
-| 6 | チェックポイント | human_gate |
+| 6 | チェックポイント（off_topic確認） | task (orchestrate) |
 | 7 | レポート作成（Writer） | task (subagent) |
 | 8 | レビュー（Reviewer、並列 5 観点） | parallel |
 | 9 | writer-reviewer サイクル監査 + 改善ループ | task (orchestrate) |

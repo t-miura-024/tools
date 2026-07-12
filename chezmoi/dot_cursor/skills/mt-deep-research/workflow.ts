@@ -98,6 +98,25 @@ const def: WorkflowDef = {
 
   steps: [
     // -----------------------------------------------------------------------
+    // Phase 1: 事前ヒアリング
+    // -----------------------------------------------------------------------
+    {
+      key: 'phase1_hearing',
+      phase: 'Phase 1: 事前ヒアリング',
+      type: 'human_gate',
+      maxRetries: 1,
+      onFail: { action: 'escalate' },
+      humanGate: {
+        presentArtifacts: [],
+        choices: [
+          { value: 'approve', label: 'ヒアリング完了', desc: '背景・目的・前提知識を確認し次へ進む' },
+          { value: 'abort', label: '中断' },
+        ],
+      },
+      check: (_ctx: CheckCtx): CheckResult => ({ status: 'pass', reasons: [] }),
+    },
+
+    // -----------------------------------------------------------------------
     // Phase 3: 計画立案 (Planner)
     // -----------------------------------------------------------------------
     {
@@ -158,6 +177,27 @@ const def: WorkflowDef = {
     },
 
     // -----------------------------------------------------------------------
+    // Phase 3b: 計画承認
+    // -----------------------------------------------------------------------
+    {
+      key: 'phase3b_plan_approval',
+      phase: 'Phase 3b: 計画承認',
+      type: 'human_gate',
+      maxRetries: 1,
+      onFail: { action: 'escalate' },
+      humanGate: {
+        presentArtifacts: ['plan.md'],
+        choices: [
+          { value: 'approve', label: '承認', desc: 'plan.md の内容で調査を開始する' },
+          { value: 'revise', label: '修正が必要', desc: 'Planner を再実行する' },
+          { value: 'abort', label: '中断' },
+        ],
+        reviseTargetStep: 'phase3_planner',
+      },
+      check: (_ctx: CheckCtx): CheckResult => ({ status: 'pass', reasons: [] }),
+    },
+
+    // -----------------------------------------------------------------------
     // Phase 4: 調査 (Researcher, orchestrate)
     // -----------------------------------------------------------------------
     {
@@ -174,6 +214,16 @@ const def: WorkflowDef = {
             '',
             '承認されたすべての問いについて、Researcher SubAgent を並列起動し、調査を実行する。',
             '',
+            '## 事前準備',
+            '',
+            'plan.md で承認された問い（draft 状態）を approved に更新する:',
+            '',
+            '```bash',
+            `bun run ${join(SCRIPTS_DIR, 'db.ts')} question list --db-path ${ctx.artifactDbPath}`,
+            '# 表示された draft の問いをすべて approved に更新',
+            `bun run ${join(SCRIPTS_DIR, 'db.ts')} question update --id <ID> --status approved --db-path ${ctx.artifactDbPath}`,
+            '```',
+            '',
             '## 手順',
             '',
             '1. research.db から approved 状態の questions を取得する',
@@ -183,7 +233,7 @@ const def: WorkflowDef = {
             '```',
             '',
             '2. 各 question_id に対して `mt-deep-research-researcher` SubAgent を並列起動する（最大 5 同時）',
-            '   - 各 SubAgent には question_id、round_number、db.ts snapshot の出力を渡す',
+            '   - 各 SubAgent には question_id、round_number、`db.ts snapshot --cycle research` の出力を渡す',
             '   - 期待する成果物: evidence_rounds / sources / facts / off_topic_questions の一括保存',
             '   - 保存は SubAgent が `db.ts evidence save --data \'...\'` で行う',
             '   - 各 Researcher のループは最大 5 ラウンド',
@@ -215,32 +265,7 @@ const def: WorkflowDef = {
         if (!ctx.artifactDbPath) return { status: 'error', reasons: ['No artifact DB path'] };
         const db = openResearchDb(ctx.artifactDbPath);
         try {
-          const checks = auditResearcher(db);
-
-          const approved = db.query(
-            "SELECT id FROM questions WHERE status = 'approved'",
-          ).all() as { id: number }[];
-
-          if (approved.length === 0) {
-            checks.push({ check_name: 'approved_questions_exist', status: 'fail', detail: 'no approved questions' });
-          } else {
-            const uncovered: number[] = [];
-            for (const q of approved) {
-              const c = (db.query(
-                'SELECT COUNT(*) AS c FROM evidence_rounds WHERE question_id = ?',
-              ).get(q.id) as { c: number })?.c ?? 0;
-              if (c === 0) uncovered.push(q.id);
-            }
-            checks.push({
-              check_name: 'all_approved_questions_have_rounds',
-              status: uncovered.length === 0 ? 'pass' : 'fail',
-              detail: uncovered.length === 0
-                ? `all ${approved.length} approved questions have rounds`
-                : `questions without rounds: ${uncovered.join(', ')}`,
-            });
-          }
-
-          return toCheckResult(checks);
+          return toCheckResult(auditResearcher(db));
         } finally {
           db.close();
         }
@@ -276,7 +301,7 @@ const def: WorkflowDef = {
             '3. 監査が fail/error の場合:',
             '   - `mt-deep-research-auditor` SubAgent を呼び出して意味的整合性を評価',
             '   - Auditor には `db.ts snapshot --cycle research` の出力を渡す',
-            '   - Auditor の出力 JSON は `db.ts audit save` で research.db に保存',
+            '   - 監査結果は workflow engine の step_attempts に自動保存される',
             '   - 必要に応じて Researcher に追加調査を依頼',
             '',
             '## セッション情報',
@@ -306,23 +331,57 @@ const def: WorkflowDef = {
     },
 
     // -----------------------------------------------------------------------
-    // Phase 6: チェックポイント (Human Gate)
+    // Phase 6: チェックポイント
     // -----------------------------------------------------------------------
     {
       key: 'phase6_checkpoint',
       phase: 'Phase 6: チェックポイント',
-      type: 'human_gate',
+      type: 'task',
       maxRetries: 1,
       onFail: { action: 'escalate' },
-      humanGate: {
-        presentArtifacts: [],
-        choices: [
-          { value: 'approve', label: '次へ進む', desc: 'off_topic_questions の処理完了' },
-          { value: 'abort', label: '中断' },
-        ],
+      task: {
+        action: 'orchestrate',
+        buildPrompt: (ctx: PromptCtx) => {
+          return [
+            '## 目的',
+            '',
+            'off_topic_questions をユーザーに提示し、追加調査するか判断を仰ぐ。',
+            '',
+            '## 手順',
+            '',
+            '1. off_topic_questions を取得する:',
+            '',
+            '```bash',
+            `bun run ${join(SCRIPTS_DIR, 'db.ts')} snapshot --cycle research --db-path ${ctx.artifactDbPath}`,
+            '```',
+            '',
+            '2. スナップショットの `off_topic_questions` を確認する',
+            '3. 各 off_topic_question の内容をユーザーに提示し、追加調査するか確認する',
+            '4. ユーザーの判断に基づいて `decision` を更新する:',
+            '   - `include`: 追加調査に含める → Researcher で追加調査',
+            '   - `exclude`: 対象外とする',
+            '',
+            '```bash',
+            `bun run ${join(SCRIPTS_DIR, 'db.ts')} evidence save --db-path ${ctx.artifactDbPath} --data '{"question_id": <ID>, "round_number": <N>, "off_topic_questions": [{"content": "...", "decision": "include"}]}'`,
+            '```',
+            '',
+            '5. ユーザーが `include` を選択した off_topic_question があれば、Researcher に追加調査を依頼する',
+            '',
+            '## セッション情報',
+            '',
+            `- セッションディレクトリ: ${ctx.sessionDir}`,
+            `- research.db: ${ctx.artifactDbPath}`,
+          ].join('\n');
+        },
       },
-      check: (_ctx: CheckCtx): CheckResult => {
-        return { status: 'pass', reasons: [] };
+      check: (ctx: CheckCtx): CheckResult => {
+        if (!ctx.artifactDbPath) return { status: 'error', reasons: ['No artifact DB path'] };
+        const db = openResearchDb(ctx.artifactDbPath);
+        try {
+          return toCheckResult(auditResearchCycle(db));
+        } finally {
+          db.close();
+        }
       },
     },
 
@@ -602,12 +661,21 @@ const def: WorkflowDef = {
           ].join('\n');
         },
       },
-      check: (ctx: CheckCtx): CheckResult => {
+      check: async (ctx: CheckCtx): Promise<CheckResult> => {
         if (!ctx.artifactDbPath) return { status: 'error', reasons: ['No artifact DB path'] };
         const db = openResearchDb(ctx.artifactDbPath);
         try {
           const reportPath = join(ctx.sessionDir, 'report.md');
           const checks = auditWriterReviewerCycle(db, reportPath);
+
+          const lintResult = await $`bun run ${join(SCRIPTS_DIR, 'lint.ts')} --file ${reportPath}`.nothrow().quiet();
+          checks.push({
+            check_name: 'lint_passed',
+            status: lintResult.exitCode === 0 ? 'pass' : 'fail',
+            detail: lintResult.exitCode === 0
+              ? 'lint passed'
+              : `lint failed:\n${lintResult.stderr.toString()}`,
+          });
 
           const content = existsSync(reportPath) ? readFileSync(reportPath, 'utf-8') : null;
           if (content) {
