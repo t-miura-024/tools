@@ -7,291 +7,110 @@ description: >
 
 # mt-run-plan
 
-GitHub Issue ベースで対象プロジェクトの計画 Issue を実行するスキルです。
-計画の新規作成・リファインメントは扱わず、方針に基づく実行、メモ・履歴更新、完了処理に責務を限定します。
+ワークフローエンジン（`mt-workflow`）で計画実行の手順を管理する。計画の新規作成・リファインメントは扱わず、方針に基づく実行、履歴更新、完了処理に責務を限定する。
 
 ## 🚦 Plan First ルール
 
-この Skill は、承認済み計画の実行だけを扱う。
-ファイル編集・状態遷移・外部副作用のあるコマンドを実行する前に、以下を確認する。
+この Skill は承認済み計画の実行だけを扱う。以下を満たせない場合は実行せず、`mt-create-plan` で計画修正・再承認へ戻す:
 
 1. 実行対象の計画 Issue が `refined` または `in-progress` として存在する
 2. ユーザーがその計画の実行を明示している
 3. これから行う作業が承認済み計画の範囲内である
 
-どれかを満たせない場合は実行せず、`mt-create-plan` で計画作成・修正・再承認へ戻す。
 「改善案 N で良い」「この方針で良い」だけでは実行承認とみなさない。
 
-## 🧠 前提知識
-
-- 計画保存先: GitHub Issue + Project (v2)
-- 実行対象ステータス: `refined`, `in-progress`
-- 完了ステータス: `done` (Project Status + Issue close が同期)
-- Skill 配置ルート: 今読み込んでいる `mt-run-plan/SKILL.md` の親ディレクトリを基準にする。同階層の `mt-plan/` を共有資材の場所として扱う
-- 計画フォーマット: 同階層の `mt-plan/plan-format.md`
-- 計画一覧: 同階層の `mt-plan/list-plans.ts` (Project query)
-- 状態遷移: 同階層の `mt-plan/transition-plan.ts` (Project Status + Issue open/closed 同期)
-- 設定: `~/.config/mt-plan/config.json` (Project ID, Status field ID 等)
-- 関連 Skill: `mt-create-plan`（計画作成・リファインメント）, `mt-plan`（作成から実行までの統合入口）
-
-## 🗣️ 対話選択の提示方法
-
-この Skill で選択肢を提示する場合は、本文内で番号付きリストやコードブロックとして示し、必要に応じて推奨度・理由を添える。
-ユーザーには番号か自然文での回答を促し、テキスト回答から選択を解釈する。
-サブエージェントとして動作している場合も同じ方法を使う。
-
-## 🏃 ステップ
-
-あなたは計画実行のパートナーとして振る舞ってください。
-ユーザーの入力に対して、以下の処理を行ってください。
-
-### 1. 共有資材と config の確認
-
-今読み込んでいる `mt-run-plan/SKILL.md` の置き場所を基準に、同階層の `mt-plan/plan-format.md` と `mt-plan/README.md`、`mt-plan/list-plans.ts`、`mt-plan/transition-plan.ts`、`mt-plan/init-config.ts` があるか確認する。
-
-`~/.config/mt-plan/config.json` が存在しない場合は、`mt-plan init` の実行を案内して中断する。
-
-**存在する場合:** ステップ 2 へ進む。
-
-**存在しない場合:** 共有資材タスクが未完了であることを報告し、本 Skill を中断する。状態遷移が必要な場面で `gh project item-edit` を直接実行してはいけない。
-
-### 2. 対象計画の特定
-
-ユーザーの入力から実行対象の計画 Issue を特定する。
-
-**Issue 番号（`<number>` または `#<number>`）が直接指定されている場合:**
-
-1. `gh issue view <number> --json state,labels` で Issue の存在と state を確認
-2. `kind/plan` label が付与されているか確認
-3. `refined` または `in-progress` ステータスか確認（`list-plans.ts` で代用可）
-4. `draft` ステータスなら `mt-create-plan` へ案内
-5. `done` ステータス（= close 済）なら「完了済み。再開しますか？」と確認
-
-**計画名や目的が指定されている場合:**
-
-1. `list-plans.ts` で `refined` / `in-progress` の候補を列挙
-2. 一致候補が 1 件なら、その計画を対象にする
-3. 複数候補なら番号付き選択肢として提示し、ユーザーに選ばせる
-4. 候補がなければ、実行可能な計画がないと報告し、必要なら `mt-create-plan` を案内
-
-**入力がない場合:**
-
-`list-plans.ts` で `refined` / `in-progress` の計画を一覧し、番号付き選択肢として提示してユーザーに選ばせる。表示形式: `1. [refined] サンプル計画 (#123) 2026-06-25`。
-
-### 3. 実行準備
-
-対象計画 Issue のステータスに応じて準備する。
-準備前に、対象計画が承認済みであり、ユーザーが実行を明示していることを確認する。
-
-**`refined` の場合:**
-
-1. `transition-plan.ts` で `in-progress` に遷移する
-2. 遷移後の Issue URL と Status を確認
-3. 計画 Issue body の `## 🐢 履歴` に実行開始を追記（`transition-plan.ts` 内で自動実行される）
-
-**`in-progress` の場合:**
-
-1. 途中再開として Issue body を `gh issue view <number> --json body` で読み込む
-2. `## ✅ 完了条件`, `## 📦 アウトプット`, `## 🧭 方針`, `## 🐿️ メモ`, `## 🐢 履歴` を確認
-3. 直近の `## 🐢 履歴` と未解決の `## 🐿️ メモ` の `🤔 論点` から再開位置を判断
-
-未解決のメモや判断保留があるなら、着手前に `## 🧭 方針` へ取り込む。
-
-### 4. 方針に基づく実行ループ
-
-計画 Issue の `## ✅ 完了条件`, `## 📦 アウトプット`, `## 🧭 方針` をもとに、AI が具体的な実行手段を判断する。
-作業ステップを機械的に消化するのではなく、完了条件を満たす実行単位を都度見極める。
-実行単位ごとに、次のどちらで進めるかを判定する。
-
-**直接実行モード:**
-
-- 対象プロジェクト内のファイル作成・編集
-- コードや Markdown の変更
-- ローカルで完結する検証コマンドの実行
-
-**ガイドモード:**
-
-- 外部サービスでの手動操作
-- ユーザー本人の判断が必要な作業
-- ログイン、契約、支払い、連絡など AI が直接できない作業
-
-判定に迷う場合はガイドモードを選ぶ。
-
-### 5. 直接実行モード
-
-AI が方針に沿って自律的に実行する。
-
-1. `## ✅ 完了条件`, `## 📦 アウトプット`, `## 🧭 方針`、関連メモを読み、範囲を確認する
-2. 影響範囲が大きいなら、実行前にユーザーへ確認する
-3. 必要なファイルを Read ツールで確認する
-4. Edit/Write ツールで変更する
-5. 必要なら検証コマンドや linter を実行する
-6. 実行結果を要約し、本文で確認を求める
-
-スコープを超える作業が必要と分かったら、勝手に範囲を広げず、継続・別計画への切り出し・スコープ外化のいずれかをユーザーに確認する。
-計画外のファイル編集や状態遷移が必要になった場合は、実行を止めて計画修正または再承認へ戻る。
-
-確認では次を提示する。
-
-- OK、続けて進む
-- 修正が必要
-- ここで中断する
-
-OK のときだけ、`## 🐢 履歴` へ変更内容と確認結果を追記する（Issue body を `gh issue edit --body-file` で更新）。
-
-### 6. ガイドモード
-
-AI が直接できない作業を、対話でナビゲートする。
-
-1. 今必要なユーザー操作の目的を説明する
-2. ユーザーが行う操作を示す
-3. 必要なら連絡文面、確認項目、チェックリストを作る
-4. 完了報告が返ったら、重要情報を `## 🐿️ メモ` へ追記する
-5. `## 🐢 履歴` へ実施内容と確認結果を追記する
-
-「後でやる」「ここまで」などのときは、進捗を残して中断する。
-
-### 7. 実行中の Issue body 更新
-
-`## 🐿️ メモ`、`## 🐢 履歴` は plan-format.md に従う。
-更新前は必ず `gh issue view` で body を読み、他者の差分を上書きしない。
-
-**更新タイミング:**
-
-- 実行開始時: `## 🐢 履歴` へ開始を追記（`transition-plan.ts` が自動実行）
-- 実行結果の確認後: `## 🐢 履歴` へ結果を追記
-- 重要な判断があったとき: `## 🐿️ メモ` へ判断材料を追記
-- 中断時: 次回再開位置と残論点を履歴かメモへ残す
-
-**履歴の追記方法:**
+## エンジン起動
 
 ```bash
-gh issue edit <number> --repo <repo> --body-file <new-body.md>
+bun run ~/.config/opencode/skills/mt-workflow/cli.ts init \
+  --workflow ~/.config/opencode/skills/mt-plan/workflow.ts
 ```
 
-`<new-body.md>` は現在の body を読み取り、`## 🐢 履歴` セクションに新エントリを追加したもの。
-
-**方針:**
-
-- 方針は判断基準として扱い、進捗チェックリスト化しない
-- 方針の変更が必要と分かったら、ユーザー合意のうえ反映する
-- 完了判断は方針の消化ではなく、`## ✅ 完了条件` の充足で行う
-
-**メモ:**
-
-- あとで見返す材料だけ残す
-- 作業ログは履歴へ
-- 未解決の論点は、Done 前に解消・方針へ取り込み・スコープ外化のいずれかを行う
-- 解決済みの論点は、決定を履歴か本文へ移してから消す
-
-### 8. 状態遷移
-
-状態遷移は必ず `transition-plan.ts` を使う。`gh project item-edit` や `gh issue close` を直接実行してはいけない。
+`init` 後は `next`（次のステップのプロンプト取得）→ ステップ実行 → `report`（結果報告）のサイクルで進行する。
 
 ```bash
-bun <mt-plan-skill-dir>/transition-plan.ts <number> <target-status>
+# 次のステップのプロンプトを取得
+bun run ~/.config/opencode/skills/mt-workflow/cli.ts next --session <id>
+
+# ステップ完了を報告（stdin から JSON）
+echo '{"stepKey":"...","status":"completed","subagentOutput":"..."}' | \
+  bun run ~/.config/opencode/skills/mt-workflow/cli.ts report --session <id>
+
+# 状態確認
+bun run ~/.config/opencode/skills/mt-workflow/cli.ts status --session <id>
 ```
 
-`transition-plan.ts` は以下を自動実行する:
+## ワークフロー定義
 
-- Project Status custom field の更新
-- Issue open/closed 同期 (`done` なら close、それ以外は open)
-- `## 🐢 履歴` への遷移エントリ追記
+`mt-plan/workflow.ts` 参照。ステップ順:
 
-許可遷移は `mt-plan/transition-plan.ts` を Source of Truth とする:
+| Step | Key | Type | 内容 |
+|------|-----|------|------|
+| 1 | `identify_plan` | human_gate | 計画 Issue 番号の特定 |
+| 2 | `start_execution` | task | Issue 検証、refined→in-progress 遷移、body 読み込み |
+| 3 | `execute_work` | task | `## ✅ 完了条件`・`## 🧭 方針` に基づく作業実行 |
+| 4 | `review_work` | task | 5軸レビュー、review-current.json 出力。must>0 なら auto-goto execute_work |
+| 5 | `review_followups_gate` | human_gate | should/want の対応要否確認。revise→execute_work |
+| 6 | `confirm_done` | human_gate | Done 確認 |
+| 7 | `finalize_done` | task | in-progress→done 遷移（`transition-plan.ts`）、完了報告 |
 
-- `draft` → `refined`
-- `refined` → `in-progress`
-- `in-progress` → `done`
-- `done` → `in-progress` (再開)
+## レビューループ
 
-`done` から再開する場合、共有で許可されていても再開理由を取り、ユーザーが明示承認したときだけ実行する。
+Step 4（`review_work`）は task 型で 5 軸レビューを実行し、結果を `review-current.json` に構造化保存する。
 
-### 9. レビュー
+- `review_work.check()` が must 件数を機械的に判定する
+- must > 0: エンジンが `execute_work` に戻す（review_work は pending に保持）
+- must = 0: review_followups_gate に進む
+- このループは must が 0 になるまで自動継続される
 
-完了条件を満たしたと判断したら、`done` へ遷移する前に、サブエージェントによる客観的なレビューを実施する。
+`review-current.json` の形式:
 
-#### 9.1 レビュー観点
-
-SubAgent（`general` タイプ）に、以下の 5 観点でレビューを依頼する。
-過去のレビュー指摘（Issue body の `## 🔍 レビュー` セクション）もコンテキストとして SubAgent に渡し、既出の指摘を踏まえてレビューさせる。
-
-> **⚠️ サブエージェント環境での制約:**
-> この Skill の実行者自身がサブエージェントとして動作している場合、SubAgent の再 dispatch は不可能なため、次のいずれかで対応する:
-> - **(a) 自己評価**: 5 観点を自分で評価し、客観性低下を補うため指摘は保守的に多めに見積もる
-> - **(b) スキップ**: レビューを省略し、ユーザーに「親エージェントでのレビュー実施」を推奨する
-
-1. **本質性・効率性:** 目的に対して本質的で効率的な解決となっているか
-2. **完了条件の充足:** `## ✅ 完了条件` は完全に満たせているか
-3. **スコープの遵守:** スコープ外の対応はしていないか
-4. **方針との整合:** `## 🧭 方針` から大きく外れた対応はしていないか
-5. **アウトプットの品質:** `## 📦 アウトプット` の品質は問題ないか
-
-レビューコンテキストとして、計画 Issue、直接実行で作成/編集したファイル群、`## 🐢 履歴` を SubAgent に渡す。
-
-#### 9.2 指摘の評価レベル
-
-- **must:** 必ず修正しなければならない重大な問題
-- **should:** 必須ではないが修正すべき問題
-- **want:** 任意の改善提案
-
-#### 9.3 レビュー・修正ループ
-
-must 指摘がゼロになるまでは自動で修正ループを回し、ゼロになった後は should / want の対応要否をユーザーに確認する。
-
-#### 9.4 レビュー結果の記録
-
-各レビューラウンドの結果を記録する。
-
-**Issue body への記録:**
-`## 🔍 レビュー` セクションに、指摘ごとに採番して以下を記載する（`gh issue edit --body-file` で更新）。
-
-**履歴への記録:**
-`## 🐢 履歴` セクションに、ラウンドごとの指摘件数サマリを追記する。
-
-```markdown
-- 2026-06-26 14:30 [review 1] must 1件, should 2件, want 1件
+```json
+{
+  "round": 2,
+  "axes": {
+    "essentiality": [{"severity": "must", "detail": "..."}],
+    "acceptance": [],
+    "scope": [],
+    "alignment": [],
+    "quality": []
+  },
+  "counts": {"must": 1, "should": 2, "want": 1}
+}
 ```
 
-#### 9.5 Done 化の確認
+## 状態遷移
 
-ユーザーが OK と言ったら、`done` 化して良いか最終確認する。
+GitHub Project の Status 同期は各ステップ内で `transition-plan.ts` を呼び出して行う:
 
-本文で番号付き選択肢として次を提示する:
-- Done にする
-- 追加の指示や質問がある
+- `start_execution`: refined → in-progress
+- `finalize_done`: in-progress → done
 
-「Done にする」が選ばれたときだけ、`transition-plan.ts` で `done` へ遷移し、`## 🐢 履歴` へ全完了を追記する（`transition-plan.ts` が自動実行）。
-「追加の指示や質問がある」なら対応のうえ、9.1 のレビューから再開する。
+`ALLOWED_TRANSITIONS` は廃止され、遷移ルールはワークフローのステップ順序で定義される。
 
-### 10. スキル終了
+## 共有資材
 
-対象計画 Issue の URL・番号、現在のステータス、完了作業、残論点、次アクションを簡潔に示す。
+`~/.config/opencode/skills/mt-plan/` 配下:
 
-中断なら、次回 `mt-run-plan` 向けに現在位置を Issue body に明記する。
+- `transition-plan.ts` — 状態遷移（GitHub Project Status 更新 + Issue open/closed 同期）
+- `list-plans.ts` — 計画一覧
+- `plan-format.md` — Issue body フォーマット
+- `workflow.ts` — ワークフロー定義
+- `sync-sessions.ts` — workflow.db セッションと計画の同期レイヤ
 
 ## ✅ 完了条件
 
 - 対象が `refined` か `in-progress` の Issue から選ばれている
 - `## 🐿️ メモ`・`## 🐢 履歴` が実行状況に合っている
 - 状態遷移は `transition-plan.ts` 経由である
-- `done` 化は完了条件と合意のうえ
-- 中断なら、再開位置が Issue body に残っている
-
-## 📦 アウトプット
-
-- 更新された計画 Issue (URL, 番号)
-- 直接実行で作成・編集したファイル群
-- 実行結果、残論点、次アクションの要約
+- `done` 化は完了条件とユーザー合意のうえ
+- 中断なら再開位置が Issue body に残っている
 
 ## ⚠️ 注意事項
 
-- 新規・リファインは `mt-create-plan` の責務とする
+- 新規作成・リファインは `mt-create-plan` の責務
 - `draft` は先に `mt-create-plan` で扱う
-- `done` 再開は必ずユーザー確認
-- 計画フォーマット本文は本ファイルへ重複しない
+- `tmp/plan/` 配下の旧形式 Markdown は履歴専用であり、実行対象にしない
 - 状態遷移は `gh project item-edit` / `gh issue close` 直ではなく `transition-plan.ts` を使う
-- 共有資材がないなら、遷移を要する処理は中断する
-- ユーザー承認前に `done` 化しない。テスト環境・簡易シナリオを含むいかなる状況でも省略不可
-- 承認済み計画の範囲外に出る実行は、計画修正または再承認なしに行わない
-- Issue body 更新時は必ず現在の body を読み取り、差分を上書きしない
+- ユーザー承認前に `done` 化しない
+- 承認済み計画の範囲外に出る実行は行わない

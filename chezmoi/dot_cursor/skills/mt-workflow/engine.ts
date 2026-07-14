@@ -442,6 +442,7 @@ function handleStepFailure(
   input: ReportInput,
   checkStatus: 'pass' | 'fail' | 'error',
   checkReasons: string[],
+  stepDef?: StepDef,
 ): ReportResult {
   const newRetryCount = step.retryCount + 1;
   const maxRetries = stepRaw.max_retries as number;
@@ -462,7 +463,11 @@ function handleStepFailure(
   const onFailTarget = stepRaw.on_fail_target as string | null;
 
   if (onFailAction === 'goto' && onFailTarget) {
-    db.run('UPDATE steps SET status = \'failed\' WHERE id = ?', [step.id]);
+    const requeueSource = stepDef?.onFail?.requeueSource === true;
+    db.run(
+      `UPDATE steps SET status = ? WHERE id = ?`,
+      [requeueSource ? 'pending' : 'failed', step.id],
+    );
     db.run('UPDATE sessions SET current_step = ?, updated_at = datetime(\'now\') WHERE id = ?', [onFailTarget, sessionId]);
     return {
       sessionId,
@@ -470,7 +475,9 @@ function handleStepFailure(
       checkResult: { status: checkStatus, reasons: checkReasons },
       nextAction: 'goto',
       targetStep: onFailTarget,
-      message: `Step failed after ${maxRetries} retries. Going to: ${onFailTarget}`,
+      message: requeueSource
+        ? `Step requires revision. Going to: ${onFailTarget} (review will re-run after fix)`
+        : `Step failed after ${maxRetries} retries. Going to: ${onFailTarget}`,
     };
   }
 
@@ -664,7 +671,7 @@ export async function report(
       }
     }
 
-    const result = handleStepFailure(db, sessionId, step, stepRaw, input, checkStatus, checkReasons);
+    const result = handleStepFailure(db, sessionId, step, stepRaw, input, checkStatus, checkReasons, stepDef);
     db.close();
     return result;
   }

@@ -740,4 +740,117 @@ describe('engine', () => {
       expect(r.checkResult.reasons).toContain('intentional check failure');
     });
   });
+
+  describe('review loop with requeueSource', () => {
+    it('should requeue review step as pending after must>0 failure, and re-run it after fix', async () => {
+      const tmpDir = path.join(TEST_BASE_DIR, 'requeue-test');
+      fs.mkdirSync(tmpDir, { recursive: true });
+      const workflowPath = path.join(tmpDir, 'requeue-workflow.ts');
+      fs.writeFileSync(workflowPath, `
+        let fixPass = false;
+        const def = {
+          id: 'requeue-test',
+          steps: [
+            {
+              key: 'execute',
+              phase: 'Execute',
+              type: 'task',
+              maxRetries: 1,
+              onFail: { action: 'escalate' },
+              task: {
+                action: 'run_subagent',
+                subagentType: 'test',
+                buildPrompt: (ctx) => 'fix the issues',
+              },
+              check: (ctx) => ({ status: 'pass', reasons: [] }),
+            },
+            {
+              key: 'review',
+              phase: 'Review',
+              type: 'task',
+              maxRetries: 0,
+              onFail: { action: 'goto', target: 'execute', requeueSource: true },
+              task: {
+                action: 'run_subagent',
+                subagentType: 'test',
+                buildPrompt: (ctx) => 'review the work',
+              },
+              check: (ctx) => {
+                if (!fixPass) {
+                  fixPass = true;
+                  return { status: 'fail', reasons: ['must: 3 issues found'] };
+                }
+                return { status: 'pass', reasons: ['must: 0'] };
+              },
+            },
+            {
+              key: 'followup',
+              phase: 'Followup',
+              type: 'human_gate',
+              maxRetries: 1,
+              onFail: { action: 'escalate' },
+              humanGate: {
+                presentArtifacts: [],
+                choices: [
+                  { value: 'approve', label: 'OK' },
+                  { value: 'abort', label: 'Abort' },
+                ],
+              },
+              check: (ctx) => ({ status: 'pass', reasons: [] }),
+            },
+          ],
+        };
+        export default def;
+      `);
+
+      const { sessionId } = await init(workflowPath, TEST_BASE_DIR);
+
+      // execute → pass
+      await next(sessionId, TEST_BASE_DIR);
+      const r1 = await report(sessionId, {
+        stepKey: 'execute',
+        status: 'completed',
+        subagentOutput: 'work done',
+      }, TEST_BASE_DIR);
+      expect(r1.nextAction).toBe('continue');
+
+      // review → fail (must>0), goto execute with requeue
+      await next(sessionId, TEST_BASE_DIR);
+      const r2 = await report(sessionId, {
+        stepKey: 'review',
+        status: 'completed',
+        subagentOutput: 'review result with must',
+      }, TEST_BASE_DIR);
+      expect(r2.nextAction).toBe('goto');
+      expect(r2.targetStep).toBe('execute');
+      expect(r2.message).toContain('review will re-run after fix');
+
+      // verify review is pending (not failed)
+      const s1 = status(sessionId, TEST_BASE_DIR);
+      const reviewStep = s1.steps.find((s) => s.key === 'review');
+      expect(reviewStep?.status).toBe('pending');
+
+      // execute → pass again
+      await next(sessionId, TEST_BASE_DIR);
+      const r3 = await report(sessionId, {
+        stepKey: 'execute',
+        status: 'completed',
+        subagentOutput: 'fixes applied',
+      }, TEST_BASE_DIR);
+      expect(r3.nextAction).toBe('continue');
+
+      // review → pass (must=0, fixPass=true)
+      await next(sessionId, TEST_BASE_DIR);
+      const lookAhead = await next(sessionId, TEST_BASE_DIR);
+      expect(lookAhead.stepKey).toBe('review');
+
+      const r4 = await report(sessionId, {
+        stepKey: 'review',
+        status: 'completed',
+        subagentOutput: 'must: 0',
+      }, TEST_BASE_DIR);
+      expect(r4.nextAction).toBe('continue');
+      expect(r4.message).toContain('followup');
+    });
+  });
 });
