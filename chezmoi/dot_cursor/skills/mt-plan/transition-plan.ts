@@ -21,13 +21,6 @@ export type TransitionSideEffect = {
   issueClosed: boolean;
 };
 
-const ALLOWED_TRANSITIONS: Record<PlanStatus, readonly PlanStatus[]> = {
-  draft: ["refined"],
-  refined: ["in-progress"],
-  "in-progress": ["done"],
-  done: ["in-progress"],
-};
-
 function isPlanStatus(value: string): value is PlanStatus {
   return PLAN_STATUSES.includes(value as PlanStatus);
 }
@@ -38,13 +31,6 @@ function assertPlanStatus(value: string): asserts value is PlanStatus {
       `Unsupported target status: ${value}. Supported statuses: ${PLAN_STATUSES.join(", ")}`,
     );
   }
-}
-
-export function isAllowedTransition(
-  source: PlanStatus,
-  target: PlanStatus,
-): boolean {
-  return ALLOWED_TRANSITIONS[source].includes(target);
 }
 
 function formatHistoryEntry(
@@ -146,12 +132,6 @@ export async function transitionPlan(
   if (sourceStatus === options.targetStatus) {
     throw new TransitionPlanError(
       `Plan #${options.number} is already in status '${options.targetStatus}'.`,
-    );
-  }
-
-  if (!isAllowedTransition(sourceStatus, options.targetStatus)) {
-    throw new TransitionPlanError(
-      `Transition '${sourceStatus}' -> '${options.targetStatus}' is not allowed.`,
     );
   }
 
@@ -570,7 +550,6 @@ export function usage(): string {
     "use --repo <owner/repo> to disambiguate.",
     "",
     `Supported statuses: ${PLAN_STATUSES.join(", ")}`,
-    "Allowed transitions: draft -> refined, refined -> in-progress, in-progress -> done, done -> in-progress",
   ].join("\n");
 }
 

@@ -39,12 +39,11 @@ bun <mt-plan-skill-dir>/transition-plan.ts 7 in-progress
 # Plan #7 を in-progress に遷移
 ```
 
-許可される遷移は以下です。
+遷移の順序は `workflow.ts` のステップ定義で管理します。`transition-plan.ts` は GitHub Project / Issue の更新を実行する層です。
 
-- `draft` → `refined`
-- `refined` → `in-progress`
-- `in-progress` → `done`
-- `done` → `in-progress`
+## 旧形式の計画
+
+`tmp/plan/[status]/yyyymmdd-[plan-name].md` の既存 Markdown は履歴として残っていますが、現行の `list-plans.ts` と `transition-plan.ts` は扱いません。新規計画と状態遷移には GitHub Issue / Project ベースの資材を使用してください。
 
 ## 設定初期化
 

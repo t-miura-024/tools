@@ -49,6 +49,7 @@ export interface SubtaskDef {
 export interface OnFailStrategy {
   action: 'retry' | 'goto' | 'abort' | 'escalate';
   target?: string;
+  requeueSource?: boolean;
 }
 
 export interface GateChoice {

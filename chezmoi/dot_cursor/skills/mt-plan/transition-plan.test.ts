@@ -5,7 +5,6 @@ import * as path from "node:path";
 import {
   appendHistoryEntry,
   formatTransitionResult,
-  isAllowedTransition,
   parseTransitionPlanCli,
   transitionPlan,
   TransitionPlanError,
@@ -46,26 +45,6 @@ describe("mt-plan/transition-plan (Project version)", () => {
 
   afterEach(() => {
     fs.rmSync(tmp, { recursive: true, force: true });
-  });
-
-  describe("isAllowedTransition", () => {
-    it("許可された遷移は true", () => {
-      expect(isAllowedTransition("draft", "refined")).toBe(true);
-      expect(isAllowedTransition("refined", "in-progress")).toBe(true);
-      expect(isAllowedTransition("in-progress", "done")).toBe(true);
-      expect(isAllowedTransition("done", "in-progress")).toBe(true);
-    });
-
-    it("許可されていない遷移は false", () => {
-      expect(isAllowedTransition("draft", "in-progress")).toBe(false);
-      expect(isAllowedTransition("draft", "done")).toBe(false);
-      expect(isAllowedTransition("refined", "done")).toBe(false);
-      expect(isAllowedTransition("refined", "draft")).toBe(false);
-      expect(isAllowedTransition("in-progress", "refined")).toBe(false);
-      expect(isAllowedTransition("in-progress", "draft")).toBe(false);
-      expect(isAllowedTransition("done", "refined")).toBe(false);
-      expect(isAllowedTransition("done", "draft")).toBe(false);
-    });
   });
 
   describe("appendHistoryEntry", () => {
@@ -197,7 +176,7 @@ describe("mt-plan/transition-plan (Project version)", () => {
     it("usage メッセージを返す", () => {
       const text = usage();
       expect(text).toContain("Usage:");
-      expect(text).toContain("Allowed transitions");
+      expect(text).toContain("Supported statuses");
     });
   });
 
@@ -271,27 +250,6 @@ describe("mt-plan/transition-plan (Project version)", () => {
       });
 
       expect(stateUpdates).toEqual([{ state: "closed" }]);
-    });
-
-    it("許可されていない遷移はエラー", async () => {
-      const config = makeConfig();
-
-      await expect(
-        transitionPlan({
-          config,
-          number: 7,
-          targetStatus: "done",
-          findPlanItem: async () => ({
-            itemId: "PVTI_abc",
-            currentStatus: "draft",
-            repo: "t-miura-024/tools",
-          }),
-          updateItemStatus: async () => undefined,
-          updateIssueState: async () => undefined,
-          readIssueBody: async () => "",
-          updateIssueBody: async () => undefined,
-        }),
-      ).rejects.toThrowError(/Transition 'draft' -> 'done' is not allowed/);
     });
 
     it("同じ status への遷移はエラー", async () => {
