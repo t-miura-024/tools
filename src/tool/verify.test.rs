@@ -35,21 +35,11 @@ fn test_verify_commands_do_not_upgrade_or_install() {
 }
 
 #[test]
-fn test_npm_global_verify_uses_mise_node() {
+fn test_bun_global_list_command_uses_mise() {
     let manifest_dir = Path::new("/repo/manifests");
-    let packages = vec![
-        NpmGlobalPackage {
-            name: "agent-browser".to_string(),
-            version: "latest".to_string(),
-        },
-        NpmGlobalPackage {
-            name: "pnpm".to_string(),
-            version: "9.0.0".to_string(),
-        },
-    ];
 
     assert_eq!(
-        npm_global_verify_command(manifest_dir, &packages),
+        bun_global_list_command(manifest_dir),
         ToolCommandSpec {
             program: "mise",
             args: vec![
@@ -57,12 +47,11 @@ fn test_npm_global_verify_uses_mise_node() {
                 "-C".into(),
                 "/repo/manifests".into(),
                 "--".into(),
-                "npm".into(),
-                "list".into(),
-                "--global".into(),
-                "--depth=0".into(),
-                "agent-browser".into(),
-                "pnpm".into(),
+                "bun".into(),
+                "pm".into(),
+                "ls".into(),
+                "-g".into(),
+                "--all".into(),
             ],
             envs: vec![],
         }

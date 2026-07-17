@@ -11,7 +11,6 @@ use crate::config;
 #[path = "repo_discover.rs"]
 pub mod repo_discover;
 
-
 pub fn create() -> anyhow::Result<()> {
     style::intro("GitHub リポジトリ作成");
 

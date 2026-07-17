@@ -5,9 +5,9 @@ use dialoguer::Confirm;
 
 use crate::cli::style;
 use crate::tool::shared::{
-    Manifests, NpmGlobalPackage, ToolCommandSpec, command_output_spec, ensure_command,
-    ensure_mise_trusted, npm_exec_prefix, read_npm_global_packages, run_tool_command,
-    run_tool_command_status,
+    BunGlobalPackage, Manifests, ToolCommandSpec, command_output_spec, ensure_command,
+    ensure_mise_trusted, mise_exec_prefix, parse_bun_pm_ls_output, read_bun_global_packages,
+    run_tool_command, run_tool_command_status,
 };
 
 pub(super) fn install() -> anyhow::Result<()> {
@@ -18,7 +18,7 @@ pub(super) fn install() -> anyhow::Result<()> {
     ensure_command("brew")?;
     ensure_command("mise")?;
     ensure_mise_trusted(&manifests.manifest_dir, &manifests.mise_toml)?;
-    let npm_packages = read_npm_global_packages(&manifests.npm_global)?;
+    let bun_packages = read_bun_global_packages(&manifests.bun_global)?;
 
     run_tool_command(
         &brew_bundle_install_command(&manifests.brewfile),
@@ -28,9 +28,9 @@ pub(super) fn install() -> anyhow::Result<()> {
         &mise_install_command(&manifests.manifest_dir),
         &manifests.root,
     )?;
-    if !npm_packages.is_empty() {
+    if !bun_packages.is_empty() {
         run_tool_command(
-            &npm_global_install_command(&manifests.manifest_dir, &npm_packages),
+            &bun_global_install_command(&manifests.manifest_dir, &bun_packages),
             &manifests.root,
         )?;
         run_tool_command(
@@ -38,7 +38,7 @@ pub(super) fn install() -> anyhow::Result<()> {
             &manifests.root,
         )?;
     }
-    cleanup_after_install(&manifests, &npm_packages)?;
+    cleanup_after_install(&manifests, &bun_packages)?;
 
     style::outro("✅ ツールのインストールが完了しました");
     Ok(())
@@ -46,7 +46,7 @@ pub(super) fn install() -> anyhow::Result<()> {
 
 fn cleanup_after_install(
     manifests: &Manifests,
-    npm_packages: &[NpmGlobalPackage],
+    bun_packages: &[BunGlobalPackage],
 ) -> anyhow::Result<()> {
     run_cleanup_preview(
         "Brewfile 管理対象外の依存",
@@ -60,7 +60,7 @@ fn cleanup_after_install(
         &mise_prune_tools_command(&manifests.manifest_dir),
         &manifests.root,
     )?;
-    cleanup_npm_globals(manifests, npm_packages)?;
+    cleanup_bun_globals(manifests, bun_packages)?;
 
     Ok(())
 }
@@ -97,36 +97,36 @@ fn run_cleanup_preview(
     Ok(())
 }
 
-fn cleanup_npm_globals(
+fn cleanup_bun_globals(
     manifests: &Manifests,
-    desired_packages: &[NpmGlobalPackage],
+    desired_packages: &[BunGlobalPackage],
 ) -> anyhow::Result<()> {
-    style::info("npm global の削除候補を確認します");
+    style::info("bun global の削除候補を確認します");
     let installed_packages =
-        installed_npm_global_packages(&manifests.manifest_dir, &manifests.root)?;
+        installed_bun_global_packages(&manifests.manifest_dir, &manifests.root)?;
     let desired_names: Vec<String> = desired_packages
         .iter()
         .map(|package| package.name.clone())
         .collect();
-    let removable = removable_npm_global_packages(&installed_packages, &desired_names);
+    let removable = removable_bun_global_packages(&installed_packages, &desired_names);
 
     if removable.is_empty() {
-        style::success("npm global の削除候補はありません");
+        style::success("bun global の削除候補はありません");
         return Ok(());
     }
 
     for package in &removable {
-        style::info(&format!("削除候補: npm global {}", package));
+        style::info(&format!("削除候補: bun global {}", package));
     }
 
     let cleanup = Confirm::new()
-        .with_prompt("npm global の削除候補があります。削除しますか？")
+        .with_prompt("bun global の削除候補があります。削除しますか？")
         .default(false)
         .interact()?;
 
     if cleanup {
         run_tool_command(
-            &npm_global_uninstall_command(&manifests.manifest_dir, &removable),
+            &bun_global_uninstall_command(&manifests.manifest_dir, &removable),
             &manifests.root,
         )?;
         run_tool_command(
@@ -134,35 +134,27 @@ fn cleanup_npm_globals(
             &manifests.root,
         )?;
     } else {
-        style::info("npm global の削除はスキップしました");
+        style::info("bun global の削除はスキップしました");
     }
 
     Ok(())
 }
 
-fn installed_npm_global_packages(
+fn installed_bun_global_packages(
     manifest_dir: &Path,
     current_dir: &Path,
 ) -> anyhow::Result<Vec<String>> {
-    let output = command_output_spec(&npm_global_list_command(manifest_dir), current_dir)?;
-    let json: serde_json::Value = serde_json::from_str(&output)?;
-    let packages = json
-        .get("dependencies")
-        .and_then(|dependencies| dependencies.as_object())
-        .map(|dependencies| dependencies.keys().cloned().collect())
-        .unwrap_or_default();
-
+    let output = command_output_spec(&bun_global_list_command(manifest_dir), current_dir)?;
+    let packages = parse_bun_pm_ls_output(&output);
     Ok(packages)
 }
 
-fn removable_npm_global_packages(installed: &[String], desired: &[String]) -> Vec<String> {
+fn removable_bun_global_packages(installed: &[String], desired: &[String]) -> Vec<String> {
     let desired: BTreeSet<&str> = desired.iter().map(String::as_str).collect();
-    let protected: BTreeSet<&str> = ["npm", "corepack"].into_iter().collect();
 
     installed
         .iter()
         .filter(|package| !desired.contains(package.as_str()))
-        .filter(|package| !protected.contains(package.as_str()))
         .cloned()
         .collect()
 }
@@ -252,16 +244,12 @@ fn mise_reshim_command(manifest_dir: &Path) -> ToolCommandSpec {
     )
 }
 
-fn npm_global_install_command(
+fn bun_global_install_command(
     manifest_dir: &Path,
-    packages: &[NpmGlobalPackage],
+    packages: &[BunGlobalPackage],
 ) -> ToolCommandSpec {
-    let mut args = npm_exec_prefix(manifest_dir);
-    args.extend([
-        "npm".to_string(),
-        "install".to_string(),
-        "--global".to_string(),
-    ]);
+    let mut args = mise_exec_prefix(manifest_dir);
+    args.extend(["bun".to_string(), "install".to_string(), "-g".to_string()]);
     args.extend(
         packages
             .iter()
@@ -270,25 +258,21 @@ fn npm_global_install_command(
     ToolCommandSpec::new("mise", args)
 }
 
-fn npm_global_list_command(manifest_dir: &Path) -> ToolCommandSpec {
-    let mut args = npm_exec_prefix(manifest_dir);
+fn bun_global_list_command(manifest_dir: &Path) -> ToolCommandSpec {
+    let mut args = mise_exec_prefix(manifest_dir);
     args.extend([
-        "npm".to_string(),
-        "list".to_string(),
-        "--global".to_string(),
-        "--depth=0".to_string(),
-        "--json".to_string(),
+        "bun".to_string(),
+        "pm".to_string(),
+        "ls".to_string(),
+        "-g".to_string(),
+        "--all".to_string(),
     ]);
     ToolCommandSpec::new("mise", args)
 }
 
-fn npm_global_uninstall_command(manifest_dir: &Path, packages: &[String]) -> ToolCommandSpec {
-    let mut args = npm_exec_prefix(manifest_dir);
-    args.extend([
-        "npm".to_string(),
-        "uninstall".to_string(),
-        "--global".to_string(),
-    ]);
+fn bun_global_uninstall_command(manifest_dir: &Path, packages: &[String]) -> ToolCommandSpec {
+    let mut args = mise_exec_prefix(manifest_dir);
+    args.extend(["bun".to_string(), "remove".to_string(), "-g".to_string()]);
     args.extend(packages.iter().cloned());
     ToolCommandSpec::new("mise", args)
 }

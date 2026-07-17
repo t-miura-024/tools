@@ -47,7 +47,11 @@ pub fn parse_chezmoi_toml_source_dir() -> Option<PathBuf> {
     for line in content.lines() {
         let trimmed = line.trim();
         if let Some(value) = trimmed.strip_prefix("sourceDir") {
-            let value = value.trim_start().strip_prefix('=')?.trim().trim_matches('"');
+            let value = value
+                .trim_start()
+                .strip_prefix('=')?
+                .trim()
+                .trim_matches('"');
             if !value.is_empty() {
                 return Some(PathBuf::from(value));
             }

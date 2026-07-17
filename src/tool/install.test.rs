@@ -63,21 +63,21 @@ fn test_cleanup_commands_preview_before_force() {
 }
 
 #[test]
-fn test_npm_global_install_and_uninstall_use_mise_node() {
+fn test_bun_global_install_and_uninstall_use_mise() {
     let manifest_dir = Path::new("/repo/manifests");
     let packages = vec![
-        NpmGlobalPackage {
+        BunGlobalPackage {
             name: "agent-browser".to_string(),
             version: "latest".to_string(),
         },
-        NpmGlobalPackage {
+        BunGlobalPackage {
             name: "pnpm".to_string(),
             version: "9.0.0".to_string(),
         },
     ];
 
     assert_eq!(
-        npm_global_install_command(manifest_dir, &packages),
+        bun_global_install_command(manifest_dir, &packages),
         ToolCommandSpec {
             program: "mise",
             args: vec![
@@ -85,9 +85,9 @@ fn test_npm_global_install_and_uninstall_use_mise_node() {
                 "-C".into(),
                 "/repo/manifests".into(),
                 "--".into(),
-                "npm".into(),
+                "bun".into(),
                 "install".into(),
-                "--global".into(),
+                "-g".into(),
                 "agent-browser@latest".into(),
                 "pnpm@9.0.0".into(),
             ],
@@ -95,7 +95,7 @@ fn test_npm_global_install_and_uninstall_use_mise_node() {
         }
     );
     assert_eq!(
-        npm_global_uninstall_command(
+        bun_global_uninstall_command(
             manifest_dir,
             &["agent-browser".to_string(), "pnpm".to_string()],
         ),
@@ -106,9 +106,9 @@ fn test_npm_global_install_and_uninstall_use_mise_node() {
                 "-C".into(),
                 "/repo/manifests".into(),
                 "--".into(),
-                "npm".into(),
-                "uninstall".into(),
-                "--global".into(),
+                "bun".into(),
+                "remove".into(),
+                "-g".into(),
                 "agent-browser".into(),
                 "pnpm".into(),
             ],
@@ -118,17 +118,62 @@ fn test_npm_global_install_and_uninstall_use_mise_node() {
 }
 
 #[test]
-fn test_removable_npm_globals_protects_runtime_packages() {
+fn test_removable_bun_globals_no_protected_packages() {
     let installed = vec![
         "agent-browser".to_string(),
-        "npm".to_string(),
-        "corepack".to_string(),
         "old-tool".to_string(),
+        "extra".to_string(),
     ];
     let desired = vec!["agent-browser".to_string()];
 
     assert_eq!(
-        removable_npm_global_packages(&installed, &desired),
-        vec!["old-tool".to_string()]
+        removable_bun_global_packages(&installed, &desired),
+        vec!["old-tool".to_string(), "extra".to_string()]
     );
+}
+
+#[test]
+fn test_removable_bun_globals_all_desired() {
+    let installed = vec!["agent-browser".to_string(), "pnpm".to_string()];
+    let desired = vec!["agent-browser".to_string(), "pnpm".to_string()];
+
+    assert!(removable_bun_global_packages(&installed, &desired).is_empty());
+}
+
+#[test]
+fn test_parse_bun_pm_ls_output_extracts_package_names() {
+    let output =
+        "/path/to/global/node_modules:\n  agent-browser@1.0.0\n  pnpm@9.0.0\n  firecrawl@latest\n";
+
+    let packages = parse_bun_pm_ls_output(output);
+
+    assert_eq!(
+        packages,
+        vec![
+            "agent-browser".to_string(),
+            "pnpm".to_string(),
+            "firecrawl".to_string(),
+        ]
+    );
+}
+
+#[test]
+fn test_parse_bun_pm_ls_output_with_tree_symbols() {
+    let output = "/path/to/global/node_modules:\n├── agent-browser@1.0.0\n├── pnpm@9.0.0\n└── firecrawl@latest\n";
+
+    let packages = parse_bun_pm_ls_output(output);
+
+    assert_eq!(
+        packages,
+        vec![
+            "agent-browser".to_string(),
+            "pnpm".to_string(),
+            "firecrawl".to_string(),
+        ]
+    );
+}
+
+#[test]
+fn test_parse_bun_pm_ls_output_empty() {
+    assert!(parse_bun_pm_ls_output("").is_empty());
 }

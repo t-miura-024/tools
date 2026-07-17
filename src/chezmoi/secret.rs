@@ -161,8 +161,8 @@ fn get_age_public_key() -> anyhow::Result<String> {
         bail!("age-keygen が失敗しました: {}", stderr.trim());
     }
 
-    let key = String::from_utf8(output.stdout)
-        .context("age-keygen の出力が UTF-8 ではありません")?;
+    let key =
+        String::from_utf8(output.stdout).context("age-keygen の出力が UTF-8 ではありません")?;
     Ok(key.trim().to_string())
 }
 
@@ -188,8 +188,7 @@ fn decrypt_age(age_file: &Path) -> anyhow::Result<String> {
         );
     }
 
-    String::from_utf8(output.stdout)
-        .context("復号された平文が UTF-8 ではありません")
+    String::from_utf8(output.stdout).context("復号された平文が UTF-8 ではありません")
 }
 
 fn encrypt_age(plaintext: &[u8], public_key: &str, dest_age_path: &Path) -> anyhow::Result<()> {

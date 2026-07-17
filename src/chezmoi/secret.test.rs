@@ -128,7 +128,11 @@ fn test_parse_chezmoi_toml_source_dir() {
     let tmp = tempdir().unwrap();
     let config_dir = tmp.path().join(".config").join("chezmoi");
     std::fs::create_dir_all(&config_dir).unwrap();
-    std::fs::write(config_dir.join("chezmoi.toml"), "sourceDir = \"/custom/path\"\n").unwrap();
+    std::fs::write(
+        config_dir.join("chezmoi.toml"),
+        "sourceDir = \"/custom/path\"\n",
+    )
+    .unwrap();
 
     unsafe {
         std::env::set_var("HOME", tmp.path().to_str().unwrap());
@@ -206,10 +210,7 @@ fn test_resolve_chezmoi_source_dir_default() {
     }
 
     let result = shared::resolve_chezmoi_source_dir().unwrap();
-    assert_eq!(
-        result,
-        tmp.path().join("src").join("tools").join("chezmoi")
-    );
+    assert_eq!(result, tmp.path().join("src").join("tools").join("chezmoi"));
 
     if let Some(v) = prev_source {
         unsafe {

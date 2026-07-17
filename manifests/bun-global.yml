@@ -1,0 +1,9 @@
+packages:
+  agent-browser:
+    version: latest
+  firecrawl:
+    version: latest
+  pnpm:
+    version: latest
+  takt:
+    version: latest

@@ -79,7 +79,9 @@ pub fn run() -> anyhow::Result<()> {
     if check_agent_sync().is_ok() {
         style::success("agent/skill sync: 同期済み");
     } else {
-        style::error("agent/skill sync: 未同期の項目があります。`mt agent sync` を実行してください");
+        style::error(
+            "agent/skill sync: 未同期の項目があります。`mt agent sync` を実行してください",
+        );
         all_ok = false;
     }
 
