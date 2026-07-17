@@ -27,8 +27,13 @@ color: yellow
 - 既存アーキテクチャとの整合を優先する
 - 将来拡張より現在の仕様達成に必要な設計を重視する
 - 上流変更が必要な場合は `[UCR]` で親エージェントに報告する
+- 深い module の語彙（module / interface / depth / seam / adapter / leverage / locality）で評価する
+- 浅い module の増加、seam 漏れ、削除テストに耐えない分割を指摘する
+- 最近変更が多い箇所の deepening 候補があれば提案する
 
 ## 🔗 参照 Skill
 
 - `_cursor_user/skills/mt-sdd-implement/SKILL.md`
 - `_cursor_user/skills/mt-sdd/review-framework.md`
+- `_cursor_user/skills/_shared/codebase-design-vocabulary.md`
+- `_cursor_user/skills/mt-improve-codebase-architecture/SKILL.md`
