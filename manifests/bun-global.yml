@@ -1,6 +1,8 @@
 packages:
   agent-browser:
     version: latest
+  difit:
+    version: latest
   firecrawl:
     version: latest
   pnpm:
