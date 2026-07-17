@@ -16,6 +16,9 @@
 | 依存関係     | モジュール間の依存が適切か         |
 | 設計パターン   | 既存パターンと整合性があるか        |
 | 背景目的との整合性 | 変更がレビューで採用した背景（目的・制約・意図）と整合しているか（下記4項目） |
+| 仕様適合 | 変更が元 Issue / PRD / spec の要求を満たし、要求外の振る舞いを増やしていないか |
+| 深い module | 浅い module の増加、seam 漏れ、誤ったテスト面がないか（[_shared/codebase-design-vocabulary.md](../_shared/codebase-design-vocabulary.md)） |
+| 深める候補 | 最近の変更箇所に locality / leverage を高める候補がないか |
 
 #### 背景目的との整合性（確認項目）
 
@@ -34,6 +37,7 @@
 | ロジック      | 正確性・効率性・エッジケース処理     |
 | エラーハンドリング | 例外処理が適切か             |
 | ライブラリ     | 利用ライブラリの選定が適切か       |
+| 設計上の臭い | Mysterious Name / Duplicated Code / Feature Envy / Data Clumps / Primitive Obsession / Shotgun Surgery / Speculative Generality など。リポジトリ規約が優先し、臭いは判断材料であって自動違反ではない |
 
 ### 共通観点
 
