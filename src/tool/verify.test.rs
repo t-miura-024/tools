@@ -51,7 +51,6 @@ fn test_bun_global_list_command_uses_mise() {
                 "pm".into(),
                 "ls".into(),
                 "-g".into(),
-                "--all".into(),
             ],
             envs: vec![],
         }

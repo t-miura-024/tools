@@ -91,7 +91,6 @@ fn bun_global_list_command(manifest_dir: &Path) -> ToolCommandSpec {
         "pm".to_string(),
         "ls".to_string(),
         "-g".to_string(),
-        "--all".to_string(),
     ]);
     ToolCommandSpec::new("mise", args)
 }
