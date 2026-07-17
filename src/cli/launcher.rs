@@ -84,7 +84,7 @@ const SCRIPTS: &[ScriptEntry] = &[
     ScriptEntry {
         name: "tool verify",
         category: "tool",
-        description: "Homebrew、mise、npm global の管理状態を検証",
+        description: "Homebrew、mise、bun global の管理状態を検証",
     },
     ScriptEntry {
         name: "tool brew upgrade",

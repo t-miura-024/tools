@@ -3,8 +3,8 @@ use dialoguer::Confirm;
 
 use crate::cli::style;
 use crate::raycast::shared::{
-    age_binary_present, decrypt_passphrase, open_deeplink, passphrase_path, raycast_app_present,
-    rayconfig_path, IMPORT_DEEPLINK,
+    IMPORT_DEEPLINK, age_binary_present, decrypt_passphrase, open_deeplink, passphrase_path,
+    raycast_app_present, rayconfig_path,
 };
 
 pub fn run() -> anyhow::Result<()> {
@@ -15,9 +15,7 @@ pub fn run() -> anyhow::Result<()> {
     }
 
     if !age_binary_present() {
-        anyhow::bail!(
-            "age バイナリが見つかりません。`brew install age` で導入してください"
-        );
+        anyhow::bail!("age バイナリが見つかりません。`brew install age` で導入してください");
     }
 
     let input = rayconfig_path()?;
@@ -31,8 +29,7 @@ pub fn run() -> anyhow::Result<()> {
     }
 
     let pp_path = passphrase_path()?;
-    let passphrase =
-        decrypt_passphrase(&pp_path).context("passphrase の取得に失敗")?;
+    let passphrase = decrypt_passphrase(&pp_path).context("passphrase の取得に失敗")?;
 
     let show = Confirm::new()
         .with_prompt("Passphrase を表示しますか？（端末に平文表示されます）")

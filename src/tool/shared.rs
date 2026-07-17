@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 use anyhow::Context;
+use regex::Regex;
 use serde::Deserialize;
 
 use crate::cli::style;
@@ -13,7 +14,7 @@ pub(super) struct Manifests {
     pub(super) manifest_dir: PathBuf,
     pub(super) brewfile: PathBuf,
     pub(super) mise_toml: PathBuf,
-    pub(super) npm_global: PathBuf,
+    pub(super) bun_global: PathBuf,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -48,7 +49,7 @@ impl Manifests {
         Ok(Self {
             brewfile: manifest_dir.join("Brewfile"),
             mise_toml: manifest_dir.join("mise.toml"),
-            npm_global: manifest_dir.join("npm-global.yml"),
+            bun_global: manifest_dir.join("bun-global.yml"),
             manifest_dir,
             root,
         })
@@ -57,7 +58,7 @@ impl Manifests {
     pub(super) fn ensure_files(&self) -> anyhow::Result<()> {
         self.ensure_brewfile()?;
         ensure_file(&self.mise_toml, "mise.toml")?;
-        ensure_file(&self.npm_global, "npm-global.yml")?;
+        ensure_file(&self.bun_global, "bun-global.yml")?;
         Ok(())
     }
 
@@ -107,17 +108,17 @@ pub(super) fn ensure_mise_trusted(root: &Path, mise_toml: &Path) -> anyhow::Resu
     Ok(())
 }
 
-pub(super) fn read_npm_global_packages(path: &Path) -> anyhow::Result<Vec<NpmGlobalPackage>> {
+pub(super) fn read_bun_global_packages(path: &Path) -> anyhow::Result<Vec<BunGlobalPackage>> {
     let content = fs::read_to_string(path).with_context(|| {
         format!(
-            "npm-global.yml の読み込みに失敗しました: {}",
+            "bun-global.yml の読み込みに失敗しました: {}",
             path.display()
         )
     })?;
 
-    let manifest: NpmGlobalManifest = yaml_serde::from_str(&content).with_context(|| {
+    let manifest: BunGlobalManifest = yaml_serde::from_str(&content).with_context(|| {
         format!(
-            "npm-global.yml の YAML 解析に失敗しました: {}",
+            "bun-global.yml の YAML 解析に失敗しました: {}",
             path.display()
         )
     })?;
@@ -126,27 +127,27 @@ pub(super) fn read_npm_global_packages(path: &Path) -> anyhow::Result<Vec<NpmGlo
 }
 
 #[derive(Debug, PartialEq, Eq)]
-pub(super) struct NpmGlobalPackage {
+pub(super) struct BunGlobalPackage {
     pub(super) name: String,
     pub(super) version: String,
 }
 
 #[derive(Debug, Deserialize)]
-struct NpmGlobalManifest {
+struct BunGlobalManifest {
     #[serde(default)]
-    packages: BTreeMap<String, NpmGlobalPackageEntry>,
+    packages: BTreeMap<String, BunGlobalPackageEntry>,
 }
 
 #[derive(Debug, Deserialize)]
-struct NpmGlobalPackageEntry {
+struct BunGlobalPackageEntry {
     version: String,
 }
 
-impl NpmGlobalManifest {
-    fn into_packages(self) -> Vec<NpmGlobalPackage> {
+impl BunGlobalManifest {
+    fn into_packages(self) -> Vec<BunGlobalPackage> {
         self.packages
             .into_iter()
-            .map(|(name, entry)| NpmGlobalPackage {
+            .map(|(name, entry)| BunGlobalPackage {
                 name,
                 version: entry.version,
             })
@@ -154,13 +155,25 @@ impl NpmGlobalManifest {
     }
 }
 
-pub(super) fn npm_exec_prefix(manifest_dir: &Path) -> Vec<String> {
+pub(super) fn mise_exec_prefix(manifest_dir: &Path) -> Vec<String> {
     vec![
         "exec".to_string(),
         "-C".to_string(),
         manifest_dir.to_string_lossy().to_string(),
         "--".to_string(),
     ]
+}
+
+pub(super) fn parse_bun_pm_ls_output(output: &str) -> Vec<String> {
+    let re = Regex::new(r"^\s*(?:[├└]──\s+)?(\S+?)@\S+").unwrap();
+    output
+        .lines()
+        .filter_map(|line| {
+            re.captures(line)
+                .and_then(|caps| caps.get(1))
+                .map(|m| m.as_str().to_string())
+        })
+        .collect()
 }
 
 pub(super) fn run_tool_command(

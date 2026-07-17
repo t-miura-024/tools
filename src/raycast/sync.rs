@@ -4,9 +4,9 @@ use dialoguer::Input;
 
 use crate::cli::style;
 use crate::raycast::shared::{
-    age_binary_present, chezmoi_source_dir, copy_file, decrypt_passphrase,
+    EXPORT_DEEPLINK, age_binary_present, chezmoi_source_dir, copy_file, decrypt_passphrase,
     find_latest_rayconfig_in_downloads, open_deeplink, passphrase_path, raycast_app_present,
-    rayconfig_path, EXPORT_DEEPLINK,
+    rayconfig_path,
 };
 
 pub fn run() -> anyhow::Result<()> {
@@ -17,9 +17,7 @@ pub fn run() -> anyhow::Result<()> {
     }
 
     if !age_binary_present() {
-        anyhow::bail!(
-            "age バイナリが見つかりません。`brew install age` で導入してください"
-        );
+        anyhow::bail!("age バイナリが見つかりません。`brew install age` で導入してください");
     }
 
     let source_dir = chezmoi_source_dir()?;
@@ -32,8 +30,7 @@ pub fn run() -> anyhow::Result<()> {
     }
 
     let pp_path = passphrase_path()?;
-    let passphrase =
-        decrypt_passphrase(&pp_path).context("passphrase の取得に失敗")?;
+    let passphrase = decrypt_passphrase(&pp_path).context("passphrase の取得に失敗")?;
 
     let show = Confirm::new()
         .with_prompt("Passphrase を表示しますか？（端末に平文表示されます）")
@@ -62,9 +59,11 @@ pub fn run() -> anyhow::Result<()> {
 
     let input_path_str: String = Input::new()
         .with_prompt("エクスポートされた .rayconfig ファイルのパス")
-        .default(find_latest_rayconfig_in_downloads()
-            .map(|p| p.to_string_lossy().to_string())
-            .unwrap_or_default())
+        .default(
+            find_latest_rayconfig_in_downloads()
+                .map(|p| p.to_string_lossy().to_string())
+                .unwrap_or_default(),
+        )
         .interact_text()
         .context("パスの入力に失敗")?;
 

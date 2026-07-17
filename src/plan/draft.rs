@@ -42,7 +42,12 @@ pub fn run(yes: bool) -> anyhow::Result<()> {
 
     verify_repo_exists(&target_repo)?;
 
-    ensure_labels(&target_repo, &selected_owner, &selected_name, has_external_label)?;
+    ensure_labels(
+        &target_repo,
+        &selected_owner,
+        &selected_name,
+        has_external_label,
+    )?;
 
     let title = prompt_title()?;
 
@@ -85,7 +90,12 @@ pub fn run(yes: bool) -> anyhow::Result<()> {
     } else {
         None
     };
-    let issue_url = create_issue(&target_repo, &title, &description, external_label.as_deref())?;
+    let issue_url = create_issue(
+        &target_repo,
+        &title,
+        &description,
+        external_label.as_deref(),
+    )?;
     style::info(&format!("Issue を作成しました: {issue_url}"));
 
     match add_to_project_and_set_status(&config, &issue_url) {
@@ -104,7 +114,11 @@ pub fn run(yes: bool) -> anyhow::Result<()> {
     Ok(())
 }
 
-pub fn determine_target(selected_owner: &str, selected_name: &str, config_owner: &str) -> (String, bool) {
+pub fn determine_target(
+    selected_owner: &str,
+    selected_name: &str,
+    config_owner: &str,
+) -> (String, bool) {
     if selected_owner == config_owner {
         (format!("{selected_owner}/{selected_name}"), false)
     } else {
@@ -179,7 +193,10 @@ pub fn get_repo_owner_and_name(repo_path: &std::path::Path) -> anyhow::Result<(S
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        bail!("git remote get-url origin が失敗しました: {}", stderr.trim());
+        bail!(
+            "git remote get-url origin が失敗しました: {}",
+            stderr.trim()
+        );
     }
 
     let url = String::from_utf8_lossy(&output.stdout).trim().to_string();
@@ -258,7 +275,12 @@ fn ensure_labels(
     selected_name: &str,
     has_external_label: bool,
 ) -> anyhow::Result<()> {
-    ensure_label(target_repo, "kind/plan", "0E8A16", "mt-plan で管理する計画 Issue")?;
+    ensure_label(
+        target_repo,
+        "kind/plan",
+        "0E8A16",
+        "mt-plan で管理する計画 Issue",
+    )?;
 
     if has_external_label {
         let label_name = format_external_label_name(selected_owner, selected_name);
@@ -329,32 +351,44 @@ fn open_editor_for_description() -> anyhow::Result<String> {
     let mut cmd = Command::new(editor_cmd);
     cmd.args(&editor_args);
     cmd.arg(&temp_path);
-    let status = cmd
-        .status()
-        .context(format!(
-            "エディタの起動に失敗しました: {editor_value} {}",
-            temp_path.display()
-        ))?;
+    let status = cmd.status().context(format!(
+        "エディタの起動に失敗しました: {editor_value} {}",
+        temp_path.display()
+    ))?;
 
     if !status.success() {
         bail!("エディタがエラーで終了しました: {editor_value}");
     }
 
-    let description = fs::read_to_string(&temp_path)
-        .with_context(|| format!("一時ファイルの読み取りに失敗しました: {}", temp_path.display()))?;
+    let description = fs::read_to_string(&temp_path).with_context(|| {
+        format!(
+            "一時ファイルの読み取りに失敗しました: {}",
+            temp_path.display()
+        )
+    })?;
 
     let _ = fs::remove_file(&temp_path);
 
     Ok(description)
 }
 
-fn create_issue(repo: &str, title: &str, body: &str, extra_label: Option<&str>) -> anyhow::Result<String> {
+fn create_issue(
+    repo: &str,
+    title: &str,
+    body: &str,
+    extra_label: Option<&str>,
+) -> anyhow::Result<String> {
     let mut args = vec![
-        "issue", "create",
-        "--repo", repo,
-        "--title", title,
-        "--body", body,
-        "--label", "kind/plan",
+        "issue",
+        "create",
+        "--repo",
+        repo,
+        "--title",
+        title,
+        "--body",
+        body,
+        "--label",
+        "kind/plan",
     ];
 
     if let Some(label) = extra_label {

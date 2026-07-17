@@ -2,8 +2,9 @@ use std::path::Path;
 
 use crate::cli::style;
 use crate::tool::shared::{
-    Manifests, NpmGlobalPackage, ToolCommandSpec, ensure_command, ensure_mise_trusted,
-    npm_exec_prefix, read_npm_global_packages, run_tool_command,
+    BunGlobalPackage, Manifests, ToolCommandSpec, command_output_spec, ensure_command,
+    ensure_mise_trusted, mise_exec_prefix, parse_bun_pm_ls_output, read_bun_global_packages,
+    run_tool_command,
 };
 
 pub(super) fn verify() -> anyhow::Result<()> {
@@ -14,7 +15,7 @@ pub(super) fn verify() -> anyhow::Result<()> {
     ensure_command("brew")?;
     ensure_command("mise")?;
     ensure_mise_trusted(&manifests.manifest_dir, &manifests.mise_toml)?;
-    let npm_packages = read_npm_global_packages(&manifests.npm_global)?;
+    let bun_packages = read_bun_global_packages(&manifests.bun_global)?;
 
     run_tool_command(
         &brew_bundle_check_command(&manifests.brewfile),
@@ -24,11 +25,8 @@ pub(super) fn verify() -> anyhow::Result<()> {
         &mise_verify_command(&manifests.manifest_dir),
         &manifests.root,
     )?;
-    if !npm_packages.is_empty() {
-        run_tool_command(
-            &npm_global_verify_command(&manifests.manifest_dir, &npm_packages),
-            &manifests.root,
-        )?;
+    if !bun_packages.is_empty() {
+        verify_bun_global_packages(&manifests.manifest_dir, &manifests.root, &bun_packages)?;
     }
 
     style::outro("✅ ツール管理の検証が完了しました");
@@ -61,18 +59,40 @@ fn mise_verify_command(manifest_dir: &Path) -> ToolCommandSpec {
     )
 }
 
-fn npm_global_verify_command(
+fn verify_bun_global_packages(
     manifest_dir: &Path,
-    packages: &[NpmGlobalPackage],
-) -> ToolCommandSpec {
-    let mut args = npm_exec_prefix(manifest_dir);
+    current_dir: &Path,
+    packages: &[BunGlobalPackage],
+) -> anyhow::Result<()> {
+    let output = command_output_spec(&bun_global_list_command(manifest_dir), current_dir)?;
+    let installed: std::collections::BTreeSet<String> =
+        parse_bun_pm_ls_output(&output).into_iter().collect();
+    let missing: Vec<&str> = packages
+        .iter()
+        .map(|p| p.name.as_str())
+        .filter(|name| !installed.contains(*name))
+        .collect();
+
+    if missing.is_empty() {
+        style::success("すべての bun global パッケージがインストールされています");
+        Ok(())
+    } else {
+        anyhow::bail!(
+            "bun global に未インストールのパッケージがあります: {}",
+            missing.join(", ")
+        )
+    }
+}
+
+fn bun_global_list_command(manifest_dir: &Path) -> ToolCommandSpec {
+    let mut args = mise_exec_prefix(manifest_dir);
     args.extend([
-        "npm".to_string(),
-        "list".to_string(),
-        "--global".to_string(),
-        "--depth=0".to_string(),
+        "bun".to_string(),
+        "pm".to_string(),
+        "ls".to_string(),
+        "-g".to_string(),
+        "--all".to_string(),
     ]);
-    args.extend(packages.iter().map(|package| package.name.clone()));
     ToolCommandSpec::new("mise", args)
 }
 

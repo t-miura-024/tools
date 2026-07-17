@@ -55,16 +55,14 @@ fn test_parse_github_repo_url_ssh_with_newline() {
 
 #[test]
 fn test_determine_target_personal_repo() {
-    let (target, has_external) =
-        determine_target("myuser", "myrepo", "myuser");
+    let (target, has_external) = determine_target("myuser", "myrepo", "myuser");
     assert_eq!(target, "myuser/myrepo");
     assert!(!has_external);
 }
 
 #[test]
 fn test_determine_target_external_repo() {
-    let (target, has_external) =
-        determine_target("otheruser", "otherrepo", "myuser");
+    let (target, has_external) = determine_target("otheruser", "otherrepo", "myuser");
     assert_eq!(target, "myuser/note");
     assert!(has_external);
 }

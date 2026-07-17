@@ -2,7 +2,8 @@
 mod tests {
     #[test]
     fn test_parse_color() {
-        let content = "---\nname: test-agent\ndescription: desc\nreadonly: false\ncolor: green\n---\nbody\n";
+        let content =
+            "---\nname: test-agent\ndescription: desc\nreadonly: false\ncolor: green\n---\nbody\n";
         let result = crate::agent::shared::parse_cursor_agent(content).unwrap();
         assert_eq!(result.meta.color, "green");
         assert_eq!(result.meta.name, "test-agent");
@@ -28,7 +29,9 @@ mod tests {
 
     #[test]
     fn test_parse_actual_file() {
-        let content = std::fs::read_to_string("chezmoi/dot_cursor/agents/mt-cursor-config-creator.md").unwrap();
+        let content =
+            std::fs::read_to_string("chezmoi/dot_cursor/agents/mt-cursor-config-creator.md")
+                .unwrap();
         let result = crate::agent::shared::parse_cursor_agent(&content).unwrap();
         assert_eq!(result.meta.color, "green");
     }
@@ -45,9 +48,21 @@ mod tests {
             body: "# body".to_string(),
         };
         let out = crate::agent::shared::generate_opencode_agent(&agent);
-        assert!(out.contains("mode: \"subagent\""), "mode は subagent のべき: {}", out);
-        assert!(out.contains("permission:\n  edit: \"deny\"\n  bash: \"deny\""), "permission のインデントが壊れています:\n{}", out);
-        assert!(!out.contains("\nedit: \"deny\""), "edit がトップレベルキーになっています:\n{}", out);
+        assert!(
+            out.contains("mode: \"subagent\""),
+            "mode は subagent のべき: {}",
+            out
+        );
+        assert!(
+            out.contains("permission:\n  edit: \"deny\"\n  bash: \"deny\""),
+            "permission のインデントが壊れています:\n{}",
+            out
+        );
+        assert!(
+            !out.contains("\nedit: \"deny\""),
+            "edit がトップレベルキーになっています:\n{}",
+            out
+        );
     }
 
     #[test]
@@ -62,7 +77,15 @@ mod tests {
             body: "# body".to_string(),
         };
         let out = crate::agent::shared::generate_opencode_agent(&agent);
-        assert!(out.contains("mode: \"subagent\""), "mode は subagent のべき: {}", out);
-        assert!(!out.contains("permission"), "writable agent に permission は不要: {}", out);
+        assert!(
+            out.contains("mode: \"subagent\""),
+            "mode は subagent のべき: {}",
+            out
+        );
+        assert!(
+            !out.contains("permission"),
+            "writable agent に permission は不要: {}",
+            out
+        );
     }
 }

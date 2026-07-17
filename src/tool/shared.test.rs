@@ -14,29 +14,29 @@ fn test_find_manifest_root_from_unrelated_dir() {
 }
 
 #[test]
-fn test_read_npm_global_packages_parses_yml_and_sorts_alphabetically() {
+fn test_read_bun_global_packages_parses_yml_and_sorts_alphabetically() {
     let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("npm-global.yml");
+    let path = dir.path().join("bun-global.yml");
     std::fs::write(
         &path,
         "packages:\n  pnpm:\n    version: latest\n  agent-browser:\n    version: latest\n  firecrawl:\n    version: 1.0.0\n",
     )
     .unwrap();
 
-    let packages = read_npm_global_packages(&path).unwrap();
+    let packages = read_bun_global_packages(&path).unwrap();
 
     assert_eq!(
         packages,
         vec![
-            NpmGlobalPackage {
+            BunGlobalPackage {
                 name: "agent-browser".to_string(),
                 version: "latest".to_string(),
             },
-            NpmGlobalPackage {
+            BunGlobalPackage {
                 name: "firecrawl".to_string(),
                 version: "1.0.0".to_string(),
             },
-            NpmGlobalPackage {
+            BunGlobalPackage {
                 name: "pnpm".to_string(),
                 version: "latest".to_string(),
             },
@@ -45,37 +45,37 @@ fn test_read_npm_global_packages_parses_yml_and_sorts_alphabetically() {
 }
 
 #[test]
-fn test_read_npm_global_packages_treats_empty_packages_as_empty_list() {
+fn test_read_bun_global_packages_treats_empty_packages_as_empty_list() {
     let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("npm-global.yml");
+    let path = dir.path().join("bun-global.yml");
     std::fs::write(&path, "packages: {}\n").unwrap();
 
-    let packages = read_npm_global_packages(&path).unwrap();
+    let packages = read_bun_global_packages(&path).unwrap();
 
     assert!(packages.is_empty());
 }
 
 #[test]
-fn test_read_npm_global_packages_requires_version() {
+fn test_read_bun_global_packages_requires_version() {
     let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("npm-global.yml");
+    let path = dir.path().join("bun-global.yml");
     std::fs::write(&path, "packages:\n  pnpm: {}\n").unwrap();
 
-    let error = read_npm_global_packages(&path).unwrap_err();
+    let error = read_bun_global_packages(&path).unwrap_err();
     let message = format!("{error:#}");
     assert!(
-        message.contains("npm-global.yml"),
+        message.contains("bun-global.yml"),
         "expected error to mention manifest path, got: {message}"
     );
 }
 
 #[test]
-fn test_read_npm_global_packages_rejects_invalid_yaml() {
+fn test_read_bun_global_packages_rejects_invalid_yaml() {
     let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("npm-global.yml");
+    let path = dir.path().join("bun-global.yml");
     std::fs::write(&path, "packages: : :\n").unwrap();
 
-    let error = read_npm_global_packages(&path).unwrap_err();
+    let error = read_bun_global_packages(&path).unwrap_err();
     let message = format!("{error:#}");
     assert!(
         message.contains("YAML 解析"),
@@ -84,29 +84,29 @@ fn test_read_npm_global_packages_rejects_invalid_yaml() {
 }
 
 #[test]
-fn test_read_npm_global_packages_reads_real_project_manifest() {
+fn test_read_bun_global_packages_reads_real_project_manifest() {
     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("manifests")
-        .join("npm-global.yml");
+        .join("bun-global.yml");
 
-    let packages = read_npm_global_packages(&path).unwrap();
+    let packages = read_bun_global_packages(&path).unwrap();
 
     assert_eq!(
         packages,
         vec![
-            NpmGlobalPackage {
+            BunGlobalPackage {
                 name: "agent-browser".to_string(),
                 version: "latest".to_string(),
             },
-            NpmGlobalPackage {
+            BunGlobalPackage {
                 name: "firecrawl".to_string(),
                 version: "latest".to_string(),
             },
-            NpmGlobalPackage {
+            BunGlobalPackage {
                 name: "pnpm".to_string(),
                 version: "latest".to_string(),
             },
-            NpmGlobalPackage {
+            BunGlobalPackage {
                 name: "takt".to_string(),
                 version: "latest".to_string(),
             },

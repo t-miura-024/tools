@@ -52,7 +52,9 @@ pub fn opencode_skills_dir(source_dir: &Path) -> PathBuf {
     source_dir.join("dot_config/opencode/skills")
 }
 
-pub fn parse_frontmatter(content: &str) -> anyhow::Result<(BTreeMap<String, yaml_serde::Value>, String)> {
+pub fn parse_frontmatter(
+    content: &str,
+) -> anyhow::Result<(BTreeMap<String, yaml_serde::Value>, String)> {
     let mut lines = content.lines();
     if lines.next().map(|l| l.trim()) != Some("---") {
         anyhow::bail!("frontmatter の開始区切り (---) が見つかりません");
@@ -66,16 +68,13 @@ pub fn parse_frontmatter(content: &str) -> anyhow::Result<(BTreeMap<String, yaml
         yaml_lines.push(line);
     }
 
-    let body: String = lines
-        .collect::<Vec<_>>()
-        .join("\n");
+    let body: String = lines.collect::<Vec<_>>().join("\n");
 
     let yaml_str = yaml_lines.join("\n");
     let frontmatter: BTreeMap<String, yaml_serde::Value> = if yaml_str.trim().is_empty() {
         BTreeMap::new()
     } else {
-        yaml_serde::from_str(&yaml_str)
-            .context("frontmatter の YAML パースに失敗しました")?
+        yaml_serde::from_str(&yaml_str).context("frontmatter の YAML パースに失敗しました")?
     };
 
     Ok((frontmatter, body))
@@ -200,11 +199,7 @@ pub fn read_cursor_agents(source_dir: &Path) -> anyhow::Result<Vec<(String, Agen
             let content = fs::read_to_string(&path)
                 .with_context(|| format!("ファイルを読めません: {}", path.display()))?;
             let agent = parse_cursor_agent(&content)?;
-            let name = path
-                .file_stem()
-                .unwrap()
-                .to_string_lossy()
-                .to_string();
+            let name = path.file_stem().unwrap().to_string_lossy().to_string();
             agents.push((name, agent));
         }
     }
@@ -243,18 +238,13 @@ pub fn list_agent_files(dir: &Path) -> anyhow::Result<Vec<String>> {
         return Ok(Vec::new());
     }
     let mut files = Vec::new();
-    for entry in fs::read_dir(dir)
-        .with_context(|| format!("ディレクトリを読めません: {}", dir.display()))?
+    for entry in
+        fs::read_dir(dir).with_context(|| format!("ディレクトリを読めません: {}", dir.display()))?
     {
         let entry = entry?;
         let path = entry.path();
         if path.extension().is_some_and(|e| e == "md") {
-            files.push(
-                path.file_stem()
-                    .unwrap()
-                    .to_string_lossy()
-                    .to_string(),
-            );
+            files.push(path.file_stem().unwrap().to_string_lossy().to_string());
         }
     }
     files.sort();
@@ -294,18 +284,27 @@ pub fn check_sync_status(source_dir: &Path) -> anyhow::Result<Option<String>> {
     }
 
     let canonical: Vec<_> = cursor_agents.iter().map(|(n, _)| n.clone()).collect();
-    for platform_dir in &[claude_agents_dir(source_dir), opencode_agents_dir(source_dir)] {
+    for platform_dir in &[
+        claude_agents_dir(source_dir),
+        opencode_agents_dir(source_dir),
+    ] {
         let existing = list_agent_files(platform_dir)?;
         for name in &existing {
             if !canonical.contains(name) {
-                issues.push(format!("agent {} が canonical から削除されたが派生側に残存", name));
+                issues.push(format!(
+                    "agent {} が canonical から削除されたが派生側に残存",
+                    name
+                ));
             }
         }
     }
 
     let cursor_skills_dir_path = cursor_skills_dir(source_dir);
     let cursor_skills = list_skill_dirs(&cursor_skills_dir_path)?;
-    for platform in &[("claude", claude_skills_dir(source_dir)), ("opencode", opencode_skills_dir(source_dir))] {
+    for platform in &[
+        ("claude", claude_skills_dir(source_dir)),
+        ("opencode", opencode_skills_dir(source_dir)),
+    ] {
         let target_dir = &platform.1;
         let platform_name = platform.0;
 
@@ -313,7 +312,10 @@ pub fn check_sync_status(source_dir: &Path) -> anyhow::Result<Option<String>> {
         for skill_name in &cursor_skills {
             let old_dir = target_dir.join(skill_name);
             if old_dir.exists() {
-                issues.push(format!("skill {} ({}) に旧方式のディレクトリが残存しています", skill_name, platform_name));
+                issues.push(format!(
+                    "skill {} ({}) に旧方式のディレクトリが残存しています",
+                    skill_name, platform_name
+                ));
             }
         }
 
@@ -327,14 +329,20 @@ pub fn check_sync_status(source_dir: &Path) -> anyhow::Result<Option<String>> {
             };
             let content_ok = read_possible(&symlink_file).as_deref() == Some(&expected_target);
             if !content_ok {
-                issues.push(format!("skill {} ({}) が未同期（symlinkファイル不一致）", skill_name, platform_name));
+                issues.push(format!(
+                    "skill {} ({}) が未同期（symlinkファイル不一致）",
+                    skill_name, platform_name
+                ));
             }
         }
 
         let existing = list_symlink_skills(target_dir)?;
         for name in &existing {
             if !cursor_skills.contains(name) {
-                issues.push(format!("skill {} ({}) が canonical から削除されたが派生側に残存", name, platform_name));
+                issues.push(format!(
+                    "skill {} ({}) が canonical から削除されたが派生側に残存",
+                    name, platform_name
+                ));
             }
         }
     }

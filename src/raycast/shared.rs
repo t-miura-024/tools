@@ -4,10 +4,8 @@ use std::process::{Command, Stdio};
 
 use anyhow::Context;
 
-pub const EXPORT_DEEPLINK: &str =
-    "raycast://extensions/raycast/raycast/export-settings-data";
-pub const IMPORT_DEEPLINK: &str =
-    "raycast://extensions/raycast/raycast/import-settings-data";
+pub const EXPORT_DEEPLINK: &str = "raycast://extensions/raycast/raycast/export-settings-data";
+pub const IMPORT_DEEPLINK: &str = "raycast://extensions/raycast/raycast/import-settings-data";
 
 pub fn home_dir() -> anyhow::Result<PathBuf> {
     let home = std::env::var("HOME").context("HOME 環境変数が設定されていません")?;
@@ -36,14 +34,14 @@ pub fn age_identity_path() -> PathBuf {
         .map(|h| h.join(".config/chezmoi/key.txt"))
         .unwrap_or_else(|_| PathBuf::from(".config/chezmoi/key.txt"));
 
-    if let Ok(config_path) = home_dir()
-        .map(|h| h.join(".config/chezmoi/chezmoi.toml"))
+    if let Ok(config_path) = home_dir().map(|h| h.join(".config/chezmoi/chezmoi.toml"))
         && config_path.exists()
         && let Ok(content) = fs::read_to_string(&config_path)
     {
         for line in content.lines() {
             let line = line.trim();
-            if let Some(path) = line.strip_prefix("identity = \"")
+            if let Some(path) = line
+                .strip_prefix("identity = \"")
                 .and_then(|s| s.strip_suffix('\"'))
             {
                 let p = PathBuf::from(path);
@@ -128,24 +126,21 @@ pub fn open_deeplink(url: &str) -> anyhow::Result<()> {
         .with_context(|| format!("deeplink を開けませんでした: {}", url))?;
 
     if !status.success() {
-        anyhow::bail!("open コマンドが失敗しました (exit code: {:?})", status.code());
+        anyhow::bail!(
+            "open コマンドが失敗しました (exit code: {:?})",
+            status.code()
+        );
     }
     Ok(())
 }
 
 pub fn find_latest_rayconfig_in_downloads() -> Option<PathBuf> {
-    let downloads = home_dir()
-        .ok()?
-        .join("Downloads");
+    let downloads = home_dir().ok()?.join("Downloads");
 
     let mut entries: Vec<_> = fs::read_dir(&downloads)
         .ok()?
         .filter_map(|e| e.ok())
-        .filter(|e| {
-            e.file_name()
-                .to_string_lossy()
-                .ends_with(".rayconfig")
-        })
+        .filter(|e| e.file_name().to_string_lossy().ends_with(".rayconfig"))
         .collect();
 
     entries.sort_by_key(|e| {
@@ -164,14 +159,13 @@ pub fn copy_file(src: &Path, dest: &Path) -> anyhow::Result<()> {
         fs::create_dir_all(parent)
             .with_context(|| format!("ディレクトリを作成できません: {}", parent.display()))?;
     }
-    fs::copy(src, dest)
-        .with_context(|| {
-            format!(
-                "ファイルをコピーできません: {} -> {}",
-                src.display(),
-                dest.display()
-            )
-        })?;
+    fs::copy(src, dest).with_context(|| {
+        format!(
+            "ファイルをコピーできません: {} -> {}",
+            src.display(),
+            dest.display()
+        )
+    })?;
     Ok(())
 }
 

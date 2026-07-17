@@ -12,7 +12,9 @@ fn test_home_dir_returns_value() {
 fn test_chezmoi_source_dir_falls_back_to_default() {
     let key = "CHEZMOI_SOURCE_DIR";
     let prev = std::env::var(key).ok();
-    unsafe { std::env::remove_var(key); }
+    unsafe {
+        std::env::remove_var(key);
+    }
 
     let result = chezmoi_source_dir();
     assert!(result.is_ok());
@@ -20,7 +22,9 @@ fn test_chezmoi_source_dir_falls_back_to_default() {
     assert!(path.ends_with("chezmoi"));
 
     if let Some(v) = prev {
-        unsafe { std::env::set_var(key, v); }
+        unsafe {
+            std::env::set_var(key, v);
+        }
     }
 }
 
@@ -28,14 +32,20 @@ fn test_chezmoi_source_dir_falls_back_to_default() {
 fn test_chezmoi_source_dir_uses_env_var() {
     let key = "CHEZMOI_SOURCE_DIR";
     let prev = std::env::var(key).ok();
-    unsafe { std::env::set_var(key, "/tmp/test-chezmoi"); }
+    unsafe {
+        std::env::set_var(key, "/tmp/test-chezmoi");
+    }
 
     let result = chezmoi_source_dir();
     assert_eq!(result.unwrap(), PathBuf::from("/tmp/test-chezmoi"));
 
-    unsafe { std::env::remove_var(key); }
+    unsafe {
+        std::env::remove_var(key);
+    }
     if let Some(v) = prev {
-        unsafe { std::env::set_var(key, v); }
+        unsafe {
+            std::env::set_var(key, v);
+        }
     }
 }
 
@@ -43,14 +53,20 @@ fn test_chezmoi_source_dir_uses_env_var() {
 fn test_rayconfig_path_ends_with_dot_rayconfig() {
     let key = "CHEZMOI_SOURCE_DIR";
     let prev = std::env::var(key).ok();
-    unsafe { std::env::set_var(key, "/tmp/cs"); }
+    unsafe {
+        std::env::set_var(key, "/tmp/cs");
+    }
 
     let path = rayconfig_path().unwrap();
     assert_eq!(path, PathBuf::from("/tmp/cs/dot_Raycast.rayconfig"));
 
-    unsafe { std::env::remove_var(key); }
+    unsafe {
+        std::env::remove_var(key);
+    }
     if let Some(v) = prev {
-        unsafe { std::env::set_var(key, v); }
+        unsafe {
+            std::env::set_var(key, v);
+        }
     }
 }
 
@@ -58,14 +74,20 @@ fn test_rayconfig_path_ends_with_dot_rayconfig() {
 fn test_passphrase_path_ends_with_dot_raycast_passphrase_age() {
     let key = "CHEZMOI_SOURCE_DIR";
     let prev = std::env::var(key).ok();
-    unsafe { std::env::set_var(key, "/tmp/cs"); }
+    unsafe {
+        std::env::set_var(key, "/tmp/cs");
+    }
 
     let path = passphrase_path().unwrap();
     assert_eq!(path, PathBuf::from("/tmp/cs/dot_raycast_passphrase.age"));
 
-    unsafe { std::env::remove_var(key); }
+    unsafe {
+        std::env::remove_var(key);
+    }
     if let Some(v) = prev {
-        unsafe { std::env::set_var(key, v); }
+        unsafe {
+            std::env::set_var(key, v);
+        }
     }
 }
 

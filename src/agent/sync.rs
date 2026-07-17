@@ -70,10 +70,7 @@ pub fn run(mode: SyncMode) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn sync_agents(
-    source_dir: &Path,
-    mode: SyncMode,
-) -> anyhow::Result<Vec<(String, String, String)>> {
+fn sync_agents(source_dir: &Path, mode: SyncMode) -> anyhow::Result<Vec<(String, String, String)>> {
     let cursor_agents = shared::read_cursor_agents(source_dir)?;
     let mut drift_entries = Vec::new();
 
@@ -121,7 +118,10 @@ fn cleanup_orphan_agents(
 ) -> anyhow::Result<()> {
     let canonical: Vec<_> = cursor_agents.iter().map(|(n, _)| n.clone()).collect();
 
-    for platform_dir in &[claude_agents_dir(source_dir), opencode_agents_dir(source_dir)] {
+    for platform_dir in &[
+        claude_agents_dir(source_dir),
+        opencode_agents_dir(source_dir),
+    ] {
         let platform_name = if platform_dir.ends_with("opencode/agents") {
             "opencode"
         } else {
@@ -131,7 +131,11 @@ fn cleanup_orphan_agents(
         for name in &existing {
             if !canonical.contains(name) {
                 let path = platform_dir.join(format!("{}.md", name));
-                drift_entries.push((name.clone(), platform_name.to_string(), "delete".to_string()));
+                drift_entries.push((
+                    name.clone(),
+                    platform_name.to_string(),
+                    "delete".to_string(),
+                ));
                 match mode {
                     SyncMode::Sync => shared::remove_file(&path)?,
                     SyncMode::DryRun | SyncMode::Check => {}
@@ -142,16 +146,16 @@ fn cleanup_orphan_agents(
     Ok(())
 }
 
-fn sync_skills(
-    source_dir: &Path,
-    mode: SyncMode,
-) -> anyhow::Result<Vec<(String, String, String)>> {
+fn sync_skills(source_dir: &Path, mode: SyncMode) -> anyhow::Result<Vec<(String, String, String)>> {
     let cursor_dir = shared::cursor_skills_dir(source_dir);
     let mut drift_entries = Vec::new();
 
     let cursor_skills = shared::list_skill_dirs(&cursor_dir)?;
 
-    for platform in &[("claude", shared::claude_skills_dir(source_dir)), ("opencode", shared::opencode_skills_dir(source_dir))] {
+    for platform in &[
+        ("claude", shared::claude_skills_dir(source_dir)),
+        ("opencode", shared::opencode_skills_dir(source_dir)),
+    ] {
         let target_dir = &platform.1;
         let platform_name = platform.0;
 
@@ -195,13 +199,17 @@ fn sync_skills(
             }
         }
 
-        cleanup_orphan_skills(&cursor_skills, target_dir.clone(), mode, &mut drift_entries, platform_name)?;
+        cleanup_orphan_skills(
+            &cursor_skills,
+            target_dir.clone(),
+            mode,
+            &mut drift_entries,
+            platform_name,
+        )?;
     }
 
     Ok(drift_entries)
 }
-
-
 
 fn cleanup_orphan_skills(
     cursor_skills: &[String],
@@ -214,7 +222,11 @@ fn cleanup_orphan_skills(
     for name in &existing {
         if !cursor_skills.contains(name) {
             let path = target_dir.join(format!("symlink_{}", name));
-            drift_entries.push((name.clone(), platform_name.to_string(), "delete".to_string()));
+            drift_entries.push((
+                name.clone(),
+                platform_name.to_string(),
+                "delete".to_string(),
+            ));
             match mode {
                 SyncMode::Sync => shared::remove_file(&path)?,
                 SyncMode::DryRun | SyncMode::Check => {}
@@ -226,7 +238,11 @@ fn cleanup_orphan_skills(
     for name in &dir_entries {
         if !cursor_skills.contains(name) {
             let path = target_dir.join(name);
-            drift_entries.push((name.clone(), platform_name.to_string(), "delete (old dir)".to_string()));
+            drift_entries.push((
+                name.clone(),
+                platform_name.to_string(),
+                "delete (old dir)".to_string(),
+            ));
             match mode {
                 SyncMode::Sync => shared::remove_dir_all_if_exists(&path)?,
                 SyncMode::DryRun | SyncMode::Check => {}
