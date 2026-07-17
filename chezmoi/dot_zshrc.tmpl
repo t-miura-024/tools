@@ -26,6 +26,7 @@ export PATH="$PATH:$HOME/.local/bin"
 
 {{ include "dot_zsh_secrets.age" | decrypt }}
 export PATH="$HOME/.cargo/bin:$PATH"
+export PATH="$HOME/.bun/bin:$PATH"
 
 # mt wt bridge
 wt() {
