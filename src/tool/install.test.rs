@@ -177,3 +177,55 @@ fn test_parse_bun_pm_ls_output_with_tree_symbols() {
 fn test_parse_bun_pm_ls_output_empty() {
     assert!(parse_bun_pm_ls_output("").is_empty());
 }
+
+#[test]
+fn test_brew_trust_command_formats_correctly() {
+    assert_eq!(
+        brew_trust_command("yakitrak/yakitrak"),
+        ToolCommandSpec {
+            program: "brew",
+            args: vec!["trust".into(), "yakitrak/yakitrak".into()],
+            envs: vec![],
+        }
+    );
+}
+
+#[test]
+fn test_brew_trust_extract_taps_from_brewfile() {
+    let content =
+        "tap \"adoptopenjdk/openjdk\"\ntap \"anomalyco/tap\"\nbrew \"fzf\"\ntap \"openclaw/tap\"\n";
+    let re = Regex::new(r#"^tap\s+"([^"]+)""#).unwrap();
+    let taps: Vec<String> = content
+        .lines()
+        .filter_map(|line| {
+            re.captures(line)
+                .and_then(|caps| caps.get(1))
+                .map(|m| m.as_str().to_string())
+        })
+        .collect();
+
+    assert_eq!(
+        taps,
+        vec![
+            "adoptopenjdk/openjdk".to_string(),
+            "anomalyco/tap".to_string(),
+            "openclaw/tap".to_string(),
+        ]
+    );
+}
+
+#[test]
+fn test_brew_trust_extract_taps_from_brewfile_empty_when_no_taps() {
+    let content = "brew \"fzf\"\nbrew \"gh\"\ncask \"arc\"\n";
+    let re = Regex::new(r#"^tap\s+"([^"]+)""#).unwrap();
+    let taps: Vec<String> = content
+        .lines()
+        .filter_map(|line| {
+            re.captures(line)
+                .and_then(|caps| caps.get(1))
+                .map(|m| m.as_str().to_string())
+        })
+        .collect();
+
+    assert!(taps.is_empty());
+}
