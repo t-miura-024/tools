@@ -1,7 +1,10 @@
 use std::collections::BTreeSet;
+use std::fs;
 use std::path::Path;
 
+use anyhow::Context;
 use dialoguer::Confirm;
+use regex::Regex;
 
 use crate::cli::style;
 use crate::tool::shared::{
@@ -20,6 +23,7 @@ pub(super) fn install() -> anyhow::Result<()> {
     ensure_mise_trusted(&manifests.manifest_dir, &manifests.mise_toml)?;
     let bun_packages = read_bun_global_packages(&manifests.bun_global)?;
 
+    ensure_brew_taps_trusted(&manifests.brewfile, &manifests.root)?;
     run_tool_command(
         &brew_bundle_install_command(&manifests.brewfile),
         &manifests.root,
@@ -169,6 +173,35 @@ fn brew_bundle_install_command(brewfile: &Path) -> ToolCommandSpec {
             brewfile.to_string_lossy().to_string(),
         ],
     )
+}
+
+fn ensure_brew_taps_trusted(brewfile: &Path, current_dir: &Path) -> anyhow::Result<()> {
+    style::info("Brewfile の tap を trust します");
+    let content = fs::read_to_string(brewfile)
+        .with_context(|| format!("Brewfile を読み込めません: {}", brewfile.display()))?;
+    let re = Regex::new(r#"^tap\s+"([^"]+)""#).unwrap();
+    let taps: Vec<String> = content
+        .lines()
+        .filter_map(|line| {
+            re.captures(line)
+                .and_then(|caps| caps.get(1))
+                .map(|m| m.as_str().to_string())
+        })
+        .collect();
+
+    if taps.is_empty() {
+        style::success("trust 対象の tap はありません");
+        return Ok(());
+    }
+
+    for tap in &taps {
+        run_tool_command(&brew_trust_command(tap), current_dir)?;
+    }
+    Ok(())
+}
+
+fn brew_trust_command(tap: &str) -> ToolCommandSpec {
+    ToolCommandSpec::new("brew", ["trust".to_string(), tap.to_string()])
 }
 
 fn brew_bundle_cleanup_preview_command(brewfile: &Path) -> ToolCommandSpec {
