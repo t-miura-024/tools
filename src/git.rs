@@ -8,56 +8,56 @@ pub mod worktree;
 
 #[derive(Subcommand)]
 pub enum GitCommands {
-    /// Sync current branch with upstream and pull target branch into it
+    /// 現在のブランチを upstream と同期し、ターゲットブランチを pull で取り込む
     Sync {
-        /// Target branch to pull into the current branch (mutually exclusive with --target-default)
+        /// 現在のブランチに取り込むターゲットブランチ（--target-default と排他）
         #[arg(long, conflicts_with = "target_default")]
         target: Option<String>,
-        /// Use the detected default branch as target (skips --target and fzf prompt)
+        /// 検出されたデフォルトブランチをターゲットとして使用（--target と fzf をスキップ）
         #[arg(long)]
         target_default: bool,
     },
-    /// Stage, commit, push, and merge the current branch into the target branch
+    /// ステージ・コミット・プッシュし、現在のブランチをターゲットブランチにマージ
     Ship {
-        /// Target branch to merge into (mutually exclusive with --target-default)
+        /// マージ先のターゲットブランチ（--target-default と排他）
         #[arg(long, conflicts_with = "target_default")]
         target: Option<String>,
-        /// Use the detected default branch as target (skips --target and fzf prompt)
+        /// 検出されたデフォルトブランチをターゲットとして使用（--target と fzf をスキップ）
         #[arg(long)]
         target_default: bool,
-        /// Commit message (default: auto-generated from staged diff)
+        /// コミットメッセージ（省略時はステージ済み差分から自動生成）
         #[arg(long)]
         message: Option<String>,
     },
-    /// GitHub repository operations
+    /// GitHub リポジトリ操作
     #[command(subcommand)]
     Repo(GitRepoCommands),
-    /// Git worktree operations
+    /// Git worktree 操作
     #[command(subcommand)]
     Worktree(GitWorktreeCommands),
 }
 
 #[derive(Subcommand)]
 pub enum GitRepoCommands {
-    /// Create a new GitHub repository interactively
+    /// GitHub リポジトリを対話的に作成
     Create,
-    /// Select a parent Git repository under ~/doc or ~/src and print its path (worktrees are excluded; use `git worktree select` for those)
+    /// ~/doc か ~/src 配下の親 Git リポジトリを選択してパスを出力（worktree は対象外）
     Select,
 }
 
 #[derive(Subcommand)]
 pub enum GitWorktreeCommands {
-    /// Select a Git worktree and print its path
+    /// Git worktree を選択してパスを出力
     Select,
-    /// Create a new Git worktree and branch interactively
+    /// Git worktree と新規ブランチを対話的に作成
     Create {
-        /// Skip pushing the new/attached branch to `origin` after worktree creation
+        /// 作成後に origin へのプッシュをスキップ
         #[arg(long)]
         no_push: bool,
     },
-    /// Delete a Git worktree interactively (with safety checks)
+    /// Git worktree を対話的に削除（安全チェック付き）
     Delete {
-        /// Skip all safety checks and force removal
+        /// 全安全チェックをスキップし強制削除
         #[arg(long)]
         force: bool,
     },

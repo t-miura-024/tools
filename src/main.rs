@@ -12,7 +12,7 @@ mod tool;
 mod vector;
 
 #[derive(Parser)]
-#[command(name = "mt", about = "Personal CLI tools")]
+#[command(name = "mt", about = "個人用 CLI ツール群")]
 struct Cli {
     #[command(subcommand)]
     command: Option<Commands>,
@@ -20,31 +20,31 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
-    /// self: operations on the mt binary itself
+    /// mt バイナリ自身の操作（インストール・補完生成）
     #[command(name = "self", subcommand)]
     SelfCmd(cli::self_cmd::SelfCommands),
-    /// git: GitHub repository operations
+    /// Git / GitHub リポジトリ操作
     #[command(subcommand)]
     Git(git::GitCommands),
-    /// opencode: OpenCode Web operations
+    /// OpenCode Web 操作
     #[command(subcommand)]
     Opencode(opencode::OpencodeCommands),
-    /// tool: Homebrew and mise tool management
+    /// Homebrew / mise によるツール管理
     #[command(subcommand)]
     Tool(tool::ToolCommands),
-    /// chezmoi: dotfile management (chezmoi thin wrapper + mt 固有サブコマンド)
+    /// dotfile 管理（chezmoi ラッパー + mt 固有サブコマンド）
     #[command(subcommand)]
     Chezmoi(chezmoi::ChezmoiCommands),
-    /// vector: local vector search over markdown
+    /// Markdown のローカルベクトル検索
     #[command(subcommand)]
     Vector(vector::VectorCommands),
-    /// plan: mt-plan Issue 管理
+    /// mt-plan Issue 管理
     #[command(subcommand)]
     Plan(plan::PlanCommands),
-    /// raycast: Raycast settings backup and restore via chezmoi
+    /// Raycast 設定のバックアップと復元
     #[command(subcommand)]
     Raycast(raycast::RaycastCommands),
-    /// agent: agents / skills の multi-platform 同期
+    /// agents / skills のマルチプラットフォーム同期
     #[command(subcommand)]
     Agent(agent::AgentCommands),
 }

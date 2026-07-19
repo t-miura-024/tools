@@ -13,18 +13,18 @@ pub mod search;
 
 #[derive(Subcommand)]
 pub enum VectorCommands {
-    /// Ingest markdown files into a Qdrant collection
+    /// Markdown ファイルを Qdrant コレクションに投入
     Ingest {
-        /// Path to vector.config.toml
+        /// vector.config.toml のパス
         #[arg(long)]
         config: PathBuf,
     },
-    /// Search the Qdrant collection with a query
+    /// Qdrant コレクションを検索
     Search {
-        /// Path to vector.config.toml
+        /// vector.config.toml のパス
         #[arg(long)]
         config: PathBuf,
-        /// Query text
+        /// 検索クエリ
         #[arg(long)]
         query: String,
     },

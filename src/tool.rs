@@ -7,18 +7,18 @@ mod verify;
 
 #[derive(Subcommand)]
 pub enum ToolCommands {
-    /// Install tools from repository manifests
+    /// リポジトリのマニフェストからツールをインストール
     Install,
-    /// Verify Homebrew and mise tool manifests
+    /// Homebrew / mise のツールマニフェストを検証
     Verify,
-    /// Homebrew operations
+    /// Homebrew 操作
     #[command(subcommand)]
     Brew(ToolBrewCommands),
 }
 
 #[derive(Subcommand)]
 pub enum ToolBrewCommands {
-    /// Upgrade installed Homebrew packages
+    /// インストール済み Homebrew パッケージを更新
     Upgrade,
 }
 

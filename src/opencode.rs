@@ -5,25 +5,25 @@ pub mod web;
 
 #[derive(Subcommand)]
 pub enum OpencodeCommands {
-    /// Google OAuth setup
+    /// Google OAuth セットアップ
     #[command(subcommand)]
     Oauth(OpencodeOauthCommands),
-    /// OpenCode Web ngrok expose/stop
+    /// OpenCode Web の ngrok 公開 / 停止
     #[command(subcommand)]
     Web(OpencodeWebCommands),
 }
 
 #[derive(Subcommand)]
 pub enum OpencodeOauthCommands {
-    /// Set up Google OAuth interactively
+    /// Google OAuth を対話的にセットアップ
     Setup,
 }
 
 #[derive(Subcommand)]
 pub enum OpencodeWebCommands {
-    /// Expose OpenCode Web via ngrok
+    /// ngrok で OpenCode Web を公開
     Expose,
-    /// Stop the ngrok session
+    /// ngrok セッションを停止
     Stop,
 }
 
