@@ -47,6 +47,19 @@ function validateReviewJson(raw: string | undefined): { valid: boolean; mustCoun
   return { valid: true, mustCount: c.must };
 }
 
+function findReviewRound(
+  attempts: Array<{ attemptNumber: number; endedAt?: string; checkStatus?: string }>,
+): number {
+  let maxRound = 0;
+  for (const a of attempts) {
+    // Previous review_work attempts that passed or failed indicate a round
+    if (a.checkStatus === 'pass' || a.checkStatus === 'fail') {
+      maxRound = Math.max(maxRound, a.attemptNumber);
+    }
+  }
+  return maxRound;
+}
+
 function findArtifactText(artifacts: ArtifactRecord[], key: string): string | undefined {
   const match = artifacts.find((a) => a.artifactKey === key);
   if (!match) return undefined;
@@ -234,7 +247,7 @@ const def: WorkflowDef = {
     },
 
     // -------------------------------------------------------------------
-    // Step 4: レビュー（task: 5軸レビュー + must=0 判定）
+    // Step 4: レビュー（SubAgent による客観レビュー）
     // -------------------------------------------------------------------
     {
       key: 'review_work',
@@ -243,14 +256,52 @@ const def: WorkflowDef = {
       maxRetries: 0,
       onFail: { action: 'goto', target: 'execute_work', requeueSource: true },
       task: {
-        action: 'orchestrate',
+        action: 'run_subagent',
+        subagentType: 'mt-plan-work-reviewer',
+        readonly: false,
         buildPrompt: (ctx: PromptCtx) => {
+          const collectScriptPath = join(import.meta.dir, 'collect-review-context.ts');
+          const jsonPath = join(ctx.sessionDir, 'review-current.json');
+          const mdPath = join(ctx.sessionDir, 'review-current.md');
+          const prevRound = findReviewRound(ctx.previousAttempts);
+          const nextRound = prevRound + 1;
+
           return [
             '## 目的',
             '',
-            '完了した作業を 5 観点でレビューし、結果を review-current.json と review-current.md に出力する。',
+            '専用のレビュアー SubAgent に委譲し、5 観点で客観レビューを行う。',
             '',
-            '## レビュー観点',
+            '## 手順',
+            '',
+            '### 1. 証拠収集（スクリプト実行）',
+            '',
+            '```bash',
+            `bun run ${collectScriptPath} --plan-number <plan_number> --session-dir ${ctx.sessionDir}`,
+            '```',
+            '',
+            '<plan_number> は workflow.db に保存した plan_number を使用する。',
+            '',
+            '### 2. SubAgent 委譲',
+            '',
+            `Task ツールで subagent_type = "mt-plan-work-reviewer" を指定し、以下を指示する:`,
+            '',
+            '- セッションディレクトリから `issue-body.md`、`git-branch-diff.txt`、`git-unstaged-diff.txt` を読み込む',
+            '- 5 観点でレビューし、review-current.json スキーマの JSON を返す',
+            `- round 番号は ${nextRound} で、前回レビューからの差分に注目する（初回は全量レビュー）`,
+            '',
+            '### 3. 結果の保存',
+            '',
+            `SubAgent から返却された JSON を ${jsonPath} に書き出す。`,
+            `必要に応じて人間可読版を ${mdPath} に書き出す。`,
+            '',
+            '### 4. report',
+            '',
+            'artifacts に以下を含めて report する:',
+            '```json',
+            `{"key": "review-current.json", "path": "${jsonPath}"}`,
+            '```',
+            '',
+            '## レビュー観点（SubAgent に委譲）',
             '',
             '1. **本質性・効率性 (essentiality):** 目的に対して本質的で効率的な解決となっているか',
             '2. **完了条件の充足 (acceptance):** `## ✅ 完了条件` は完全に満たせているか',
@@ -258,19 +309,11 @@ const def: WorkflowDef = {
             '4. **方針との整合 (alignment):** `## 🧭 方針` から大きく外れた対応はしていないか',
             '5. **アウトプットの品質 (quality):** `## 📦 アウトプット` の品質は問題ないか',
             '',
-            '## 指摘の深刻度',
-            '',
-            '- **must:** 必ず修正しなければならない重大な問題',
-            '- **should:** 必須ではないが修正すべき問題',
-            '- **want:** 任意の改善提案',
-            '',
-            '## 出力',
-            '',
-            '1. `review-current.json` を作成し、report 時の artifacts に含める:',
+            '## 出力スキーマ',
             '',
             '```json',
             '{',
-            '  "round": <前回+1>,',
+            `  "round": ${nextRound},`,
             '  "axes": {',
             '    "essentiality": [{"severity": "must|should|want", "detail": "..."}],',
             '    "acceptance": [...],',
@@ -281,19 +324,6 @@ const def: WorkflowDef = {
             '  "counts": {"must": <N>, "should": <N>, "want": <N>}',
             '}',
             '```',
-            '',
-            '2. `review-current.md` を人間可読形式で作成する。',
-            '',
-            '## ルール',
-            '',
-            '- 5 観点すべてを必ず評価する（指摘がない観点は空配列）',
-            '- `counts.must` は axes 内の must 件数と一致させる',
-            '- must > 0 の場合は reason に「must: N items」を含めて report する',
-            '- must = 0 の場合のみ reason に「must: 0」として report する',
-            '',
-            '## セッション情報',
-            '',
-            `- セッションディレクトリ: ${ctx.sessionDir}`,
           ].join('\n');
         },
       },

@@ -57,15 +57,18 @@ bun run ~/.config/opencode/skills/mt-workflow/cli.ts status --session <id>
 | 1 | `identify_plan` | human_gate | 計画 Issue 番号の特定 |
 | 2 | `start_execution` | task | Issue 検証、refined→in-progress 遷移、body 読み込み |
 | 3 | `execute_work` | task | `## ✅ 完了条件`・`## 🧭 方針` に基づく作業実行 |
-| 4 | `review_work` | task | 5軸レビュー、review-current.json 出力。must>0 なら auto-goto execute_work |
+| 4 | `review_work` | task | 証拠収集スクリプト実行 → SubAgent（mt-plan-work-reviewer）委譲。5軸レビュー、review-current.json 出力。must>0 なら auto-goto execute_work |
 | 5 | `review_followups_gate` | human_gate | should/want の対応要否確認。revise→execute_work |
 | 6 | `confirm_done` | human_gate | Done 確認 |
 | 7 | `finalize_done` | task | in-progress→done 遷移（`transition-plan.ts`）、完了報告 |
 
 ## レビューループ
 
-Step 4（`review_work`）は task 型で 5 軸レビューを実行し、結果を `review-current.json` に構造化保存する。
+Step 4（`review_work`）は SubAgent 委譲型で、専用のレビュアー SubAgent（`mt-plan-work-reviewer`）が作業を客観レビューする。
 
+- オーケストレーターは `collect-review-context.ts` で証拠（Issue body、git 差分）を収集し、Task ツールで SubAgent に委譲する
+- SubAgent は 5 軸でレビューし、結果を `review-current.json` スキーマで返す
+- オーケストレーターは返却された JSON をセッションディレクトリに保存して report する
 - `review_work.check()` が must 件数を機械的に判定する
 - must > 0: エンジンが `execute_work` に戻す（review_work は pending に保持）
 - must = 0: review_followups_gate に進む
