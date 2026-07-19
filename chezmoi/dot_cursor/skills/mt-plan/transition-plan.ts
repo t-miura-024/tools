@@ -21,6 +21,11 @@ export type TransitionSideEffect = {
   issueClosed: boolean;
 };
 
+export type IssueRelationFns = {
+  getParentIssueNumber?: (params: { repo: string; number: number }) => Promise<number | null>;
+  listSubIssueNumbers?: (params: { repo: string; number: number }) => Promise<number[]>;
+};
+
 function isPlanStatus(value: string): value is PlanStatus {
   return PLAN_STATUSES.includes(value as PlanStatus);
 }
@@ -36,6 +41,8 @@ function assertPlanStatus(value: string): asserts value is PlanStatus {
 function formatHistoryEntry(
   sourceStatus: PlanStatus,
   targetStatus: PlanStatus,
+  executionTransition = false,
+  executionMarker: string | null = null,
 ): string {
   const now = new Date();
   const yyyy = now.getFullYear();
@@ -43,15 +50,19 @@ function formatHistoryEntry(
   const dd = String(now.getDate()).padStart(2, "0");
   const hh = String(now.getHours()).padStart(2, "0");
   const mi = String(now.getMinutes()).padStart(2, "0");
-  return `- ${yyyy}-${mm}-${dd} ${hh}:${mi} [${targetStatus}] ${sourceStatus} から遷移`;
+  const source = executionTransition ? " (mt-run-plan)" : "";
+  const marker = executionMarker ? ` <!-- mt-run-plan-marker: ${executionMarker} -->` : "";
+  return `- ${yyyy}-${mm}-${dd} ${hh}:${mi} [${targetStatus}] ${sourceStatus} から遷移${source}${marker}`;
 }
 
 export function appendHistoryEntry(
   body: string,
   sourceStatus: PlanStatus,
   targetStatus: PlanStatus,
+  executionTransition = false,
+  executionMarker: string | null = null,
 ): string {
-  const entry = formatHistoryEntry(sourceStatus, targetStatus);
+  const entry = formatHistoryEntry(sourceStatus, targetStatus, executionTransition, executionMarker);
 
   const sectionMatch = body.match(/## 🐢 履歴[ \t]*\n([\s\S]*?)(?=\n## |\s*$)/);
 
@@ -112,9 +123,12 @@ export type TransitionPlanOptions = {
   readIssueBody?: (params: { repo: string; number: number }) => Promise<string>;
   updateIssueBody?: UpdateIssueBodyFn;
   skipHistoryAppend?: boolean;
-};
 
-export type TransitionPlanResult = TransitionSideEffect;
+} & IssueRelationFns;
+
+export type TransitionPlanResult = TransitionSideEffect & {
+  parentTransition?: TransitionSideEffect;
+};
 
 export async function transitionPlan(
   options: TransitionPlanOptions,
@@ -129,51 +143,224 @@ export async function transitionPlan(
   });
   const sourceStatus = found.currentStatus;
 
+  const getParentIssueNumber = options.getParentIssueNumber ?? defaultGetParentIssueNumber;
+  const listSubIssueNumbers = options.listSubIssueNumbers ?? defaultListSubIssueNumbers;
+  const [parentNumber, subIssueNumbers] = await Promise.all([
+    getParentIssueNumber({ repo: found.repo, number: options.number }),
+    listSubIssueNumbers({ repo: found.repo, number: options.number }),
+  ]);
+
+  if (
+    subIssueNumbers.length > 0 &&
+    (options.targetStatus === "in-progress" || options.targetStatus === "done")
+  ) {
+    throw new TransitionPlanError(
+      `Plan #${options.number} is a parent plan and cannot be executed. Run one of its Sub Issues instead.`,
+    );
+  }
+
   if (sourceStatus === options.targetStatus) {
     throw new TransitionPlanError(
       `Plan #${options.number} is already in status '${options.targetStatus}'.`,
     );
   }
 
-  const updateStatus = options.updateItemStatus ?? defaultUpdateItemStatus;
-  await updateStatus({
-    projectId: options.config.projectId,
+  const result = await applyTransitionEffects({
+    config: options.config,
+    number: options.number,
+    repo: found.repo,
     itemId: found.itemId,
+    sourceStatus,
+    targetStatus: options.targetStatus,
+    updateItemStatus: options.updateItemStatus ?? defaultUpdateItemStatus,
+    updateIssueState: options.updateIssueState ?? defaultUpdateIssueState,
+    readIssueBody: options.readIssueBody ?? defaultReadIssueBody,
+    updateIssueBody: options.updateIssueBody ?? defaultUpdateIssueBody,
+    skipHistoryAppend: options.skipHistoryAppend ?? false,
+    executionTransition: parentNumber !== null && (
+      options.targetStatus === "in-progress" || options.targetStatus === "done"
+    ),
+  });
+
+  const parentTransition = await aggregateParentStatus({
+    config: options.config,
+    repo: found.repo,
+    parentNumber,
+    findPlanItem: find,
+    listSubIssueNumbers,
+    updateItemStatus: options.updateItemStatus ?? defaultUpdateItemStatus,
+    updateIssueState: options.updateIssueState ?? defaultUpdateIssueState,
+    readIssueBody: options.readIssueBody ?? defaultReadIssueBody,
+    updateIssueBody: options.updateIssueBody ?? defaultUpdateIssueBody,
+    skipHistoryAppend: options.skipHistoryAppend ?? false,
+    childTargetStatus: options.targetStatus,
+    childNumber: options.number,
+  });
+
+  return { ...result, parentTransition };
+}
+
+type ApplyTransitionEffectsOptions = {
+  config: MtPlanConfig;
+  number: number;
+  repo: string;
+  itemId: string;
+  sourceStatus: PlanStatus;
+  targetStatus: PlanStatus;
+  updateItemStatus: UpdateItemStatusFn;
+  updateIssueState: UpdateIssueStateFn;
+  readIssueBody: (params: { repo: string; number: number }) => Promise<string>;
+  updateIssueBody: UpdateIssueBodyFn;
+  skipHistoryAppend: boolean;
+  executionTransition: boolean;
+};
+
+async function applyTransitionEffects(
+  options: ApplyTransitionEffectsOptions,
+): Promise<TransitionSideEffect> {
+  const executionMarker = options.executionTransition ? crypto.randomUUID() : null;
+
+  await options.updateItemStatus({
+    projectId: options.config.projectId,
+    itemId: options.itemId,
     fieldId: options.config.statusFieldId,
     optionId: options.config.statusOptions[options.targetStatus],
   });
 
   const shouldClose = options.targetStatus === "done";
-  const updateState = options.updateIssueState ?? defaultUpdateIssueState;
   let issueStateChanged = false;
   try {
-    await updateState({ repo: found.repo, number: options.number, state: shouldClose ? "closed" : "open" });
+    await options.updateIssueState({
+      repo: options.repo,
+      number: options.number,
+      state: shouldClose ? "closed" : "open",
+    });
     issueStateChanged = true;
   } catch (error) {
-    if (!(error instanceof TransitionPlanError)) {
-      throw error;
-    }
+    if (!(error instanceof TransitionPlanError)) throw error;
   }
 
   let bodyUpdated = false;
   if (!options.skipHistoryAppend) {
-    const read = options.readIssueBody ?? defaultReadIssueBody;
-    const currentBody = await read({ repo: found.repo, number: options.number });
-    const newBody = appendHistoryEntry(currentBody, sourceStatus, options.targetStatus);
-    const write = options.updateIssueBody ?? defaultUpdateIssueBody;
-    await write({ repo: found.repo, number: options.number, body: newBody });
+    const currentBody = await options.readIssueBody({ repo: options.repo, number: options.number });
+    const newBody = appendHistoryEntry(
+      currentBody,
+      options.sourceStatus,
+      options.targetStatus,
+      options.executionTransition,
+      executionMarker,
+    );
+    await options.updateIssueBody({ repo: options.repo, number: options.number, body: newBody });
     bodyUpdated = true;
   }
 
   return {
-    itemId: found.itemId,
+    itemId: options.itemId,
     number: options.number,
-    sourceStatus,
+    sourceStatus: options.sourceStatus,
     targetStatus: options.targetStatus,
     bodyUpdated,
     issueStateChanged,
     issueClosed: shouldClose,
   };
+}
+
+type AggregateParentStatusOptions = {
+  config: MtPlanConfig;
+  repo: string;
+  parentNumber: number | null;
+  findPlanItem: FindPlanItemFn;
+  listSubIssueNumbers: NonNullable<IssueRelationFns["listSubIssueNumbers"]>;
+  updateItemStatus: UpdateItemStatusFn;
+  updateIssueState: UpdateIssueStateFn;
+  readIssueBody: (params: { repo: string; number: number }) => Promise<string>;
+  updateIssueBody: UpdateIssueBodyFn;
+  skipHistoryAppend: boolean;
+  childTargetStatus: PlanStatus;
+  childNumber: number;
+};
+
+function latestRecordedMarker(body: string): string | null {
+  const match = body.match(/<!-- mt-run-plan-marker: ([a-f0-9-]+) -->/);
+  return match ? match[1] : null;
+}
+
+async function aggregateParentStatus(
+  options: AggregateParentStatusOptions,
+): Promise<TransitionSideEffect | undefined> {
+  if (options.parentNumber === null) return undefined;
+
+  let subIssueNumbers: number[];
+  try {
+    subIssueNumbers = await options.listSubIssueNumbers({
+      repo: options.repo,
+      number: options.parentNumber,
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    process.stderr.write(`[mt-plan] failed to list sub-issues for parent #${options.parentNumber}: ${message}\n`);
+    return undefined;
+  }
+  if (subIssueNumbers.length === 0) return undefined;
+
+  const [parent, children] = await Promise.all([
+    options.findPlanItem({ config: options.config, number: options.parentNumber, repo: options.repo }),
+    Promise.all(subIssueNumbers.map((number) => (
+      options.findPlanItem({ config: options.config, number, repo: options.repo })
+        .then((plan) => ({ number, currentStatus: plan.currentStatus }))
+    ))),
+  ]);
+  const targetStatus = options.childTargetStatus === "in-progress" && await isLatestTransitionRecorded(
+    options,
+    options.childNumber,
+  )
+    ? "in-progress"
+    : options.childTargetStatus === "done" && await allChildrenDoneThroughTransition(options, children)
+      ? "done"
+      : undefined;
+
+  if (!targetStatus) return undefined;
+
+  const latestParent = await options.findPlanItem({
+    config: options.config,
+    number: options.parentNumber,
+    repo: options.repo,
+  });
+  if (latestParent.currentStatus === targetStatus) return undefined;
+
+  return applyTransitionEffects({
+    config: options.config,
+    number: options.parentNumber,
+    repo: parent.repo,
+    itemId: parent.itemId,
+    sourceStatus: latestParent.currentStatus,
+    targetStatus,
+    updateItemStatus: options.updateItemStatus,
+    updateIssueState: options.updateIssueState,
+    readIssueBody: options.readIssueBody,
+    updateIssueBody: options.updateIssueBody,
+    skipHistoryAppend: options.skipHistoryAppend,
+    executionTransition: false,
+  });
+}
+
+async function allChildrenDoneThroughTransition(
+  options: AggregateParentStatusOptions,
+  children: Array<{ number: number; currentStatus: PlanStatus }>,
+): Promise<boolean> {
+  if (!children.every((child) => child.currentStatus === "done")) return false;
+
+  return Promise.all(children.map((child) => (
+    isLatestTransitionRecorded(options, child.number)
+  ))).then((recorded) => recorded.every(Boolean));
+}
+
+async function isLatestTransitionRecorded(
+  options: AggregateParentStatusOptions,
+  number: number,
+): Promise<boolean> {
+  const body = await options.readIssueBody({ repo: options.repo, number });
+  return latestRecordedMarker(body) !== null;
 }
 
 function buildFindItemQuery(): string {
@@ -402,6 +589,9 @@ async function defaultUpdateIssueState(params: {
     ]);
   } catch (error) {
     if (error instanceof GitCommandError) {
+      if (error.exitCode === 1 && /already (closed|open)/.test(error.stderr)) {
+        return;
+      }
       throw new TransitionPlanError(error.message);
     }
     throw error;
@@ -463,6 +653,48 @@ async function defaultUpdateIssueBody(params: {
   }
 }
 
+async function defaultGetParentIssueNumber(params: {
+  repo: string;
+  number: number;
+}): Promise<number | null> {
+  try {
+    const { stdout } = await runCommand("gh", [
+      "api",
+      `repos/${params.repo}/issues/${params.number}/parent`,
+    ]);
+    const response = JSON.parse(stdout) as { number?: number };
+    return typeof response.number === "number" ? response.number : null;
+  } catch (error) {
+    if (error instanceof GitCommandError && error.exitCode === 1 && /No parent issue found/.test(error.stderr)) {
+      return null;
+    }
+    if (error instanceof GitCommandError) throw new TransitionPlanError(error.message);
+    throw error;
+  }
+}
+
+async function defaultListSubIssueNumbers(params: {
+  repo: string;
+  number: number;
+}): Promise<number[]> {
+  try {
+    const { stdout } = await runCommand("gh", [
+      "api",
+      `repos/${params.repo}/issues/${params.number}/sub_issues`,
+      "--paginate",
+      "--slurp",
+    ]);
+    const pages = JSON.parse(stdout) as Array<Array<{ number?: number }>>;
+    const issues = pages.flat();
+    return issues.flatMap((issue) => (
+      typeof issue.number === "number" ? [issue.number] : []
+    ));
+  } catch (error) {
+    if (error instanceof GitCommandError) throw new TransitionPlanError(error.message);
+    throw error;
+  }
+}
+
 export function formatTransitionResult(result: TransitionPlanResult): string {
   const lines = [
     "Plan status transitioned.",
@@ -472,6 +704,11 @@ export function formatTransitionResult(result: TransitionPlanResult): string {
     `history: ${result.bodyUpdated ? "appended" : "skipped"}`,
     `issue: ${result.issueStateChanged ? (result.issueClosed ? "closed" : "reopened") : "unchanged"}`,
   ];
+  if (result.parentTransition) {
+    lines.push(
+      `parent: #${result.parentTransition.number} ${result.parentTransition.sourceStatus} -> ${result.parentTransition.targetStatus}`,
+    );
+  }
   return lines.join("\n");
 }
 

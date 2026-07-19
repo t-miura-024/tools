@@ -11,7 +11,7 @@
 - `init-config-gh.ts`: `init-config.ts` から呼び出される `gh` CLI 経由の GitHub API 呼び出し層。
 - `list-plans.ts`: GitHub Project から計画 Issue を列挙するスクリプト (`refined` / `in-progress` デフォルト)。
 - `list-plans.test.ts`: `list-plans.ts` の Vitest。
-- `transition-plan.ts`: 計画 Issue の Status custom field を更新し、Issue open/closed を同期し、`## 🐢 履歴` に追記する状態遷移スクリプト。
+- `transition-plan.ts`: 計画 Issue の Status custom field を更新し、Issue open/closed を同期し、`## 🐢 履歴` に追記する状態遷移スクリプト。Sub Issue の遷移後は親の状態も集約する。
 - `transition-plan.test.ts`: `transition-plan.ts` の Vitest。
 
 ## 計画一覧
@@ -40,6 +40,10 @@ bun <mt-plan-skill-dir>/transition-plan.ts 7 in-progress
 ```
 
 遷移の順序は `workflow.ts` のステップ定義で管理します。`transition-plan.ts` は GitHub Project / Issue の更新を実行する層です。
+
+## 分解計画
+
+親子構造は GitHub Sub Issue 関係だけを Source of Truth とし、1 階層に限定します。親は実行不可の集約ノードです。子を `in-progress` にすると最初の子で親も `in-progress` へ、全子を `done` にすると親も `done` へ、`transition-plan.ts` が自動遷移します。GitHub UI から直接変更した状態は集約しません。集約判定中の GitHub UI による並行 Status 更新はサポートしません。
 
 ## 旧形式の計画
 
