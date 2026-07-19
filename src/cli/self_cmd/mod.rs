@@ -6,11 +6,11 @@ mod install;
 
 #[derive(Subcommand)]
 pub enum SelfCommands {
-    /// Install mt binary via cargo install --path . and run chezmoi apply
+    /// mt バイナリのビルドとシェル環境整備
     Install,
-    /// Generate shell completion script
+    /// シェル補完スクリプトを生成
     Completions {
-        /// Shell to generate completions for
+        /// 補完を生成するシェル
         #[arg(value_enum)]
         shell: Shell,
     },

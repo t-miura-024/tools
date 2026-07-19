@@ -14,52 +14,52 @@ pub mod uninstall_hook;
 
 #[derive(Subcommand)]
 pub enum ChezmoiCommands {
-    /// Apply the chezmoi source state to the home directory
+    /// chezmoi ソースを home ディレクトリに展開
     Apply,
-    /// Initialize the chezmoi source state (clone, pull, etc.)
+    /// chezmoi ソースを初期化（clone, pull 等）
     Init,
-    /// Show the diff between the target state and the destination state
+    /// ターゲット状態とデスティネーション状態の差分を表示
     Diff,
-    /// Show the status of chezmoi-managed targets
+    /// chezmoi 管理対象の状態を表示
     Status,
-    /// Run chezmoi doctor plus mt-specific checks (env var, source dir, age key, post-commit hook)
+    /// chezmoi doctor + mt 固有チェック（環境変数・ソースディレクトリ・age鍵・post-commitフック）
     Doctor,
-    /// Add an existing file or directory to the chezmoi source state
+    /// 既存のファイルやディレクトリを chezmoi ソースに追加
     Add,
-    /// Edit the chezmoi source state of a target
+    /// ターゲットの chezmoi ソースを編集
     Edit,
-    /// Install the mt post-commit hook (Phase 2 で本実装)
+    /// mt post-commit フックをインストール
     InstallHook,
-    /// Manage secrets in dot_zsh_secrets.age
+    /// dot_zsh_secrets.age のシークレット管理
     #[command(subcommand)]
     Secret(SecretCommands),
-    /// Remove the mt post-commit hook (Phase 2 で本実装)
+    /// mt post-commit フックを削除
     UninstallHook,
 }
 
 #[derive(Subcommand)]
 pub enum SecretCommands {
-    /// Set or update a secret value (encrypts into dot_zsh_secrets.age)
+    /// シークレット値を設定・更新（dot_zsh_secrets.age に暗号化保存）
     #[command(name = "set")]
     Set {
-        /// Environment variable name to set (e.g. TAVILY_API_KEY)
+        /// 設定する環境変数名（例: TAVILY_API_KEY）
         key: String,
-        /// Preview the encrypted content without writing
+        /// 書き込まずに暗号化内容をプレビュー
         #[arg(long)]
         dry_run: bool,
-        /// Skip the apply prompt after setting
+        /// 設定後の apply 確認をスキップ
         #[arg(long)]
         no_apply: bool,
     },
-    /// Delete a secret value from dot_zsh_secrets.age
+    /// dot_zsh_secrets.age からシークレット値を削除
     #[command(name = "delete")]
     Delete {
-        /// Environment variable name to delete (omit to select interactively)
+        /// 削除する環境変数名（省略時は対話的に選択）
         key: Option<String>,
-        /// Preview the encrypted content without writing
+        /// 書き込まずに暗号化内容をプレビュー
         #[arg(long)]
         dry_run: bool,
-        /// Skip the apply prompt after deleting
+        /// 削除後の apply 確認をスキップ
         #[arg(long)]
         no_apply: bool,
     },

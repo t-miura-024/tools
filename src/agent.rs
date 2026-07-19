@@ -7,10 +7,10 @@ pub mod sync;
 pub enum AgentCommands {
     /// agents / skills を cursor (SoT) から Claude / OpenCode へ同期
     Sync {
-        /// 同期せず差分の有無だけ確認する (drift ありで非0終了)
+        /// 同期せず差分の有無だけ確認（drift ありで非0終了）
         #[arg(short = 'c', long, conflicts_with = "dry_run")]
         check: bool,
-        /// 書き込みせず同期内容を表示する
+        /// 書き込みせず同期内容を表示
         #[arg(short = 'n', long, conflicts_with = "check")]
         dry_run: bool,
     },
