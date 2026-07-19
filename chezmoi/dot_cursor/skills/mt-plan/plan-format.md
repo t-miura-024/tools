@@ -162,7 +162,7 @@ Yes/No で判定可能な状態として書き、成果物の存在自体は `##
 履歴は計画 Issue の変更事実を時系列で残します。
 実行結果、メモ更新、検証結果、状態遷移を簡潔に記録します。
 
-`transition-plan.ts` は状態遷移時に `- YYYY-MM-DD HH:mm [target-status] <source-status> から遷移` のエントリを自動追記します。
+`transition-plan.ts` は状態遷移時に `- YYYY-MM-DD HH:mm [target-status] <source-status> から遷移` のエントリを自動追記します。mt-run-plan 経由で実行した子の遷移には、末尾に `(mt-run-plan)` と UUID マーカー（`<!-- mt-run-plan-marker: ... -->`）が付与されます。
 手動で追記する場合は、同フォーマットで記述してください。
 
 ## Issue title と body の役割分担
@@ -177,3 +177,16 @@ Yes/No で判定可能な状態として書き、成果物の存在自体は `##
 - **Project**: `~/.config/mt-plan/config.json` の `projectId` で指定
 - **Status**: Project の Status custom field (`draft` / `refined` / `in-progress` / `done`)
 - **同期**: Status と Issue open/closed は完全同期 (`done` = closed, 他 = open)
+
+## 分解計画
+
+分解計画に関する全ルールをここで定義する。各 SKILL.md からは本セクションを参照すること。
+
+- 分解は draft 作成時だけに許可し、GitHub ネイティブの Sub Issue 関係で親子を 1 階層に限定する。
+- 親計画は集約ノードであり、子計画だけを実行する。親子関係を Issue 本文で重複管理しない。
+- 親子とも draft として作成し、ユーザーがまとめて承認した後に refined へ遷移する。
+- 子計画の目的・対応スコープの和集合は、親計画を過不足なく満たさなければならない。
+- mt-run-plan 経由で遷移した履歴には UUID マーカーが埋め込まれ、親集約判定の根拠とする。GitHub UI から直接変更したステータスはマーカーを持たないため、集約対象にならない。
+- 集約判定と親更新の間に GitHub UI で並行して Status を変更しない。並行変更がある場合の親状態は保証対象外。
+- 親子関係は GitHub Sub Issue 関係だけを Source of Truth とし、本文で一覧管理しない。
+- 本実装は少数の子計画（≤5）を前提としており、多数の子を持つ親計画では API 呼び出し数に注意。
