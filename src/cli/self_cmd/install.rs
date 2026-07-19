@@ -5,6 +5,7 @@ use std::process::{Command, Stdio};
 use anyhow::Context;
 
 use crate::chezmoi::shared::{chezmoi_binary_present, resolve_source_dir};
+use crate::cli::self_cmd::completions;
 use crate::cli::style;
 
 pub fn run() -> anyhow::Result<()> {
@@ -16,9 +17,15 @@ pub fn run() -> anyhow::Result<()> {
     ensure_chezmoi_binary();
     run_chezmoi_apply()?;
     install_via_cargo(&repo_root)?;
+    install_completion()?;
 
     style::outro("セットアップが完了しました");
     Ok(())
+}
+
+fn install_completion() -> anyhow::Result<()> {
+    style::info("zsh 補完スクリプトを配置中...");
+    completions::write_completion_script()
 }
 
 fn ensure_chezmoi_binary() {

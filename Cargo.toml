@@ -6,6 +6,7 @@ description = "Personal CLI tools"
 
 [dependencies]
 clap = { version = "4", features = ["derive"] }
+clap_complete = "4"
 dialoguer = "0.11"
 duct = "0.13"
 anyhow = "1"
