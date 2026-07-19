@@ -3,7 +3,6 @@ use std::path::PathBuf;
 use std::process::{Command, Stdio};
 
 use anyhow::Context;
-use clap_complete::Shell;
 use dialoguer::Input;
 
 use crate::agent::{self, AgentCommands};
@@ -108,11 +107,6 @@ const SCRIPTS: &[ScriptEntry] = &[
         description: "mt バイナリのビルドとシェル環境整備",
     },
     ScriptEntry {
-        name: "self completions zsh",
-        category: "config",
-        description: "zsh 用タブ補完スクリプトを生成・配置",
-    },
-    ScriptEntry {
         name: "chezmoi apply",
         category: "dotfiles",
         description: "chezmoi ソースを home ディレクトリに展開",
@@ -204,9 +198,6 @@ fn run_script(name: &str) -> anyhow::Result<()> {
         "vector ingest" => run_vector_ingest(),
         "vector search" => run_vector_search(),
         "self install" => self_cmd::run(SelfCommands::Install),
-        "self completions zsh" => self_cmd::run(SelfCommands::Completions {
-            shell: Shell::Zsh,
-        }),
         "chezmoi apply" => chezmoi::run(ChezmoiCommands::Apply),
         "chezmoi diff" => chezmoi::run(ChezmoiCommands::Diff),
         "chezmoi doctor" => chezmoi::run(ChezmoiCommands::Doctor),
