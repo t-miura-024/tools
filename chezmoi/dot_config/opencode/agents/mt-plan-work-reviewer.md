@@ -74,3 +74,8 @@ permission:
 - 完了条件との差分が最も重要。機械的に満たせるかどうかを確認する
 - スコープ拡大や方針逸脱は must とする
 - 軽微なコードスタイルや改善提案は should または want とする
+
+## 🔗 参照 Skill
+
+- `skills/mt-run-plan/SKILL.md`
+- `skills/mt-plan/workflow.ts`

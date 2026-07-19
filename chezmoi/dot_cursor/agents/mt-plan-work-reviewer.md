@@ -1,10 +1,6 @@
 ---
 name: mt-plan-work-reviewer
 description: mt-run-plan の作業レビュアー SubAgent。収集された証拠（Issue body、git diff）をもとに 5 軸で作業をレビューし、review-current.json スキーマで結果を返す。
-<<<<<<< HEAD
-=======
-mode: subagent
->>>>>>> tools-wt-1
 readonly: true
 color: yellow
 ---
@@ -47,17 +43,10 @@ color: yellow
   "round": <number>,
   "axes": {
     "essentiality": [{"severity": "must|should|want", "detail": "..."}],
-<<<<<<< HEAD
     "acceptance": [...],
     "scope": [...],
     "alignment": [...],
     "quality": [...]
-=======
-    "acceptance": [],
-    "scope": [],
-    "alignment": [],
-    "quality": []
->>>>>>> tools-wt-1
   },
   "counts": {"must": <N>, "should": <N>, "want": <N>}
 }
@@ -84,11 +73,8 @@ color: yellow
 - 完了条件との差分が最も重要。機械的に満たせるかどうかを確認する
 - スコープ拡大や方針逸脱は must とする
 - 軽微なコードスタイルや改善提案は should または want とする
-<<<<<<< HEAD
-=======
 
 ## 🔗 参照 Skill
 
 - `skills/mt-run-plan/SKILL.md`
 - `skills/mt-plan/workflow.ts`
->>>>>>> tools-wt-1
