@@ -3,9 +3,10 @@ use std::path::PathBuf;
 use std::process::{Command, Stdio};
 
 use anyhow::Context;
+use clap::CommandFactory;
+use clap_complete::{generate, Shell};
 
 use crate::chezmoi::shared::{chezmoi_binary_present, resolve_source_dir};
-use crate::cli::self_cmd::completions;
 use crate::cli::style;
 
 pub fn run() -> anyhow::Result<()> {
@@ -24,8 +25,25 @@ pub fn run() -> anyhow::Result<()> {
 }
 
 fn install_completion() -> anyhow::Result<()> {
-    style::info("zsh 補完スクリプトを配置中...");
-    completions::write_completion_script()
+    style::info("zsh 補完スクリプトを生成・配置中...");
+
+    let target_dir = PathBuf::from("/opt/homebrew/share/zsh/site-functions");
+    let target_file = target_dir.join("_mt");
+
+    std::fs::create_dir_all(&target_dir).context("site-functions ディレクトリを作成できませんでした")?;
+
+    let mut script = Vec::new();
+    let mut cmd = crate::Cli::command();
+    generate(Shell::Zsh, &mut cmd, "mt", &mut script);
+
+    std::fs::write(&target_file, &script)
+        .with_context(|| format!("ファイル {} を書き込めませんでした", target_file.display()))?;
+
+    style::success(&format!(
+        "補完スクリプトを {} に配置しました",
+        target_file.display()
+    ));
+    Ok(())
 }
 
 fn ensure_chezmoi_binary() {

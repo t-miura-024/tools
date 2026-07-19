@@ -20,7 +20,7 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
-    /// mt バイナリ自身の操作（インストール・補完生成）
+    /// mt バイナリ自身の操作（インストール・環境整備）
     #[command(name = "self", subcommand)]
     SelfCmd(cli::self_cmd::SelfCommands),
     /// Git / GitHub リポジトリ操作
