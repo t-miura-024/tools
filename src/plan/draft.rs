@@ -30,7 +30,7 @@ pub struct StatusOptions {
 pub fn run(yes: bool) -> anyhow::Result<()> {
     let config = load_config()?;
 
-    style::intro("Draft Plan 起票");
+    print_header();
 
     let selected_path = repo_discover::select_repo()?;
     let (selected_owner, selected_name) = get_repo_owner_and_name(&selected_path)?;
@@ -38,26 +38,31 @@ pub fn run(yes: bool) -> anyhow::Result<()> {
     let (target_repo, has_external_label) =
         determine_target(&selected_owner, &selected_name, &config.owner);
 
-    style::info(&format!("対象: {target_repo}"));
+    println!();
+    style::info(&format!("📂 対象リポジトリ  {target_repo}"));
+    println!();
 
     let title = prompt_title()?;
 
+    println!();
+    style::info("📝 説明を入力（エディタが開きます）");
     let description = open_editor_for_description()?;
+    style::success("説明を入力しました");
 
+    let spinner = style::spinner("認証・リポジトリを確認中...");
     check_gh_auth()?;
-
     verify_repo_exists(&target_repo)?;
-
     ensure_labels(
         &target_repo,
         &selected_owner,
         &selected_name,
         has_external_label,
     )?;
+    spinner.finish_with_message("✔ 確認完了");
 
     if !yes && description.trim().is_empty() {
         let confirmed = Confirm::new()
-            .with_prompt("説明が空ですが、このまま起票しますか？")
+            .with_prompt("⚠️  説明が空ですが、このまま起票しますか？")
             .default(false)
             .interact()?;
         if !confirmed {
@@ -67,17 +72,9 @@ pub fn run(yes: bool) -> anyhow::Result<()> {
     }
 
     if !yes {
-        style::info(&format!(
-            "タイトル: {}\n説明: {}",
-            title,
-            if description.trim().is_empty() {
-                "(空)"
-            } else {
-                &description
-            }
-        ));
+        print_summary(&target_repo, &title, &description);
         let confirmed = Confirm::new()
-            .with_prompt("起票しますか？")
+            .with_prompt("🚀 起票しますか？")
             .default(true)
             .interact()?;
         if !confirmed {
@@ -97,11 +94,13 @@ pub fn run(yes: bool) -> anyhow::Result<()> {
         &description,
         external_label.as_deref(),
     )?;
-    style::info(&format!("Issue を作成しました: {issue_url}"));
 
     match add_to_project_and_set_status(&config, &issue_url) {
         Ok(()) => {
-            style::outro(&format!("Draft Plan を起票しました: {issue_url}"));
+            println!();
+            style::success("🎉 Issue を作成しました！");
+            println!("     {issue_url}");
+            println!();
         }
         Err(e) => {
             style::error(&format!(
@@ -113,6 +112,38 @@ pub fn run(yes: bool) -> anyhow::Result<()> {
     }
 
     Ok(())
+}
+
+fn print_header() {
+    let title = "✏️  Draft Plan 起票";
+    let title_style = console::Style::new().cyan().bold();
+    let width = console::measure_text_width(title);
+    println!("\n{}", title_style.apply_to(title));
+    println!("{}", "━".repeat(width));
+    println!();
+}
+
+fn print_summary(repo: &str, title: &str, description: &str) {
+    let width = 42;
+    let divider = "─".repeat(width);
+    println!("\n{divider}");
+    println!("  📋 起票内容の確認");
+    println!("{divider}");
+    println!("  📂 リポジトリ  {repo}");
+    println!("  ✏️  タイトル    {title}");
+    if description.trim().is_empty() {
+        println!("  📄 説明        (空)");
+    } else {
+        println!("  📄 説明");
+        let lines: Vec<&str> = description.trim().lines().collect();
+        for line in lines.iter().take(5) {
+            println!("      {line}");
+        }
+        if lines.len() > 5 {
+            println!("      … (全{}行)", lines.len());
+        }
+    }
+    println!("{divider}\n");
 }
 
 pub fn determine_target(
