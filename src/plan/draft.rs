@@ -39,13 +39,13 @@ pub fn run(yes: bool) -> anyhow::Result<()> {
         determine_target(&selected_owner, &selected_name, &config.owner);
 
     println!();
-    style::info(&format!("📂 対象リポジトリ  {target_repo}"));
+    style::info(&format!("📂　対象リポジトリ　{target_repo}"));
     println!();
 
     let title = prompt_title()?;
 
     println!();
-    style::info("📝 説明を入力（エディタが開きます）");
+    style::info("📝　説明を入力（エディタが開きます）");
     let description = open_editor_for_description()?;
     style::success("説明を入力しました");
 
@@ -62,7 +62,7 @@ pub fn run(yes: bool) -> anyhow::Result<()> {
 
     if !yes && description.trim().is_empty() {
         let confirmed = Confirm::new()
-            .with_prompt("⚠️  説明が空ですが、このまま起票しますか？")
+            .with_prompt("⚠️　説明が空ですが、このまま起票しますか？")
             .default(false)
             .interact()?;
         if !confirmed {
@@ -74,7 +74,7 @@ pub fn run(yes: bool) -> anyhow::Result<()> {
     if !yes {
         print_summary(&target_repo, &title, &description);
         let confirmed = Confirm::new()
-            .with_prompt("🚀 起票しますか？")
+            .with_prompt("🚀　起票しますか？")
             .default(true)
             .interact()?;
         if !confirmed {
@@ -98,7 +98,7 @@ pub fn run(yes: bool) -> anyhow::Result<()> {
     match add_to_project_and_set_status(&config, &issue_url) {
         Ok(()) => {
             println!();
-            style::success("🎉 Issue を作成しました！");
+            style::success("🎉　Issue を作成しました！");
             println!("     {issue_url}");
             println!();
         }
@@ -115,7 +115,7 @@ pub fn run(yes: bool) -> anyhow::Result<()> {
 }
 
 fn print_header() {
-    let title = "✏️  Draft Plan 起票";
+    let title = "✏️　Draft Plan 起票";
     let title_style = console::Style::new().cyan().bold();
     let width = console::measure_text_width(title);
     println!("\n{}", title_style.apply_to(title));
@@ -127,14 +127,14 @@ fn print_summary(repo: &str, title: &str, description: &str) {
     let width = 42;
     let divider = "─".repeat(width);
     println!("\n{divider}");
-    println!("  📋 起票内容の確認");
+    println!("  📋　起票内容の確認");
     println!("{divider}");
-    println!("  📂 リポジトリ  {repo}");
-    println!("  ✏️  タイトル    {title}");
+    println!("  📂　リポジトリ　{repo}");
+    println!("  ✏️　タイトル　　{title}");
     if description.trim().is_empty() {
-        println!("  📄 説明        (空)");
+        println!("  📄　説明　　　　(空)");
     } else {
-        println!("  📄 説明");
+        println!("  📄　説明");
         let lines: Vec<&str> = description.trim().lines().collect();
         for line in lines.iter().take(5) {
             println!("      {line}");
@@ -354,19 +354,17 @@ fn ensure_label(repo: &str, name: &str, color: &str, description: &str) -> anyho
 }
 
 fn prompt_title() -> anyhow::Result<String> {
-    use inquire::ui::{RenderConfig, Styled};
     use inquire::validator::Validation;
     use inquire::Text;
 
+    let section_label = "✏️　タイトルを入力";
+    let width = console::measure_text_width(section_label);
     println!();
-    println!("  ✏️  タイトルを入力");
-    println!("  ━━━━━━━━━━━━━━━━━━");
+    println!("  {section_label}");
+    println!("  {}", "━".repeat(width));
     println!();
 
-    let render_config = RenderConfig::default()
-        .with_prompt_prefix(Styled::new("✏️").with_fg(inquire::ui::Color::LightCyan));
-
-    let title = Text::new("タイトル")
+    let title = Text::new("✏️　タイトル")
         .with_placeholder("例: 〇〇の実装を追加")
         .with_help_message("Issue のタイトルを1行で入力（? キーでこのヒントを表示）")
         .with_validator(|input: &str| {
@@ -376,7 +374,6 @@ fn prompt_title() -> anyhow::Result<String> {
                 Ok(Validation::Valid)
             }
         })
-        .with_render_config(render_config)
         .prompt()?;
 
     Ok(title.trim().to_string())
