@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use std::process::{Command, Stdio};
 
 use anyhow::{Context, bail};
-use dialoguer::{Confirm, Input};
+use dialoguer::Confirm;
 use serde::Deserialize;
 
 use crate::cli::style;
@@ -38,6 +38,8 @@ pub fn run(yes: bool) -> anyhow::Result<()> {
     let (target_repo, has_external_label) =
         determine_target(&selected_owner, &selected_name, &config.owner);
 
+    style::info(&format!("対象: {target_repo}"));
+
     let title = prompt_title()?;
 
     let description = open_editor_for_description()?;
@@ -66,8 +68,7 @@ pub fn run(yes: bool) -> anyhow::Result<()> {
 
     if !yes {
         style::info(&format!(
-            "リポジトリ: {}\nタイトル: {}\n説明: {}",
-            target_repo,
+            "タイトル: {}\n説明: {}",
             title,
             if description.trim().is_empty() {
                 "(空)"
@@ -322,15 +323,19 @@ fn ensure_label(repo: &str, name: &str, color: &str, description: &str) -> anyho
 }
 
 fn prompt_title() -> anyhow::Result<String> {
-    let title: String = Input::new()
-        .with_prompt("タイトル")
-        .validate_with(|input: &String| -> Result<(), &str> {
+    use inquire::validator::Validation;
+    use inquire::Text;
+
+    let title = Text::new("タイトル")
+        .with_help_message("Issue のタイトルを入力（1行）")
+        .with_validator(|input: &str| {
             if input.trim().is_empty() {
-                return Err("タイトルを入力してください");
+                Ok(Validation::Invalid("タイトルを入力してください".into()))
+            } else {
+                Ok(Validation::Valid)
             }
-            Ok(())
         })
-        .interact_text()?;
+        .prompt()?;
 
     Ok(title.trim().to_string())
 }
