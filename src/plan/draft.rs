@@ -354,11 +354,21 @@ fn ensure_label(repo: &str, name: &str, color: &str, description: &str) -> anyho
 }
 
 fn prompt_title() -> anyhow::Result<String> {
+    use inquire::ui::{RenderConfig, Styled};
     use inquire::validator::Validation;
     use inquire::Text;
 
+    println!();
+    println!("  ✏️  タイトルを入力");
+    println!("  ━━━━━━━━━━━━━━━━━━");
+    println!();
+
+    let render_config = RenderConfig::default()
+        .with_prompt_prefix(Styled::new("✏️").with_fg(inquire::ui::Color::LightCyan));
+
     let title = Text::new("タイトル")
-        .with_help_message("Issue のタイトルを入力（1行）")
+        .with_placeholder("例: 〇〇の実装を追加")
+        .with_help_message("Issue のタイトルを1行で入力（? キーでこのヒントを表示）")
         .with_validator(|input: &str| {
             if input.trim().is_empty() {
                 Ok(Validation::Invalid("タイトルを入力してください".into()))
@@ -366,6 +376,7 @@ fn prompt_title() -> anyhow::Result<String> {
                 Ok(Validation::Valid)
             }
         })
+        .with_render_config(render_config)
         .prompt()?;
 
     Ok(title.trim().to_string())
