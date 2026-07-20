@@ -30,8 +30,6 @@ pub struct StatusOptions {
 pub fn run(yes: bool) -> anyhow::Result<()> {
     let config = load_config()?;
 
-    check_gh_auth()?;
-
     style::intro("Draft Plan 起票");
 
     let selected_path = repo_discover::select_repo()?;
@@ -39,6 +37,12 @@ pub fn run(yes: bool) -> anyhow::Result<()> {
 
     let (target_repo, has_external_label) =
         determine_target(&selected_owner, &selected_name, &config.owner);
+
+    let title = prompt_title()?;
+
+    let description = open_editor_for_description()?;
+
+    check_gh_auth()?;
 
     verify_repo_exists(&target_repo)?;
 
@@ -48,10 +52,6 @@ pub fn run(yes: bool) -> anyhow::Result<()> {
         &selected_name,
         has_external_label,
     )?;
-
-    let title = prompt_title()?;
-
-    let description = open_editor_for_description()?;
 
     if !yes && description.trim().is_empty() {
         let confirmed = Confirm::new()
