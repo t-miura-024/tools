@@ -130,11 +130,11 @@ fn print_summary(repo: &str, title: &str, description: &str) {
     println!("  📋　起票内容の確認");
     println!("{divider}");
     println!("  📂　リポジトリ　{repo}");
-    println!("  ✏️　タイトル　　{title}");
+    println!("  ✏️　　　　　　　{title}");
     if description.trim().is_empty() {
-        println!("  📄　説明　　　　(空)");
+        println!("  📄　　　　　　　(空)");
     } else {
-        println!("  📄　説明");
+        println!("  📄");
         let lines: Vec<&str> = description.trim().lines().collect();
         for line in lines.iter().take(5) {
             println!("      {line}");
@@ -357,15 +357,10 @@ fn prompt_title() -> anyhow::Result<String> {
     use inquire::validator::Validation;
     use inquire::Text;
 
-    let section_label = "✏️　タイトルを入力";
-    let width = console::measure_text_width(section_label);
-    println!();
-    println!("  {section_label}");
-    println!("  {}", "━".repeat(width));
     println!();
 
-    let title = Text::new("✏️　タイトル")
-        .with_placeholder("例: 〇〇の実装を追加")
+    let title = Text::new("✏️")
+        .with_placeholder("タイトルを入力")
         .with_help_message("Issue のタイトルを1行で入力（? キーでこのヒントを表示）")
         .with_validator(|input: &str| {
             if input.trim().is_empty() {
