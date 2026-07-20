@@ -124,26 +124,43 @@ fn print_header() {
 }
 
 fn print_summary(repo: &str, title: &str, description: &str) {
-    let width = 42;
-    let divider = "─".repeat(width);
-    println!("\n{divider}");
+    let total_width = 60;
+    let prefix = "──── ";
+    let outer = "─".repeat(total_width);
+
+    let items: [(&str, &str, &str); 3] = [
+        ("📂", "リポジトリ", repo),
+        ("✏️", "タイトル", title),
+        ("📄", "説明", description),
+    ];
+
+    println!();
+    println!("{outer}");
     println!("  📋　起票内容の確認");
-    println!("{divider}");
-    println!("  📂　リポジトリ　{repo}");
-    println!("  ✏️　　　　　　　{title}");
-    if description.trim().is_empty() {
-        println!("  📄　　　　　　　(空)");
-    } else {
-        println!("  📄");
-        let lines: Vec<&str> = description.trim().lines().collect();
-        for line in lines.iter().take(5) {
-            println!("      {line}");
+    println!("{outer}");
+
+    for (emoji, label, value) in items {
+        let label_str = format!("{prefix}{emoji} {label}");
+        let label_width = console::measure_text_width(&label_str);
+        let line_width = total_width.saturating_sub(label_width + 1);
+        println!("{label_str} {}", "─".repeat(line_width));
+
+        if value.trim().is_empty() {
+            println!("(空)");
+        } else {
+            let lines: Vec<&str> = value.trim().lines().collect();
+            let max_lines = 5;
+            for line in lines.iter().take(max_lines) {
+                println!("{line}");
+            }
+            if lines.len() > max_lines {
+                println!("… (全{}行)", lines.len());
+            }
         }
-        if lines.len() > 5 {
-            println!("      … (全{}行)", lines.len());
-        }
+        println!();
     }
-    println!("{divider}\n");
+
+    println!("{outer}");
 }
 
 pub fn determine_target(
