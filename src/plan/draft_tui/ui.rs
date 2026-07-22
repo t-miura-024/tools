@@ -366,10 +366,10 @@ fn draw_help_bar(frame: &mut Frame, state: &FormState, area: Rect, hover: Option
         " 送信 ",
         Style::default().fg(text_fg).add_modifier(text_mod),
     )))
+    .style(Style::default().bg(block_bg))
     .alignment(Alignment::Center)
     .block(
         Block::default()
-            .style(Style::default().bg(block_bg))
             .borders(Borders::ALL)
             .border_style(Style::default().fg(border_color)),
     );
