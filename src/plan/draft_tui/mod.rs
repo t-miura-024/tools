@@ -2,4 +2,4 @@ mod app;
 mod state;
 mod ui;
 
-pub use app::{DraftInput, run_tui};
+pub use app::run_tui;
