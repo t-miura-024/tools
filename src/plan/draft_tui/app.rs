@@ -191,6 +191,7 @@ fn handle_mouse_event(
         match target {
             ClickTarget::Repo => {
                 state.focus = Field::Repo;
+                state.open_popup();
             }
             ClickTarget::Title => {
                 state.focus = Field::Title;
@@ -225,12 +226,6 @@ enum FormAction {
 fn handle_form_key(key: KeyEvent, state: &mut FormState, desc_area: &mut TextArea) -> FormAction {
     if key.modifiers.contains(KeyModifiers::CONTROL) {
         match key.code {
-            KeyCode::Char('s') => {
-                if state.can_submit() {
-                    return FormAction::Submit;
-                }
-                return FormAction::None;
-            }
             KeyCode::Char('c') => return FormAction::Cancel,
             _ => return FormAction::None,
         }
@@ -244,11 +239,20 @@ fn handle_form_key(key: KeyEvent, state: &mut FormState, desc_area: &mut TextAre
         KeyCode::BackTab => {
             state.focus_prev();
         }
-        KeyCode::Enter => {
-            if state.focus == Field::Repo {
+        KeyCode::Enter => match state.focus {
+            Field::Repo => {
                 state.open_popup();
             }
-        }
+            Field::Description => {
+                desc_area.input(key);
+            }
+            Field::Submit => {
+                if state.can_submit() {
+                    return FormAction::Submit;
+                }
+            }
+            Field::Title => {}
+        },
         _ => {
             match state.focus {
                 Field::Title => handle_title_key(key, state),
@@ -256,6 +260,7 @@ fn handle_form_key(key: KeyEvent, state: &mut FormState, desc_area: &mut TextAre
                     desc_area.input(key);
                 }
                 Field::Repo => {}
+                Field::Submit => {}
             }
         }
     }
