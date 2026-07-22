@@ -39,7 +39,7 @@ pub fn compute_layout(area: Rect) -> LayoutAreas {
 pub fn submit_button_rect(help_bar: Rect) -> Rect {
     let cols = Layout::default()
         .direction(Direction::Horizontal)
-        .constraints([Constraint::Min(1), Constraint::Length(18)])
+        .constraints([Constraint::Min(1), Constraint::Length(12)])
         .split(help_bar);
     cols[1]
 }
@@ -251,12 +251,19 @@ fn draw_description_field(
     }
     ta.set_block(Block::default());
     frame.render_widget(&ta, inner);
+
+    if focused {
+        let (cursor_row, cursor_col) = desc_area.cursor();
+        let cursor_x = inner.x + cursor_col as u16;
+        let cursor_y = inner.y + cursor_row as u16;
+        frame.set_cursor_position((cursor_x, cursor_y));
+    }
 }
 
 fn draw_help_bar(frame: &mut Frame, state: &FormState, area: Rect) {
     let cols = Layout::default()
         .direction(Direction::Horizontal)
-        .constraints([Constraint::Min(1), Constraint::Length(18)])
+        .constraints([Constraint::Min(1), Constraint::Length(12)])
         .split(area);
 
     let hints = if state.show_empty_desc_confirm {
@@ -264,7 +271,7 @@ fn draw_help_bar(frame: &mut Frame, state: &FormState, area: Rect) {
     } else if state.popup.is_some() {
         "↑↓: 移動  Enter: 選択  Esc: 閉じる  入力: 絞り込み"
     } else {
-        "Tab/Shift-Tab: 移動  Enter: リポ選択  Ctrl+S: 送信  Esc: キャンセル"
+        "Tab/Shift-Tab: 移動  Enter: リポ選択 / 送信  Esc: キャンセル"
     };
 
     let paragraph = Paragraph::new(Line::from(vec![Span::styled(
@@ -276,24 +283,32 @@ fn draw_help_bar(frame: &mut Frame, state: &FormState, area: Rect) {
     frame.render_widget(paragraph, cols[0]);
 
     let can_submit = state.can_submit();
-    let btn_style = if can_submit {
+    let submit_focused = state.focus == Field::Submit;
+    let btn_style = if can_submit && submit_focused {
         Style::default()
             .fg(Color::Black)
             .bg(Color::Green)
             .add_modifier(Modifier::BOLD)
+    } else if can_submit {
+        Style::default()
+            .fg(Color::Green)
+            .add_modifier(Modifier::BOLD)
     } else {
-        Style::default().fg(Color::DarkGray).bg(Color::DarkGray)
+        Style::default().fg(Color::DarkGray)
     };
-    let button = Paragraph::new(Line::from(Span::styled(" 送信 (Ctrl+S) ", btn_style)))
+    let border_color = if submit_focused {
+        Color::Cyan
+    } else if can_submit {
+        Color::Green
+    } else {
+        Color::DarkGray
+    };
+    let button = Paragraph::new(Line::from(Span::styled(" 送信 ", btn_style)))
         .alignment(Alignment::Center)
         .block(
             Block::default()
                 .borders(Borders::ALL)
-                .border_style(if can_submit {
-                    Style::default().fg(Color::Green)
-                } else {
-                    Style::default().fg(Color::DarkGray)
-                }),
+                .border_style(Style::default().fg(border_color)),
         );
     frame.render_widget(button, cols[1]);
 }
@@ -429,8 +444,8 @@ mod tests {
     fn submit_button_is_right_side_of_help_bar() {
         let areas = compute_layout(test_area());
         let btn = submit_button_rect(areas.help_bar);
-        assert_eq!(btn.width, 18);
-        assert_eq!(btn.x, 82);
+        assert_eq!(btn.width, 12);
+        assert_eq!(btn.x, 88);
         assert_eq!(btn.y, areas.help_bar.y);
         assert_eq!(btn.height, areas.help_bar.height);
     }

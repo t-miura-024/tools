@@ -7,6 +7,7 @@ pub enum Field {
     Repo,
     Title,
     Description,
+    Submit,
 }
 
 impl Field {
@@ -14,15 +15,17 @@ impl Field {
         match self {
             Field::Repo => Field::Title,
             Field::Title => Field::Description,
-            Field::Description => Field::Repo,
+            Field::Description => Field::Submit,
+            Field::Submit => Field::Repo,
         }
     }
 
     pub fn prev(&self) -> Self {
         match self {
-            Field::Repo => Field::Description,
+            Field::Repo => Field::Submit,
             Field::Title => Field::Repo,
             Field::Description => Field::Title,
+            Field::Submit => Field::Description,
         }
     }
 }
@@ -239,14 +242,16 @@ mod tests {
     fn field_next_cycles() {
         assert_eq!(Field::Repo.next(), Field::Title);
         assert_eq!(Field::Title.next(), Field::Description);
-        assert_eq!(Field::Description.next(), Field::Repo);
+        assert_eq!(Field::Description.next(), Field::Submit);
+        assert_eq!(Field::Submit.next(), Field::Repo);
     }
 
     #[test]
     fn field_prev_cycles() {
-        assert_eq!(Field::Repo.prev(), Field::Description);
+        assert_eq!(Field::Repo.prev(), Field::Submit);
         assert_eq!(Field::Title.prev(), Field::Repo);
         assert_eq!(Field::Description.prev(), Field::Title);
+        assert_eq!(Field::Submit.prev(), Field::Description);
     }
 
     #[test]
@@ -258,6 +263,8 @@ mod tests {
         state.focus_next();
         assert_eq!(state.focus, Field::Description);
         state.focus_next();
+        assert_eq!(state.focus, Field::Submit);
+        state.focus_next();
         assert_eq!(state.focus, Field::Repo);
     }
 
@@ -265,6 +272,8 @@ mod tests {
     fn focus_prev_wraps() {
         let mut state = FormState::new(vec![]);
         assert_eq!(state.focus, Field::Repo);
+        state.focus_prev();
+        assert_eq!(state.focus, Field::Submit);
         state.focus_prev();
         assert_eq!(state.focus, Field::Description);
         state.focus_prev();
