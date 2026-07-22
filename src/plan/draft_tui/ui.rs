@@ -360,20 +360,26 @@ fn draw_help_bar(frame: &mut Frame, state: &FormState, area: Rect, hover: Option
     } else {
         Color::DarkGray
     };
-    let block_bg = if filled { Color::Green } else { Color::Reset };
+
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(border_color));
+    let inner = block.inner(cols[1]);
+    frame.render_widget(block, cols[1]);
+
+    if filled {
+        frame.render_widget(
+            Block::default().style(Style::default().bg(Color::Green)),
+            inner,
+        );
+    }
 
     let button = Paragraph::new(Line::from(Span::styled(
         " 送信 ",
         Style::default().fg(text_fg).add_modifier(text_mod),
     )))
-    .style(Style::default().bg(block_bg))
-    .alignment(Alignment::Center)
-    .block(
-        Block::default()
-            .borders(Borders::ALL)
-            .border_style(Style::default().fg(border_color)),
-    );
-    frame.render_widget(button, cols[1]);
+    .alignment(Alignment::Center);
+    frame.render_widget(button, inner);
 }
 
 fn draw_repo_popup(
