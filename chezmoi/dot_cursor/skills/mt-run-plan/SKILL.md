@@ -57,10 +57,10 @@ bun run ~/.config/opencode/skills/mt-workflow/cli.ts status --session <id>
 |------|-----|------|------|
 | 1 | `identify_plan` | human_gate | 計画 Issue 番号の特定 |
 | 2 | `start_execution` | task | Issue 検証、refined→in-progress 遷移、body 読み込み |
-| 3 | `execute_work` | task | `## 🧩 実行単位` を読み取り、依存解決して executor SubAgent（mt-plan-work-executor）を並列起動。セクションなしの場合は計画全体を 1 ユニットとして単一委譲 |
-| 4 | `review_work` | task | 証拠収集スクリプト実行 → SubAgent（mt-plan-work-reviewer）委譲。5軸レビュー、review-current.json 出力。must>0 なら auto-goto execute_work |
-| 5 | `review_followups_gate` | human_gate | should/want の対応要否確認。revise→execute_work |
-| 6 | `confirm_done` | human_gate | Done 確認 |
+| 3 | `execute_work` | task | `## 🧩 実行単位` を読み取り、依存解決して executor SubAgent（mt-plan-work-executor）を並列起動。再実行時は agent-review.json + human-feedback.json の指摘を統合して修正指示。セクションなしの場合は計画全体を 1 ユニットとして単一委譲 |
+| 4 | `review_work` | task | 証拠収集スクリプト実行 → SubAgent（mt-plan-work-reviewer）委譲。5軸レビュー、agent-review.json 出力。must>0 なら auto-goto execute_work |
+| 5 | `review_followups_gate` | human_gate | should/want の対応要否確認。revise→execute_work（human-feedback.json 書き込み） |
+| 6 | `confirm_done` | human_gate | Done 確認。revise→execute_work（human-feedback.json 書き込み） |
 | 7 | `finalize_done` | task | in-progress→done 遷移（`transition-plan.ts`）、完了報告 |
 
 ## 実行単位
@@ -77,14 +77,14 @@ bun run ~/.config/opencode/skills/mt-workflow/cli.ts status --session <id>
 Step 4（`review_work`）は SubAgent 委譲型で、専用のレビュアー SubAgent（`mt-plan-work-reviewer`）が作業を客観レビューする。
 
 - オーケストレーターは `collect-review-context.ts` で証拠（Issue body、git 差分）を収集し、Task ツールで SubAgent に委譲する
-- SubAgent は 5 軸でレビューし、結果を `review-current.json` スキーマで返す
+- SubAgent は 5 軸でレビューし、結果を `agent-review.json` スキーマで返す
 - オーケストレーターは返却された JSON をセッションディレクトリに保存して report する
 - `review_work.check()` が must 件数を機械的に判定する
 - must > 0: エンジンが `execute_work` に戻す（review_work は pending に保持）
 - must = 0: review_followups_gate に進む
 - このループは must が 0 になるまで自動継続される
 
-`review-current.json` の形式:
+`agent-review.json` の形式:
 
 ```json
 {
@@ -99,6 +99,37 @@ Step 4（`review_work`）は SubAgent 委譲型で、専用のレビュアー Su
   "counts": {"must": 1, "should": 2, "want": 1}
 }
 ```
+
+## 人間レビューの修正反映（human-feedback.json）
+
+Step 5（`review_followups_gate`）または Step 6（`confirm_done`）で人間が `revise` を選んだ場合、オーケストレーターは会話から指摘内容を抽出し、セッションディレクトリに `human-feedback.json` を書き込んでから `execute_work` に戻る。
+
+### スキーマ
+
+```json
+{
+  "round": 1,
+  "items": [
+    {"detail": "指摘内容", "severity": "must"},
+    {"detail": "別の指摘", "severity": "should"}
+  ]
+}
+```
+
+- `round`: 人間の revise ごとに 1 から増分する（agent-review の round とは独立）
+- `items`: 最新 round の指摘のみ保持する（過去の指摘は Issue body の履歴に残る）
+- `severity`: 任意（`must` / `should` / `want`）。省略可。5 軸は強制しない
+
+### 書き込み規約（オーケストレーターが実施）
+
+1. 人間が revise を選び、指摘内容を発言したとき、オーケストレーターが会話から指摘を抽出する
+2. 既存の `human-feedback.json` があれば `round + 1` で上書きする（items は最新 round のみ）
+3. 既存がなければ `round: 1` で新規作成する
+4. 書き込み後に `execute_work` へ進む（エンジンは `"revise"` 文字列のみ保存し、指摘内容は保存しない）
+
+### execute_work での読み取り
+
+`execute_work` はセッションディレクトリの `human-feedback.json` を読み、`items` 配列の指摘を修正指示として executor SubAgent に渡す。`agent-review.json` の指摘と統一的に扱う。
 
 ## 状態遷移
 
