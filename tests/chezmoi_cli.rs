@@ -7,7 +7,7 @@ fn test_mt_chezmoi_help() {
     cmd.args(["chezmoi", "--help"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("dotfile management"));
+        .stdout(predicate::str::contains("dotfile 管理"));
 }
 
 #[test]
@@ -72,10 +72,10 @@ fn test_mt_chezmoi_uninstall_hook_help() {
 }
 
 #[test]
-fn test_mt_self_install_help_mentions_chezmoi() {
+fn test_mt_self_install_help_mentions_build() {
     let mut cmd = Command::cargo_bin("mt").unwrap();
     cmd.args(["self", "install", "--help"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("chezmoi"));
+        .stdout(predicate::str::contains("ビルド"));
 }

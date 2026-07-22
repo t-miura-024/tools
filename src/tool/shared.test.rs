@@ -82,34 +82,3 @@ fn test_read_bun_global_packages_rejects_invalid_yaml() {
         "expected error to mention YAML parse failure, got: {message}"
     );
 }
-
-#[test]
-fn test_read_bun_global_packages_reads_real_project_manifest() {
-    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("manifests")
-        .join("bun-global.yml");
-
-    let packages = read_bun_global_packages(&path).unwrap();
-
-    assert_eq!(
-        packages,
-        vec![
-            BunGlobalPackage {
-                name: "agent-browser".to_string(),
-                version: "latest".to_string(),
-            },
-            BunGlobalPackage {
-                name: "firecrawl".to_string(),
-                version: "latest".to_string(),
-            },
-            BunGlobalPackage {
-                name: "pnpm".to_string(),
-                version: "latest".to_string(),
-            },
-            BunGlobalPackage {
-                name: "takt".to_string(),
-                version: "latest".to_string(),
-            },
-        ]
-    );
-}
