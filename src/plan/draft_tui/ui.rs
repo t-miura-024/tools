@@ -341,43 +341,27 @@ fn draw_help_bar(frame: &mut Frame, state: &FormState, area: Rect, hover: Option
     let submit_hovered = hover == Some(ClickTarget::SubmitButton);
     let filled = can_submit && (submit_focused || submit_hovered);
 
-    let text_fg = if filled {
-        Color::Black
+    let btn_style = if filled {
+        Style::default()
+            .fg(Color::Black)
+            .bg(Color::Green)
+            .add_modifier(Modifier::BOLD)
     } else if can_submit {
-        Color::Green
+        Style::default()
+            .fg(Color::Green)
+            .add_modifier(Modifier::BOLD)
     } else {
-        Color::DarkGray
-    };
-    let text_mod = if filled {
-        Modifier::BOLD
-    } else {
-        Modifier::empty()
-    };
-    let border_color = if filled {
-        Color::Black
-    } else if submit_focused {
-        Color::Cyan
-    } else if can_submit {
-        Color::Green
-    } else {
-        Color::DarkGray
+        Style::default().fg(Color::DarkGray)
     };
 
-    let mut block = Block::default()
-        .borders(Borders::ALL)
-        .border_style(Style::default().fg(border_color));
-    if filled {
-        block = block.style(Style::default().bg(Color::Green));
-    }
-    let inner = block.inner(cols[1]);
-    frame.render_widget(block, cols[1]);
-
-    let button = Paragraph::new(Line::from(Span::styled(
-        " 送信 ",
-        Style::default().fg(text_fg).add_modifier(text_mod),
-    )))
-    .alignment(Alignment::Center);
-    frame.render_widget(button, inner);
+    let button = Paragraph::new(Line::from(Span::styled("  送信  ", btn_style)))
+        .style(if filled {
+            Style::default().bg(Color::Green)
+        } else {
+            Style::default()
+        })
+        .alignment(Alignment::Center);
+    frame.render_widget(button, cols[1]);
 }
 
 fn draw_repo_popup(
