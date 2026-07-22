@@ -353,7 +353,9 @@ fn draw_help_bar(frame: &mut Frame, state: &FormState, area: Rect, hover: Option
     } else {
         Modifier::empty()
     };
-    let border_color = if submit_focused {
+    let border_color = if filled {
+        Color::Black
+    } else if submit_focused {
         Color::Cyan
     } else if can_submit {
         Color::Green
@@ -361,18 +363,14 @@ fn draw_help_bar(frame: &mut Frame, state: &FormState, area: Rect, hover: Option
         Color::DarkGray
     };
 
-    let block = Block::default()
+    let mut block = Block::default()
         .borders(Borders::ALL)
         .border_style(Style::default().fg(border_color));
+    if filled {
+        block = block.style(Style::default().bg(Color::Green));
+    }
     let inner = block.inner(cols[1]);
     frame.render_widget(block, cols[1]);
-
-    if filled {
-        frame.render_widget(
-            Block::default().style(Style::default().bg(Color::Green)),
-            inner,
-        );
-    }
 
     let button = Paragraph::new(Line::from(Span::styled(
         " 送信 ",
