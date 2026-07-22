@@ -128,7 +128,7 @@ pub fn confirm_rect(frame_area: Rect) -> Rect {
     centered_rect(50, 20, frame_area)
 }
 
-pub fn draw(frame: &mut Frame, state: &FormState, desc_area: &TextArea) {
+pub fn draw(frame: &mut Frame, state: &mut FormState, desc_area: &TextArea) {
     let areas = compute_layout(frame.area());
 
     draw_repo_field(frame, state, areas.repo);
@@ -223,7 +223,7 @@ fn draw_title_field(frame: &mut Frame, state: &FormState, area: Rect) {
 
 fn draw_description_field(
     frame: &mut Frame,
-    state: &FormState,
+    state: &mut FormState,
     desc_area: &TextArea,
     label_area: Rect,
     text_area: Rect,
@@ -245,17 +245,55 @@ fn draw_description_field(
     let inner = block.inner(full_area);
     frame.render_widget(block, full_area);
 
-    let mut ta = desc_area.clone();
-    if focused {
-        ta.set_cursor_style(Style::default().fg(Color::Cyan));
+    let lines = desc_area.lines();
+    let (cursor_row, cursor_col) = desc_area.cursor();
+    let visible_height = inner.height as usize;
+
+    if cursor_row < state.desc_scroll_top {
+        state.desc_scroll_top = cursor_row;
+    } else if visible_height > 0 && cursor_row >= state.desc_scroll_top + visible_height {
+        state.desc_scroll_top = cursor_row + 1 - visible_height;
     }
-    ta.set_block(Block::default());
-    frame.render_widget(&ta, inner);
+
+    let is_empty = lines.iter().all(|l| l.is_empty());
+
+    if is_empty && !focused {
+        let placeholder = Paragraph::new(Span::styled(
+            "説明を入力...（複数行可）",
+            Style::default().fg(Color::DarkGray),
+        ));
+        frame.render_widget(placeholder, inner);
+    } else {
+        let visible_lines: Vec<Line> = lines
+            .iter()
+            .skip(state.desc_scroll_top)
+            .take(visible_height)
+            .map(|line| {
+                if line.is_empty() {
+                    Line::from("")
+                } else {
+                    Line::from(Span::styled(
+                        line.as_str(),
+                        Style::default().fg(Color::White),
+                    ))
+                }
+            })
+            .collect();
+
+        let paragraph = Paragraph::new(visible_lines);
+        frame.render_widget(paragraph, inner);
+    }
 
     if focused {
-        let (cursor_row, cursor_col) = desc_area.cursor();
-        let cursor_x = inner.x + cursor_col as u16;
-        let cursor_y = inner.y + cursor_row as u16;
+        let current_line = lines.get(cursor_row).map(|s| s.as_str()).unwrap_or("");
+        let byte_offset = current_line
+            .char_indices()
+            .nth(cursor_col)
+            .map(|(i, _)| i)
+            .unwrap_or(current_line.len());
+        let col_display_width = unicode_width(&current_line[..byte_offset]);
+        let cursor_x = inner.x + col_display_width;
+        let cursor_y = inner.y + (cursor_row.saturating_sub(state.desc_scroll_top)) as u16;
         frame.set_cursor_position((cursor_x, cursor_y));
     }
 }

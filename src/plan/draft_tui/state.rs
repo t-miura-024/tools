@@ -110,6 +110,7 @@ pub struct FormState {
     pub repos: Vec<RepoEntry>,
     pub popup: Option<RepoPopup>,
     pub show_empty_desc_confirm: bool,
+    pub desc_scroll_top: usize,
 }
 
 impl FormState {
@@ -123,6 +124,7 @@ impl FormState {
             repos,
             popup: None,
             show_empty_desc_confirm: false,
+            desc_scroll_top: 0,
         }
     }
 
