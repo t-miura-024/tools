@@ -209,7 +209,7 @@ fn run_script(name: &str) -> anyhow::Result<()> {
         }),
         "raycast sync" => raycast::run(RaycastCommands::Sync),
         "raycast restore" => raycast::run(RaycastCommands::Restore),
-        "plan draft" => plan::run(PlanCommands::Draft { yes: false }),
+        "plan draft" => plan::run(PlanCommands::Draft),
         _ => anyhow::bail!("Unknown script: {}", name),
     }
 }
