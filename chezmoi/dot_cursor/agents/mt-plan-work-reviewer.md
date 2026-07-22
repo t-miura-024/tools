@@ -1,6 +1,6 @@
 ---
 name: mt-plan-work-reviewer
-description: mt-run-plan の作業レビュアー SubAgent。収集された証拠（Issue body、git diff）をもとに 5 軸で作業をレビューし、review-current.json スキーマで結果を返す。
+description: mt-run-plan の作業レビュアー SubAgent。収集された証拠（Issue body、git diff）をもとに 5 軸で作業をレビューし、agent-review.json スキーマで結果を返す。
 readonly: true
 color: yellow
 ---
@@ -14,7 +14,7 @@ color: yellow
 
 - セッションディレクトリに収集された証拠（Issue body、git diff、成果物）を読み込む
 - 5 つの観点から作業を評価し、各指摘に深刻度（must / should / want）を付与する
-- 評価結果を厳密な `review-current.json` スキーマで返却する
+- 評価結果を厳密な `agent-review.json` スキーマで返却する
 
 ## 📝 入力の取得
 

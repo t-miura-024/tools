@@ -16,12 +16,12 @@ interface ReviewResult {
 }
 
 function validateReviewJson(raw: string | undefined): { valid: boolean; mustCount: number; error?: string } {
-  if (!raw) return { valid: false, mustCount: -1, error: 'review-current.json not found' };
+  if (!raw) return { valid: false, mustCount: -1, error: 'agent-review.json not found' };
   let parsed: unknown;
   try {
     parsed = JSON.parse(raw);
   } catch {
-    return { valid: false, mustCount: -1, error: 'review-current.json is not valid JSON' };
+    return { valid: false, mustCount: -1, error: 'agent-review.json is not valid JSON' };
   }
   const r = parsed as Record<string, unknown>;
   if (typeof r.round !== 'number') return { valid: false, mustCount: -1, error: 'missing or invalid round' };
@@ -71,7 +71,7 @@ function findArtifactText(artifacts: ArtifactRecord[], key: string): string | un
   }
 }
 
-const REVIEW_JSON_KEY = 'review-current.json';
+const REVIEW_JSON_KEY = 'agent-review.json';
 
 const def: WorkflowDef = {
   id: 'mt-plan',
@@ -202,9 +202,22 @@ const def: WorkflowDef = {
             '計画 Issue の `## ✅ 完了条件`、`## 📦 アウトプット`、`## 🧭 方針` に従って作業を実行する。',
             '作業の実施は必ず `mt-plan-work-executor` SubAgent に委譲する。オーケストレーター自身はファイル編集を行わず、ユニットの割り振り・進行管理・Issue body 更新に専念する。',
             '',
-            'review_work から戻ってきた場合は、review-current.json の `must` 指摘だけを修正する。',
-            'must 指摘を該当ユニットのスコープで仕分けし、担当の executor SubAgent に修正指示として渡す。',
-            'should / want はこのステップでは対応しない。',
+            '## 修正ソース（再実行時に適用）',
+            '',
+            'execute_work に戻ってきた場合、以下の 3 ソースから修正指示を統合して executor SubAgent に渡す:',
+            '',
+            '1. **agent-review.json の must 指摘**（review_work の SubAgent レビューで検出された必須修正）',
+            '2. **agent-review.json の should / want 指摘**（review_followups_gate で人間が「対応する」を選んだ場合）',
+            '3. **human-feedback.json の items**（confirm_done または review_followups_gate で人間が revise を選んだ場合の指摘）',
+            '',
+            '各ソースの存在確認:',
+            '- セッションディレクトリの `agent-review.json` を読み、must（および should/want 対応時はそれらも含む）指摘を抽出する',
+            '- セッションディレクトリの `human-feedback.json` を読み、`items` 配列の指摘を抽出する',
+            '- 存在しないファイルは無視する（初回実行時は両方なし）',
+            '',
+            '修正指示の仕分け:',
+            '- 指摘を該当ユニットのスコープで仕分けし、担当の executor SubAgent に修正指示として渡す',
+            '- 3 ソースの指摘は優先度なく統一的に扱う（すべて対応対象）',
             '',
             '## 手順',
             '',
@@ -224,7 +237,7 @@ const def: WorkflowDef = {
             '- 各 SubAgent に渡す情報:',
             '  - 計画 Issue body 全文（完了条件・方針・アウトプットの判断に必要）',
             '  - 担当ユニット定義（ID・名前・スコープ・完了条件番号・依存）',
-            '  - 修正指示（レビューループで戻ってきた場合のみ: review-current.json の該当 must 指摘）',
+            '  - 修正指示（再実行時のみ: agent-review.json の該当指摘 + human-feedback.json の items）',
             '',
             '### 3. 完了報告の集約',
             '',
@@ -284,8 +297,8 @@ const def: WorkflowDef = {
         readonly: false,
         buildPrompt: (ctx: PromptCtx) => {
           const collectScriptPath = join(import.meta.dir, 'collect-review-context.ts');
-          const jsonPath = join(ctx.sessionDir, 'review-current.json');
-          const mdPath = join(ctx.sessionDir, 'review-current.md');
+          const jsonPath = join(ctx.sessionDir, 'agent-review.json');
+          const mdPath = join(ctx.sessionDir, 'agent-review.md');
           const prevRound = findReviewRound(ctx.previousAttempts);
           const nextRound = prevRound + 1;
 
@@ -309,7 +322,7 @@ const def: WorkflowDef = {
             `Task ツールで subagent_type = "mt-plan-work-reviewer" を指定し、以下を指示する:`,
             '',
             '- セッションディレクトリから `issue-body.md`、`git-branch-diff.txt`、`git-unstaged-diff.txt` を読み込む',
-            '- 5 観点でレビューし、review-current.json スキーマの JSON を返す',
+            '- 5 観点でレビューし、agent-review.json スキーマの JSON を返す',
             `- round 番号は ${nextRound} で、前回レビューからの差分に注目する（初回は全量レビュー）`,
             '',
             '### 3. 結果の保存',
@@ -321,7 +334,7 @@ const def: WorkflowDef = {
             '',
             'artifacts に以下を含めて report する:',
             '```json',
-            `{"key": "review-current.json", "path": "${jsonPath}"}`,
+            `{"key": "agent-review.json", "path": "${jsonPath}"}`,
             '```',
             '',
             '## レビュー観点（SubAgent に委譲）',
@@ -397,8 +410,10 @@ const def: WorkflowDef = {
         presentArtifacts: [],
         choices: [
           { value: 'approve', label: 'Done にする', desc: '計画を完了としてマークする' },
+          { value: 'revise', label: '修正する', desc: '成果物に問題がある。execute_work に戻って修正する' },
           { value: 'abort', label: '中断' },
         ],
+        reviseTargetStep: 'execute_work',
       },
       check: (_ctx: CheckCtx): CheckResult => ({ status: 'pass', reasons: [] }),
     },

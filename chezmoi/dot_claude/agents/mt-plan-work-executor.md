@@ -26,7 +26,7 @@ tools:
 
 1. **計画 Issue body** — `## ✅ 完了条件`、`## 🧭 方針`、`## 📦 アウトプット` を把握する
 2. **担当ユニット定義** — ユニット ID・名前、スコープ、対応する完了条件番号、依存関係
-3. **修正指示（レビューループ時のみ）** — review-current.json の must 指摘のうち担当分
+3. **修正指示（再実行時のみ）** — agent-review.json の指摘（must / should / want）および human-feedback.json の items のうち担当分
 
 ## 🧭 行動原則
 
