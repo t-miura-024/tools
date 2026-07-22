@@ -238,11 +238,6 @@ fn handle_mouse_event(
             ClickTarget::Description => {
                 state.focus = Field::Description;
             }
-            ClickTarget::SubmitButton => {
-                if state.can_submit() {
-                    return Some(LoopAction::SubmitRequested);
-                }
-            }
         }
     }
     None
@@ -265,6 +260,12 @@ enum FormAction {
 fn handle_form_key(key: KeyEvent, state: &mut FormState, desc_area: &mut TextArea) -> FormAction {
     if key.modifiers.contains(KeyModifiers::CONTROL) {
         match key.code {
+            KeyCode::Char('s') => {
+                if state.can_submit() {
+                    return FormAction::Submit;
+                }
+                return FormAction::None;
+            }
             KeyCode::Char('c') => return FormAction::Cancel,
             _ => return FormAction::None,
         }
@@ -285,23 +286,15 @@ fn handle_form_key(key: KeyEvent, state: &mut FormState, desc_area: &mut TextAre
             Field::Description => {
                 desc_area.input(key);
             }
-            Field::Submit => {
-                if state.can_submit() {
-                    return FormAction::Submit;
-                }
-            }
             Field::Title => {}
         },
-        _ => {
-            match state.focus {
-                Field::Title => handle_title_key(key, state),
-                Field::Description => {
-                    desc_area.input(key);
-                }
-                Field::Repo => {}
-                Field::Submit => {}
+        _ => match state.focus {
+            Field::Title => handle_title_key(key, state),
+            Field::Description => {
+                desc_area.input(key);
             }
-        }
+            Field::Repo => {}
+        },
     }
 
     FormAction::None
