@@ -31,6 +31,11 @@ impl RepoEntry {
             HeadInfo::Unknown => "(?)".to_string(),
         }
     }
+
+    /// リポジトリの表示文字列（`category/name [branch]` 形式）を返す。
+    pub fn display_name(&self) -> String {
+        format!("{}/{} {}", self.category, self.name, self.label())
+    }
 }
 
 pub fn select_repo() -> anyhow::Result<PathBuf> {
@@ -92,6 +97,45 @@ pub fn discover_repos(roots: &[PathBuf]) -> anyhow::Result<Vec<RepoEntry>> {
     }
 
     Ok(entries)
+}
+
+/// 指定ディレクトリが属する git リポジトリのメインリポジトリパスを検出する。
+///
+/// `git rev-parse --path-format=absolute --git-common-dir` の親ディレクトリを
+/// メインリポジトリパスとして解決する。worktree の場合は git-common-dir が
+/// メインリポジトリの `.git` ディレクトリを指すため、通常リポジトリと同一の
+/// ロジックでメインリポジトリに解決される。
+/// git リポジトリ外の場合や検出に失敗した場合は `None` を返す。
+pub fn detect_current_repo_path(cwd: &Path) -> Option<PathBuf> {
+    let output = Command::new("git")
+        .args(["rev-parse", "--path-format=absolute", "--git-common-dir"])
+        .current_dir(cwd)
+        .stderr(Stdio::null())
+        .output()
+        .ok()?;
+
+    if !output.status.success() {
+        return None;
+    }
+
+    let common_dir = PathBuf::from(String::from_utf8_lossy(&output.stdout).trim().to_string());
+    common_dir.parent().map(|p| p.to_path_buf())
+}
+
+/// 検出されたリポジトリパスと一致する列挙内エントリのインデックスを返す。
+///
+/// シンボリックリンクや表記揺れを吸収するため、正規化（canonicalize）したパスで
+/// 比較する。正規化に失敗した場合は生のパスで比較する。一致するエントリがなければ
+/// `None` を返す。
+pub fn find_matching_entry_index(entries: &[RepoEntry], repo_path: &Path) -> Option<usize> {
+    let target = normalize_for_compare(repo_path);
+    entries
+        .iter()
+        .position(|e| normalize_for_compare(&e.path) == target)
+}
+
+fn normalize_for_compare(path: &Path) -> PathBuf {
+    fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
 }
 
 pub fn sort_entries(entries: Vec<RepoEntry>) -> Vec<RepoEntry> {
