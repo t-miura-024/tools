@@ -7,7 +7,7 @@ fn test_mt_help() {
     cmd.arg("--help")
         .assert()
         .success()
-        .stdout(predicate::str::contains("Personal CLI tools"));
+        .stdout(predicate::str::contains("個人用 CLI ツール群"));
 }
 
 #[test]
@@ -16,7 +16,7 @@ fn test_mt_git_repo_create_help() {
     cmd.args(["git", "repo", "create", "--help"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("GitHub repository"));
+        .stdout(predicate::str::contains("GitHub リポジトリ"));
 }
 
 #[test]
@@ -34,7 +34,7 @@ fn test_mt_git_worktree_create_help() {
     cmd.args(["git", "worktree", "create", "--help"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("Create a new Git worktree"));
+        .stdout(predicate::str::contains("Git worktree と新規ブランチを対話的に作成"));
 }
 
 #[test]
@@ -43,7 +43,7 @@ fn test_mt_git_worktree_delete_help() {
     cmd.args(["git", "worktree", "delete", "--help"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("Delete a Git worktree"));
+        .stdout(predicate::str::contains("Git worktree を対話的に削除"));
 }
 
 #[test]
@@ -53,7 +53,7 @@ fn test_mt_git_sync_help() {
         .assert()
         .success()
         .stdout(predicate::str::contains(
-            "Sync current branch with upstream",
+            "現在のブランチを upstream と同期",
         ));
 }
 
@@ -63,7 +63,7 @@ fn test_mt_git_ship_help() {
     cmd.args(["git", "ship", "--help"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("Stage, commit, push, and merge"));
+        .stdout(predicate::str::contains("ステージ・コミット・プッシュ"));
 }
 
 #[test]
@@ -90,7 +90,7 @@ fn test_mt_opencode_web_stop_help() {
     cmd.args(["opencode", "web", "stop", "--help"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("ngrok session"));
+        .stdout(predicate::str::contains("ngrok セッション"));
 }
 
 #[test]
@@ -99,7 +99,7 @@ fn test_mt_tool_install_help() {
     cmd.args(["tool", "install", "--help"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("repository manifests"));
+        .stdout(predicate::str::contains("マニフェスト"));
 }
 
 #[test]
@@ -108,7 +108,7 @@ fn test_mt_tool_verify_help() {
     cmd.args(["tool", "verify", "--help"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("Homebrew and mise"));
+        .stdout(predicate::str::contains("Homebrew / mise"));
 }
 
 #[test]
@@ -117,7 +117,7 @@ fn test_mt_tool_brew_upgrade_help() {
     cmd.args(["tool", "brew", "upgrade", "--help"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("Homebrew packages"));
+        .stdout(predicate::str::contains("Homebrew パッケージ"));
 }
 
 #[test]
@@ -126,7 +126,7 @@ fn test_mt_self_install_help() {
     cmd.args(["self", "install", "--help"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("cargo install"));
+        .stdout(predicate::str::contains("ビルド"));
 }
 
 #[test]
