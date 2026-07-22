@@ -28,6 +28,7 @@ pub struct DraftInput {
 pub fn run_tui() -> anyhow::Result<Option<DraftInput>> {
     let repos = load_repos()?;
     let mut state = FormState::new(repos);
+    apply_cwd_default_selection(&mut state);
     let mut desc_area = TextArea::default();
     desc_area.set_placeholder_text("説明を入力...（複数行可）");
 
@@ -62,6 +63,21 @@ fn load_repos() -> anyhow::Result<Vec<crate::git::repo::repo_discover::RepoEntry
     let roots: Vec<PathBuf> = config::REPO_ROOTS.iter().map(|r| home.join(r)).collect();
     let entries = repo_discover::discover_repos(&roots)?;
     Ok(repo_discover::sort_entries(entries))
+}
+
+/// カレントディレクトリが属するリポジトリを検出し、列挙内エントリと一致すれば
+/// デフォルト選択する。検出・マッチングに失敗した場合は silently スキップし、
+/// `(未選択)` を維持する（便利機能であり、エラーにしない）。
+fn apply_cwd_default_selection(state: &mut FormState) {
+    use crate::git::repo::repo_discover;
+
+    let Ok(cwd) = std::env::current_dir() else {
+        return;
+    };
+    let Some(detected) = repo_discover::detect_current_repo_path(&cwd) else {
+        return;
+    };
+    state.apply_default_selection(&detected);
 }
 
 fn event_loop(

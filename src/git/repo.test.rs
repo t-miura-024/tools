@@ -1,5 +1,5 @@
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use tempfile::TempDir;
 
@@ -254,4 +254,133 @@ fn test_discover_repos_handles_missing_roots() {
 
     assert_eq!(entries.len(), 1);
     assert_eq!(entries[0].name, "note");
+}
+
+// 現在地リポジトリ検出・マッチングのテスト（実 git コマンドを使用）
+
+fn run_git(cwd: &Path, args: &[&str]) {
+    let status = std::process::Command::new("git")
+        .current_dir(cwd)
+        .args(args)
+        .status()
+        .expect("git コマンドの起動に失敗しました");
+    assert!(status.success(), "git {:?} が失敗", args);
+}
+
+fn make_git_repo(path: &Path, branch: &str) {
+    fs::create_dir_all(path).unwrap();
+    run_git(path, &["init", "-q", "-b", branch]);
+    run_git(path, &["config", "user.email", "test@test.local"]);
+    run_git(path, &["config", "user.name", "test"]);
+    fs::write(path.join("README.md"), "hello\n").unwrap();
+    run_git(path, &["add", "."]);
+    run_git(path, &["commit", "-qm", "initial"]);
+}
+
+#[test]
+fn test_repo_entry_display_name() {
+    let e = entry("src", "tools", "main");
+    assert_eq!(e.display_name(), "src/tools [main]");
+}
+
+#[test]
+fn test_detect_current_repo_path_normal_repo() {
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path().join("myrepo");
+    make_git_repo(&repo, "main");
+
+    let detected = detect_current_repo_path(&repo).expect("リポジトリを検出できるはず");
+    assert_eq!(
+        fs::canonicalize(detected).unwrap(),
+        fs::canonicalize(&repo).unwrap()
+    );
+}
+
+#[test]
+fn test_detect_current_repo_path_from_subdir() {
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path().join("myrepo");
+    make_git_repo(&repo, "main");
+    let subdir = repo.join("nested/dir");
+    fs::create_dir_all(&subdir).unwrap();
+
+    let detected =
+        detect_current_repo_path(&subdir).expect("サブディレクトリからもリポジトリを検出できるはず");
+    assert_eq!(
+        fs::canonicalize(detected).unwrap(),
+        fs::canonicalize(&repo).unwrap()
+    );
+}
+
+#[test]
+fn test_detect_current_repo_path_worktree_resolves_main() {
+    let tmp = tempfile::tempdir().unwrap();
+    let main_repo = tmp.path().join("main-repo");
+    make_git_repo(&main_repo, "main");
+
+    let worktree = tmp.path().join("main-repo-wt");
+    run_git(
+        &main_repo,
+        &[
+            "worktree",
+            "add",
+            "-q",
+            "-b",
+            "topic/a",
+            worktree.to_str().unwrap(),
+        ],
+    );
+
+    let detected =
+        detect_current_repo_path(&worktree).expect("worktree からメインリポジトリを解決できるはず");
+    assert_eq!(
+        fs::canonicalize(detected).unwrap(),
+        fs::canonicalize(&main_repo).unwrap(),
+        "worktree はメインリポジトリパスに解決されるべき"
+    );
+}
+
+#[test]
+fn test_detect_current_repo_path_outside_repo() {
+    let tmp = tempfile::tempdir().unwrap();
+    assert!(
+        detect_current_repo_path(tmp.path()).is_none(),
+        "git リポジトリ外では None を返すべき"
+    );
+}
+
+#[test]
+fn test_find_matching_entry_index_match() {
+    let entries = vec![entry("doc", "note", "main"), entry("src", "tools", "main")];
+    assert_eq!(
+        find_matching_entry_index(&entries, Path::new("/tmp/src/tools")),
+        Some(1)
+    );
+}
+
+#[test]
+fn test_find_matching_entry_index_no_match() {
+    let entries = vec![entry("doc", "note", "main")];
+    assert_eq!(
+        find_matching_entry_index(&entries, Path::new("/tmp/src/other")),
+        None
+    );
+}
+
+#[test]
+fn test_find_matching_entry_index_matches_detected_real_repo() {
+    // 実リポジトリから検出したパスが、同じパスを持つエントリとマッチすることを確認
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path().join("tools");
+    make_git_repo(&repo, "main");
+
+    let entries = vec![RepoEntry {
+        category: "src".to_string(),
+        name: "tools".to_string(),
+        path: repo.clone(),
+        head_info: HeadInfo::Branch("main".to_string()),
+    }];
+
+    let detected = detect_current_repo_path(&repo).expect("リポジトリを検出できるはず");
+    assert_eq!(find_matching_entry_index(&entries, &detected), Some(0));
 }

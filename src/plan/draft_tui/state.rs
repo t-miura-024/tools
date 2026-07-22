@@ -1,6 +1,6 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
-use crate::git::repo::repo_discover::RepoEntry;
+use crate::git::repo::repo_discover::{RepoEntry, find_matching_entry_index};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Field {
@@ -151,10 +151,21 @@ impl FormState {
         if let Some(popup) = self.popup.take() {
             if let Some(entry) = self.repos.get(popup.selected_index) {
                 self.repo_path = Some(entry.path.clone());
-                self.repo_display =
-                    format!("{}/{} {}", entry.category, entry.name, entry.label());
+                self.repo_display = entry.display_name();
             }
         }
+    }
+
+    /// 検出された現在地リポジトリパスが列挙内エントリと一致する場合、デフォルト選択する。
+    ///
+    /// 一致しない場合は何もしない（`(未選択)` を維持する）。
+    pub fn apply_default_selection(&mut self, detected_path: &Path) {
+        let Some(idx) = find_matching_entry_index(&self.repos, detected_path) else {
+            return;
+        };
+        let entry = &self.repos[idx];
+        self.repo_path = Some(entry.path.clone());
+        self.repo_display = entry.display_name();
     }
 
     pub fn title_insert(&mut self, c: char) {
@@ -461,5 +472,51 @@ mod tests {
         assert!(state.needs_desc_confirm(""));
         assert!(state.needs_desc_confirm("  \n  "));
         assert!(!state.needs_desc_confirm("hello"));
+    }
+
+    #[test]
+    fn apply_default_selection_sets_repo_when_matched() {
+        let repos = sample_repos();
+        let mut state = FormState::new(repos);
+        state.apply_default_selection(Path::new("/home/user/src/tools"));
+        assert_eq!(
+            state.repo_path,
+            Some(PathBuf::from("/home/user/src/tools"))
+        );
+        assert!(state.repo_display.contains("src/tools"));
+        assert!(state.repo_display.contains("[main]"));
+    }
+
+    #[test]
+    fn apply_default_selection_no_match_keeps_unselected() {
+        let repos = sample_repos();
+        let mut state = FormState::new(repos);
+        state.apply_default_selection(Path::new("/home/user/src/unknown"));
+        assert_eq!(state.repo_path, None);
+        assert_eq!(state.repo_display, "(未選択)");
+    }
+
+    #[test]
+    fn default_selection_can_be_changed_via_popup() {
+        let repos = sample_repos();
+        let mut state = FormState::new(repos);
+        state.apply_default_selection(Path::new("/home/user/src/tools"));
+        assert_eq!(
+            state.repo_path,
+            Some(PathBuf::from("/home/user/src/tools"))
+        );
+
+        // ポップアップを開くとデフォルト選択済みエントリが選択状態になる
+        state.open_popup();
+        assert_eq!(state.popup.as_ref().unwrap().selected_index, 2);
+
+        // 別のリポジトリに変更できる
+        state.popup.as_mut().unwrap().selected_index = 0;
+        state.confirm_repo_selection();
+        assert_eq!(
+            state.repo_path,
+            Some(PathBuf::from("/home/user/doc/notes"))
+        );
+        assert!(state.repo_display.contains("doc/notes"));
     }
 }

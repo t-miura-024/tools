@@ -342,12 +342,7 @@ fn draw_repo_popup(
         .enumerate()
         .map(|(vis_idx, &idx)| {
             let entry = &state.repos[idx];
-            let label = format!(
-                " {}/{} {}",
-                entry.category,
-                entry.name,
-                entry.label()
-            );
+            let label = format!(" {}", entry.display_name());
             let style = if idx == popup.selected_index {
                 Style::default()
                     .bg(Color::DarkGray)
