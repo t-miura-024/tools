@@ -7,7 +7,16 @@ use tui_textarea::TextArea;
 
 use super::state::{Field, FormState};
 
-pub fn draw(frame: &mut Frame, state: &FormState, desc_area: &TextArea) {
+#[derive(Debug, Clone)]
+pub struct LayoutAreas {
+    pub repo: Rect,
+    pub title: Rect,
+    pub desc_label: Rect,
+    pub desc_text: Rect,
+    pub help_bar: Rect,
+}
+
+pub fn compute_layout(area: Rect) -> LayoutAreas {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
@@ -17,12 +26,115 @@ pub fn draw(frame: &mut Frame, state: &FormState, desc_area: &TextArea) {
             Constraint::Min(5),
             Constraint::Length(3),
         ])
-        .split(frame.area());
+        .split(area);
+    LayoutAreas {
+        repo: chunks[0],
+        title: chunks[1],
+        desc_label: chunks[2],
+        desc_text: chunks[3],
+        help_bar: chunks[4],
+    }
+}
 
-    draw_repo_field(frame, state, chunks[0]);
-    draw_title_field(frame, state, chunks[1]);
-    draw_description_field(frame, state, desc_area, chunks[2], chunks[3]);
-    draw_help_bar(frame, state, chunks[4]);
+pub fn submit_button_rect(help_bar: Rect) -> Rect {
+    let cols = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Min(1), Constraint::Length(18)])
+        .split(help_bar);
+    cols[1]
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ClickTarget {
+    Repo,
+    Title,
+    Description,
+    SubmitButton,
+}
+
+pub fn hit_test_form(x: u16, y: u16, areas: &LayoutAreas) -> Option<ClickTarget> {
+    let btn = submit_button_rect(areas.help_bar);
+    if btn.contains((x, y).into()) {
+        return Some(ClickTarget::SubmitButton);
+    }
+    if areas.repo.contains((x, y).into()) {
+        return Some(ClickTarget::Repo);
+    }
+    if areas.title.contains((x, y).into()) {
+        return Some(ClickTarget::Title);
+    }
+    let desc_full = Rect {
+        x: areas.desc_label.x,
+        y: areas.desc_label.y,
+        width: areas.desc_label.width,
+        height: areas.desc_label.height + areas.desc_text.height,
+    };
+    if desc_full.contains((x, y).into()) {
+        return Some(ClickTarget::Description);
+    }
+    None
+}
+
+pub fn popup_hit_test(
+    x: u16,
+    y: u16,
+    popup_area: Rect,
+    filtered_count: usize,
+) -> Option<usize> {
+    if !popup_area.contains((x, y).into()) {
+        return None;
+    }
+    if y <= popup_area.y || y >= popup_area.y + popup_area.height - 1 {
+        return None;
+    }
+    let inner_y = y - popup_area.y - 1;
+    let idx = inner_y as usize;
+    if idx < filtered_count {
+        Some(idx)
+    } else {
+        None
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ConfirmClick {
+    Yes,
+    No,
+}
+
+pub fn confirm_hit_test(x: u16, y: u16, dialog_area: Rect) -> Option<ConfirmClick> {
+    if !dialog_area.contains((x, y).into()) {
+        return None;
+    }
+    let button_y = dialog_area.y + 4;
+    if y != button_y {
+        return None;
+    }
+    let inner_x = x.saturating_sub(dialog_area.x);
+    if inner_x >= 3 && inner_x <= 10 {
+        return Some(ConfirmClick::Yes);
+    }
+    if inner_x >= 14 && inner_x <= 21 {
+        return Some(ConfirmClick::No);
+    }
+    None
+}
+
+pub fn popup_rect(frame_area: Rect) -> Rect {
+    centered_rect(70, 70, frame_area)
+}
+
+pub fn confirm_rect(frame_area: Rect) -> Rect {
+    centered_rect(50, 20, frame_area)
+}
+
+pub fn draw(frame: &mut Frame, state: &FormState, desc_area: &TextArea) {
+    let areas = compute_layout(frame.area());
+
+    draw_repo_field(frame, state, areas.repo);
+    draw_title_field(frame, state, areas.title);
+    draw_description_field(frame, state, desc_area, areas.desc_label, areas.desc_text);
+    draw_help_bar(frame, state, areas.help_bar);
 
     if let Some(ref popup) = state.popup {
         draw_repo_popup(frame, state, popup);
@@ -142,6 +254,11 @@ fn draw_description_field(
 }
 
 fn draw_help_bar(frame: &mut Frame, state: &FormState, area: Rect) {
+    let cols = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Min(1), Constraint::Length(18)])
+        .split(area);
+
     let hints = if state.show_empty_desc_confirm {
         "y: 送信  n: 戻る"
     } else if state.popup.is_some() {
@@ -156,11 +273,33 @@ fn draw_help_bar(frame: &mut Frame, state: &FormState, area: Rect) {
     )]))
     .alignment(Alignment::Left);
 
-    frame.render_widget(paragraph, area);
+    frame.render_widget(paragraph, cols[0]);
+
+    let can_submit = state.can_submit();
+    let btn_style = if can_submit {
+        Style::default()
+            .fg(Color::Black)
+            .bg(Color::Green)
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().fg(Color::DarkGray).bg(Color::DarkGray)
+    };
+    let button = Paragraph::new(Line::from(Span::styled(" 送信 (Ctrl+S) ", btn_style)))
+        .alignment(Alignment::Center)
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .border_style(if can_submit {
+                    Style::default().fg(Color::Green)
+                } else {
+                    Style::default().fg(Color::DarkGray)
+                }),
+        );
+    frame.render_widget(button, cols[1]);
 }
 
 fn draw_repo_popup(frame: &mut Frame, state: &FormState, popup: &super::state::RepoPopup) {
-    let area = centered_rect(70, 70, frame.area());
+    let area = popup_rect(frame.area());
     frame.render_widget(Clear, area);
 
     let block = Block::default()
@@ -199,7 +338,7 @@ fn draw_repo_popup(frame: &mut Frame, state: &FormState, popup: &super::state::R
 }
 
 fn draw_confirm_dialog(frame: &mut Frame) {
-    let area = centered_rect(50, 20, frame.area());
+    let area = confirm_rect(frame.area());
     frame.render_widget(Clear, area);
 
     let block = Block::default()
@@ -261,4 +400,159 @@ fn unicode_width(s: &str) -> u16 {
             }
         })
         .sum()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn test_area() -> Rect {
+        Rect::new(0, 0, 100, 40)
+    }
+
+    #[test]
+    fn compute_layout_splits_five_regions() {
+        let areas = compute_layout(test_area());
+        assert_eq!(areas.repo.height, 3);
+        assert_eq!(areas.title.height, 3);
+        assert_eq!(areas.desc_label.height, 3);
+        assert!(areas.desc_text.height >= 5);
+        assert_eq!(areas.help_bar.height, 3);
+        assert_eq!(areas.repo.y, 0);
+        assert_eq!(areas.title.y, 3);
+        assert_eq!(areas.desc_label.y, 6);
+        assert_eq!(areas.desc_text.y, 9);
+        assert_eq!(areas.help_bar.y, 37);
+    }
+
+    #[test]
+    fn submit_button_is_right_side_of_help_bar() {
+        let areas = compute_layout(test_area());
+        let btn = submit_button_rect(areas.help_bar);
+        assert_eq!(btn.width, 18);
+        assert_eq!(btn.x, 82);
+        assert_eq!(btn.y, areas.help_bar.y);
+        assert_eq!(btn.height, areas.help_bar.height);
+    }
+
+    #[test]
+    fn hit_test_repo_field() {
+        let areas = compute_layout(test_area());
+        assert_eq!(
+            hit_test_form(5, 1, &areas),
+            Some(ClickTarget::Repo)
+        );
+    }
+
+    #[test]
+    fn hit_test_title_field() {
+        let areas = compute_layout(test_area());
+        assert_eq!(
+            hit_test_form(5, 4, &areas),
+            Some(ClickTarget::Title)
+        );
+    }
+
+    #[test]
+    fn hit_test_description_field() {
+        let areas = compute_layout(test_area());
+        assert_eq!(
+            hit_test_form(5, 7, &areas),
+            Some(ClickTarget::Description)
+        );
+        assert_eq!(
+            hit_test_form(5, 15, &areas),
+            Some(ClickTarget::Description)
+        );
+    }
+
+    #[test]
+    fn hit_test_submit_button() {
+        let areas = compute_layout(test_area());
+        let btn = submit_button_rect(areas.help_bar);
+        let x = btn.x + 2;
+        let y = btn.y + 1;
+        assert_eq!(
+            hit_test_form(x, y, &areas),
+            Some(ClickTarget::SubmitButton)
+        );
+    }
+
+    #[test]
+    fn hit_test_outside_returns_none() {
+        let areas = compute_layout(test_area());
+        assert_eq!(hit_test_form(0, 39, &areas), None);
+    }
+
+    #[test]
+    fn hit_test_submit_button_priority_over_help_bar() {
+        let areas = compute_layout(test_area());
+        let btn = submit_button_rect(areas.help_bar);
+        assert_eq!(
+            hit_test_form(btn.x + 1, btn.y, &areas),
+            Some(ClickTarget::SubmitButton)
+        );
+    }
+
+    #[test]
+    fn popup_hit_test_first_item() {
+        let popup_area = Rect::new(15, 6, 70, 28);
+        assert_eq!(popup_hit_test(20, 7, popup_area, 10), Some(0));
+    }
+
+    #[test]
+    fn popup_hit_test_third_item() {
+        let popup_area = Rect::new(15, 6, 70, 28);
+        assert_eq!(popup_hit_test(20, 9, popup_area, 10), Some(2));
+    }
+
+    #[test]
+    fn popup_hit_test_out_of_range() {
+        let popup_area = Rect::new(15, 6, 70, 28);
+        assert_eq!(popup_hit_test(20, 7, popup_area, 0), None);
+    }
+
+    #[test]
+    fn popup_hit_test_outside_area() {
+        let popup_area = Rect::new(15, 6, 70, 28);
+        assert_eq!(popup_hit_test(5, 7, popup_area, 10), None);
+    }
+
+    #[test]
+    fn popup_hit_test_border_not_item() {
+        let popup_area = Rect::new(15, 6, 70, 28);
+        assert_eq!(popup_hit_test(20, 6, popup_area, 10), None);
+    }
+
+    #[test]
+    fn confirm_hit_test_yes() {
+        let dialog = Rect::new(25, 16, 50, 8);
+        let y_line = dialog.y + 4;
+        assert_eq!(
+            confirm_hit_test(dialog.x + 4, y_line, dialog),
+            Some(ConfirmClick::Yes)
+        );
+    }
+
+    #[test]
+    fn confirm_hit_test_no() {
+        let dialog = Rect::new(25, 16, 50, 8);
+        let y_line = dialog.y + 4;
+        assert_eq!(
+            confirm_hit_test(dialog.x + 15, y_line, dialog),
+            Some(ConfirmClick::No)
+        );
+    }
+
+    #[test]
+    fn confirm_hit_test_wrong_line() {
+        let dialog = Rect::new(25, 16, 50, 8);
+        assert_eq!(confirm_hit_test(dialog.x + 4, dialog.y + 2, dialog), None);
+    }
+
+    #[test]
+    fn confirm_hit_test_outside() {
+        let dialog = Rect::new(25, 16, 50, 8);
+        assert_eq!(confirm_hit_test(0, 0, dialog), None);
+    }
 }
