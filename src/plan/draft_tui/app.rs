@@ -69,8 +69,10 @@ fn event_loop(
     state: &mut FormState,
     desc_area: &mut TextArea,
 ) -> anyhow::Result<Option<DraftInput>> {
+    let mut hover: Option<ClickTarget> = None;
+    let mut popup_hover: Option<usize> = None;
     loop {
-        terminal.draw(|frame| ui::draw(frame, state, desc_area))?;
+        terminal.draw(|frame| ui::draw(frame, state, desc_area, hover, popup_hover))?;
 
         if !event::poll(Duration::from_millis(100))? {
             continue;
@@ -79,10 +81,14 @@ fn event_loop(
         let ev = event::read()?;
 
         let action = match ev {
-            Event::Key(key) => handle_key_event(key, state, desc_area),
+            Event::Key(key) => {
+                hover = None;
+                popup_hover = None;
+                handle_key_event(key, state, desc_area)
+            }
             Event::Mouse(mouse) => {
                 let frame_area = terminal.get_frame().area();
-                handle_mouse_event(mouse, state, frame_area)
+                handle_mouse_event(mouse, state, frame_area, &mut hover, &mut popup_hover)
             }
             _ => None,
         };
@@ -148,19 +154,51 @@ fn handle_key_event(
     None
 }
 
+fn update_hover(
+    x: u16,
+    y: u16,
+    state: &FormState,
+    frame_area: ratatui::layout::Rect,
+    hover: &mut Option<ClickTarget>,
+    popup_hover: &mut Option<usize>,
+) {
+    if state.show_empty_desc_confirm {
+        *hover = None;
+        *popup_hover = None;
+        return;
+    }
+    if state.popup.is_some() {
+        *hover = None;
+        let popup_area = ui::popup_rect(frame_area);
+        let popup = state.popup.as_ref().unwrap();
+        let filtered = popup.filtered_indices(&state.repos);
+        *popup_hover = ui::popup_hit_test(x, y, popup_area, filtered.len());
+        return;
+    }
+    *popup_hover = None;
+    let areas = ui::compute_layout(frame_area);
+    *hover = ui::hit_test_form(x, y, &areas);
+}
+
 fn handle_mouse_event(
     mouse: MouseEvent,
     state: &mut FormState,
     frame_area: ratatui::layout::Rect,
+    hover: &mut Option<ClickTarget>,
+    popup_hover: &mut Option<usize>,
 ) -> Option<LoopAction> {
-    if !matches!(
-        mouse.kind,
-        MouseEventKind::Down(crossterm::event::MouseButton::Left)
-    ) {
-        return None;
-    }
-
     let (x, y) = (mouse.column, mouse.row);
+
+    match mouse.kind {
+        MouseEventKind::Moved => {
+            update_hover(x, y, state, frame_area, hover, popup_hover);
+            return None;
+        }
+        MouseEventKind::Down(crossterm::event::MouseButton::Left) => {
+            update_hover(x, y, state, frame_area, hover, popup_hover);
+        }
+        _ => return None,
+    }
 
     if state.show_empty_desc_confirm {
         let dialog = ui::confirm_rect(frame_area);
@@ -182,16 +220,17 @@ fn handle_mouse_event(
             let real_idx = filtered[vis_idx];
             state.popup.as_mut().unwrap().selected_index = real_idx;
             state.confirm_repo_selection();
+            *popup_hover = None;
         }
         return None;
     }
 
-    let areas = ui::compute_layout(frame_area);
-    if let Some(target) = ui::hit_test_form(x, y, &areas) {
+    if let Some(target) = *hover {
         match target {
             ClickTarget::Repo => {
                 state.focus = Field::Repo;
                 state.open_popup();
+                *hover = None;
             }
             ClickTarget::Title => {
                 state.focus = Field::Title;

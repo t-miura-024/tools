@@ -128,16 +128,29 @@ pub fn confirm_rect(frame_area: Rect) -> Rect {
     centered_rect(50, 20, frame_area)
 }
 
-pub fn draw(frame: &mut Frame, state: &mut FormState, desc_area: &TextArea) {
+pub fn draw(
+    frame: &mut Frame,
+    state: &mut FormState,
+    desc_area: &TextArea,
+    hover: Option<ClickTarget>,
+    popup_hover: Option<usize>,
+) {
     let areas = compute_layout(frame.area());
 
-    draw_repo_field(frame, state, areas.repo);
-    draw_title_field(frame, state, areas.title);
-    draw_description_field(frame, state, desc_area, areas.desc_label, areas.desc_text);
-    draw_help_bar(frame, state, areas.help_bar);
+    draw_repo_field(frame, state, areas.repo, hover == Some(ClickTarget::Repo));
+    draw_title_field(frame, state, areas.title, hover == Some(ClickTarget::Title));
+    draw_description_field(
+        frame,
+        state,
+        desc_area,
+        areas.desc_label,
+        areas.desc_text,
+        hover == Some(ClickTarget::Description),
+    );
+    draw_help_bar(frame, state, areas.help_bar, hover);
 
     if let Some(ref popup) = state.popup {
-        draw_repo_popup(frame, state, popup);
+        draw_repo_popup(frame, state, popup, popup_hover);
     }
 
     if state.show_empty_desc_confirm {
@@ -155,20 +168,22 @@ fn field_style(focused: bool) -> Style {
     }
 }
 
-fn border_style(focused: bool) -> Style {
+fn border_style(focused: bool, hovered: bool) -> Style {
     if focused {
         Style::default().fg(Color::Cyan)
+    } else if hovered {
+        Style::default().fg(Color::Gray)
     } else {
         Style::default().fg(Color::DarkGray)
     }
 }
 
-fn draw_repo_field(frame: &mut Frame, state: &FormState, area: Rect) {
+fn draw_repo_field(frame: &mut Frame, state: &FormState, area: Rect, hovered: bool) {
     let focused = state.focus == Field::Repo && state.popup.is_none();
     let title = Span::styled(" 📂 リポジトリ ", field_style(focused));
     let block = Block::default()
         .borders(Borders::ALL)
-        .border_style(border_style(focused))
+        .border_style(border_style(focused, hovered))
         .title(title);
 
     let display = if state.repo_path.is_some() {
@@ -190,12 +205,12 @@ fn draw_repo_field(frame: &mut Frame, state: &FormState, area: Rect) {
     frame.render_widget(paragraph, area);
 }
 
-fn draw_title_field(frame: &mut Frame, state: &FormState, area: Rect) {
+fn draw_title_field(frame: &mut Frame, state: &FormState, area: Rect, hovered: bool) {
     let focused = state.focus == Field::Title;
     let title = Span::styled(" ✏️ タイトル ", field_style(focused));
     let block = Block::default()
         .borders(Borders::ALL)
-        .border_style(border_style(focused))
+        .border_style(border_style(focused, hovered))
         .title(title);
 
     let inner = block.inner(area);
@@ -227,6 +242,7 @@ fn draw_description_field(
     desc_area: &TextArea,
     label_area: Rect,
     text_area: Rect,
+    hovered: bool,
 ) {
     let focused = state.focus == Field::Description;
 
@@ -239,7 +255,7 @@ fn draw_description_field(
 
     let block = Block::default()
         .borders(Borders::ALL)
-        .border_style(border_style(focused))
+        .border_style(border_style(focused, hovered))
         .title(Span::styled(" 📄 説明 ", field_style(focused)));
 
     let inner = block.inner(full_area);
@@ -298,7 +314,7 @@ fn draw_description_field(
     }
 }
 
-fn draw_help_bar(frame: &mut Frame, state: &FormState, area: Rect) {
+fn draw_help_bar(frame: &mut Frame, state: &FormState, area: Rect, hover: Option<ClickTarget>) {
     let cols = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([Constraint::Min(1), Constraint::Length(12)])
@@ -322,17 +338,20 @@ fn draw_help_bar(frame: &mut Frame, state: &FormState, area: Rect) {
 
     let can_submit = state.can_submit();
     let submit_focused = state.focus == Field::Submit;
-    let btn_style = if can_submit && submit_focused {
-        Style::default()
-            .fg(Color::Black)
-            .bg(Color::Green)
-            .add_modifier(Modifier::BOLD)
+    let submit_hovered = hover == Some(ClickTarget::SubmitButton);
+    let filled = can_submit && (submit_focused || submit_hovered);
+
+    let text_fg = if filled {
+        Color::Black
     } else if can_submit {
-        Style::default()
-            .fg(Color::Green)
-            .add_modifier(Modifier::BOLD)
+        Color::Green
     } else {
-        Style::default().fg(Color::DarkGray)
+        Color::DarkGray
+    };
+    let text_mod = if filled {
+        Modifier::BOLD
+    } else {
+        Modifier::empty()
     };
     let border_color = if submit_focused {
         Color::Cyan
@@ -341,17 +360,28 @@ fn draw_help_bar(frame: &mut Frame, state: &FormState, area: Rect) {
     } else {
         Color::DarkGray
     };
-    let button = Paragraph::new(Line::from(Span::styled(" 送信 ", btn_style)))
-        .alignment(Alignment::Center)
-        .block(
-            Block::default()
-                .borders(Borders::ALL)
-                .border_style(Style::default().fg(border_color)),
-        );
+    let block_bg = if filled { Color::Green } else { Color::Reset };
+
+    let button = Paragraph::new(Line::from(Span::styled(
+        " 送信 ",
+        Style::default().fg(text_fg).add_modifier(text_mod),
+    )))
+    .alignment(Alignment::Center)
+    .block(
+        Block::default()
+            .style(Style::default().bg(block_bg))
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(border_color)),
+    );
     frame.render_widget(button, cols[1]);
 }
 
-fn draw_repo_popup(frame: &mut Frame, state: &FormState, popup: &super::state::RepoPopup) {
+fn draw_repo_popup(
+    frame: &mut Frame,
+    state: &FormState,
+    popup: &super::state::RepoPopup,
+    popup_hover: Option<usize>,
+) {
     let area = popup_rect(frame.area());
     frame.render_widget(Clear, area);
 
@@ -366,7 +396,8 @@ fn draw_repo_popup(frame: &mut Frame, state: &FormState, popup: &super::state::R
     let filtered = popup.filtered_indices(&state.repos);
     let items: Vec<ListItem> = filtered
         .iter()
-        .map(|&idx| {
+        .enumerate()
+        .map(|(vis_idx, &idx)| {
             let entry = &state.repos[idx];
             let label = format!(
                 " {}/{} {}",
@@ -379,6 +410,8 @@ fn draw_repo_popup(frame: &mut Frame, state: &FormState, popup: &super::state::R
                     .bg(Color::DarkGray)
                     .fg(Color::White)
                     .add_modifier(Modifier::BOLD)
+            } else if Some(vis_idx) == popup_hover {
+                Style::default().bg(Color::DarkGray).fg(Color::White)
             } else {
                 Style::default().fg(Color::White)
             };
