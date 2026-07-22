@@ -36,27 +36,14 @@ pub fn compute_layout(area: Rect) -> LayoutAreas {
     }
 }
 
-pub fn submit_button_rect(help_bar: Rect) -> Rect {
-    let cols = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([Constraint::Min(1), Constraint::Length(12)])
-        .split(help_bar);
-    cols[1]
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ClickTarget {
     Repo,
     Title,
     Description,
-    SubmitButton,
 }
 
 pub fn hit_test_form(x: u16, y: u16, areas: &LayoutAreas) -> Option<ClickTarget> {
-    let btn = submit_button_rect(areas.help_bar);
-    if btn.contains((x, y).into()) {
-        return Some(ClickTarget::SubmitButton);
-    }
     if areas.repo.contains((x, y).into()) {
         return Some(ClickTarget::Repo);
     }
@@ -147,7 +134,7 @@ pub fn draw(
         areas.desc_text,
         hover == Some(ClickTarget::Description),
     );
-    draw_help_bar(frame, state, areas.help_bar, hover);
+    draw_help_bar(frame, state, areas.help_bar);
 
     if let Some(ref popup) = state.popup {
         draw_repo_popup(frame, state, popup, popup_hover);
@@ -314,18 +301,13 @@ fn draw_description_field(
     }
 }
 
-fn draw_help_bar(frame: &mut Frame, state: &FormState, area: Rect, hover: Option<ClickTarget>) {
-    let cols = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([Constraint::Min(1), Constraint::Length(12)])
-        .split(area);
-
+fn draw_help_bar(frame: &mut Frame, state: &FormState, area: Rect) {
     let hints = if state.show_empty_desc_confirm {
         "y: 送信  n: 戻る"
     } else if state.popup.is_some() {
         "↑↓: 移動  Enter: 選択  Esc: 閉じる  入力: 絞り込み"
     } else {
-        "Tab/Shift-Tab: 移動  Enter: リポ選択 / 送信  Esc: キャンセル"
+        "Tab/Shift-Tab: 移動  Enter: リポ選択  Ctrl+S: 送信  Esc: キャンセル"
     };
 
     let paragraph = Paragraph::new(Line::from(vec![Span::styled(
@@ -334,34 +316,7 @@ fn draw_help_bar(frame: &mut Frame, state: &FormState, area: Rect, hover: Option
     )]))
     .alignment(Alignment::Left);
 
-    frame.render_widget(paragraph, cols[0]);
-
-    let can_submit = state.can_submit();
-    let submit_focused = state.focus == Field::Submit;
-    let submit_hovered = hover == Some(ClickTarget::SubmitButton);
-    let filled = can_submit && (submit_focused || submit_hovered);
-
-    let btn_style = if filled {
-        Style::default()
-            .fg(Color::Black)
-            .bg(Color::Green)
-            .add_modifier(Modifier::BOLD)
-    } else if can_submit {
-        Style::default()
-            .fg(Color::Green)
-            .add_modifier(Modifier::BOLD)
-    } else {
-        Style::default().fg(Color::DarkGray)
-    };
-
-    let button = Paragraph::new(Line::from(Span::styled("  送信  ", btn_style)))
-        .style(if filled {
-            Style::default().bg(Color::Green)
-        } else {
-            Style::default()
-        })
-        .alignment(Alignment::Center);
-    frame.render_widget(button, cols[1]);
+    frame.render_widget(paragraph, area);
 }
 
 fn draw_repo_popup(
@@ -500,16 +455,6 @@ mod tests {
     }
 
     #[test]
-    fn submit_button_is_right_side_of_help_bar() {
-        let areas = compute_layout(test_area());
-        let btn = submit_button_rect(areas.help_bar);
-        assert_eq!(btn.width, 12);
-        assert_eq!(btn.x, 88);
-        assert_eq!(btn.y, areas.help_bar.y);
-        assert_eq!(btn.height, areas.help_bar.height);
-    }
-
-    #[test]
     fn hit_test_repo_field() {
         let areas = compute_layout(test_area());
         assert_eq!(
@@ -541,31 +486,9 @@ mod tests {
     }
 
     #[test]
-    fn hit_test_submit_button() {
-        let areas = compute_layout(test_area());
-        let btn = submit_button_rect(areas.help_bar);
-        let x = btn.x + 2;
-        let y = btn.y + 1;
-        assert_eq!(
-            hit_test_form(x, y, &areas),
-            Some(ClickTarget::SubmitButton)
-        );
-    }
-
-    #[test]
     fn hit_test_outside_returns_none() {
         let areas = compute_layout(test_area());
         assert_eq!(hit_test_form(0, 39, &areas), None);
-    }
-
-    #[test]
-    fn hit_test_submit_button_priority_over_help_bar() {
-        let areas = compute_layout(test_area());
-        let btn = submit_button_rect(areas.help_bar);
-        assert_eq!(
-            hit_test_form(btn.x + 1, btn.y, &areas),
-            Some(ClickTarget::SubmitButton)
-        );
     }
 
     #[test]
