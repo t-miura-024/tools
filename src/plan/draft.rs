@@ -1,13 +1,12 @@
 use std::fs;
+use std::io::IsTerminal;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 
 use anyhow::{Context, bail};
-use dialoguer::Confirm;
 use serde::Deserialize;
 
 use crate::cli::style;
-use crate::git::repo::repo_discover;
 
 #[derive(Deserialize, Debug, PartialEq)]
 pub struct PlanConfig {
@@ -27,27 +26,24 @@ pub struct StatusOptions {
     pub draft: String,
 }
 
-pub fn run(yes: bool) -> anyhow::Result<()> {
+pub fn run() -> anyhow::Result<()> {
+    if !std::io::stdin().is_terminal() || !std::io::stdout().is_terminal() {
+        bail!("mt plan draft は TTY 環境でのみ実行できます（パイプやリダイレクト経由では実行できません）");
+    }
+
     let config = load_config()?;
 
-    print_header();
+    let input = match super::draft_tui::run_tui()? {
+        Some(input) => input,
+        None => {
+            style::outro("キャンセルしました");
+            return Ok(());
+        }
+    };
 
-    let selected_path = repo_discover::select_repo()?;
-    let (selected_owner, selected_name) = get_repo_owner_and_name(&selected_path)?;
-
+    let (selected_owner, selected_name) = get_repo_owner_and_name(&input.repo_path)?;
     let (target_repo, has_external_label) =
         determine_target(&selected_owner, &selected_name, &config.owner);
-
-    println!();
-    style::info(&format!("📂　対象リポジトリ　{target_repo}"));
-    println!();
-
-    let title = prompt_title()?;
-
-    println!();
-    style::info("📝　説明を入力（エディタが開きます）");
-    let description = open_editor_for_description()?;
-    style::success("説明を入力しました");
 
     let spinner = style::spinner("認証・リポジトリを確認中...");
     check_gh_auth()?;
@@ -60,38 +56,15 @@ pub fn run(yes: bool) -> anyhow::Result<()> {
     )?;
     spinner.finish_with_message("✔ 確認完了");
 
-    if !yes && description.trim().is_empty() {
-        let confirmed = Confirm::new()
-            .with_prompt("⚠️　説明が空ですが、このまま起票しますか？")
-            .default(false)
-            .interact()?;
-        if !confirmed {
-            style::outro("キャンセルしました");
-            return Ok(());
-        }
-    }
-
-    if !yes {
-        print_summary(&target_repo, &title, &description);
-        let confirmed = Confirm::new()
-            .with_prompt("🚀　起票しますか？")
-            .default(true)
-            .interact()?;
-        if !confirmed {
-            style::outro("キャンセルしました");
-            return Ok(());
-        }
-    }
-
     let external_label = if has_external_label {
-        Some(format!("external/{selected_owner}-{selected_name}"))
+        Some(format_external_label_name(&selected_owner, &selected_name))
     } else {
         None
     };
     let issue_url = create_issue(
         &target_repo,
-        &title,
-        &description,
+        &input.title,
+        &input.description,
         external_label.as_deref(),
     )?;
 
@@ -112,55 +85,6 @@ pub fn run(yes: bool) -> anyhow::Result<()> {
     }
 
     Ok(())
-}
-
-fn print_header() {
-    let title = "✏️　Draft Plan 起票";
-    let title_style = console::Style::new().cyan().bold();
-    let width = console::measure_text_width(title);
-    println!("\n{}", title_style.apply_to(title));
-    println!("{}", "━".repeat(width));
-    println!();
-}
-
-fn print_summary(repo: &str, title: &str, description: &str) {
-    let total_width = 60;
-    let prefix = "──── ";
-    let outer = "─".repeat(total_width);
-
-    let items: [(&str, &str, &str); 3] = [
-        ("📂", "リポジトリ", repo),
-        ("✏️", "タイトル", title),
-        ("📄", "説明", description),
-    ];
-
-    println!();
-    println!("{outer}");
-    println!("  📋　起票内容の確認");
-    println!("{outer}");
-
-    for (emoji, label, value) in items {
-        let label_str = format!("{prefix}{emoji} {label}");
-        let label_width = console::measure_text_width(&label_str);
-        let line_width = total_width.saturating_sub(label_width + 1);
-        println!("{label_str} {}", "─".repeat(line_width));
-
-        if value.trim().is_empty() {
-            println!("(空)");
-        } else {
-            let lines: Vec<&str> = value.trim().lines().collect();
-            let max_lines = 5;
-            for line in lines.iter().take(max_lines) {
-                println!("{line}");
-            }
-            if lines.len() > max_lines {
-                println!("… (全{}行)", lines.len());
-            }
-        }
-        println!();
-    }
-
-    println!("{outer}");
 }
 
 pub fn determine_target(
@@ -288,32 +212,6 @@ pub fn parse_github_repo_url(url: &str) -> Option<(String, String)> {
     None
 }
 
-pub fn resolve_editor() -> String {
-    for var in &["EDITOR", "VISUAL"] {
-        if let Ok(val) = std::env::var(var) {
-            let val = val.trim().to_string();
-            if !val.is_empty() {
-                return val;
-            }
-        }
-    }
-
-    for editor in &["vim", "nano"] {
-        if Command::new(editor)
-            .arg("--version")
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status()
-            .map(|s| s.success())
-            .unwrap_or(false)
-        {
-            return editor.to_string();
-        }
-    }
-
-    "vim".to_string()
-}
-
 pub fn format_external_label_name(selected_owner: &str, selected_name: &str) -> String {
     format!("external/{selected_owner}-{selected_name}")
 }
@@ -368,64 +266,6 @@ fn ensure_label(repo: &str, name: &str, color: &str, description: &str) -> anyho
     }
 
     Ok(())
-}
-
-fn prompt_title() -> anyhow::Result<String> {
-    use inquire::validator::Validation;
-    use inquire::Text;
-
-    println!();
-
-    let title = Text::new("✏️")
-        .with_placeholder("タイトルを入力")
-        .with_help_message("Issue のタイトルを1行で入力（? キーでこのヒントを表示）")
-        .with_validator(|input: &str| {
-            if input.trim().is_empty() {
-                Ok(Validation::Invalid("タイトルを入力してください".into()))
-            } else {
-                Ok(Validation::Valid)
-            }
-        })
-        .prompt()?;
-
-    Ok(title.trim().to_string())
-}
-
-fn open_editor_for_description() -> anyhow::Result<String> {
-    let editor_value = resolve_editor();
-
-    let mut parts = editor_value.split_whitespace();
-    let editor_cmd = parts.next().unwrap_or("vim");
-    let editor_args: Vec<&str> = parts.collect();
-
-    let mut temp_path = std::env::temp_dir();
-    temp_path.push("mt-plan-draft-description.md");
-
-    fs::write(&temp_path, "")
-        .with_context(|| format!("一時ファイルの作成に失敗しました: {}", temp_path.display()))?;
-
-    let mut cmd = Command::new(editor_cmd);
-    cmd.args(&editor_args);
-    cmd.arg(&temp_path);
-    let status = cmd.status().context(format!(
-        "エディタの起動に失敗しました: {editor_value} {}",
-        temp_path.display()
-    ))?;
-
-    if !status.success() {
-        bail!("エディタがエラーで終了しました: {editor_value}");
-    }
-
-    let description = fs::read_to_string(&temp_path).with_context(|| {
-        format!(
-            "一時ファイルの読み取りに失敗しました: {}",
-            temp_path.display()
-        )
-    })?;
-
-    let _ = fs::remove_file(&temp_path);
-
-    Ok(description)
 }
 
 fn create_issue(
