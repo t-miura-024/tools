@@ -9,6 +9,7 @@ use crate::agent::{self, AgentCommands};
 use crate::chezmoi::{self, ChezmoiCommands, SecretCommands};
 use crate::cli::self_cmd::{self, SelfCommands};
 use crate::cli::style;
+use crate::doctor;
 use crate::git::{self, GitCommands, GitRepoCommands, GitWorktreeCommands};
 use crate::opencode::{self, OpencodeCommands, OpencodeOauthCommands, OpencodeWebCommands};
 use crate::plan::{self, PlanCommands};
@@ -107,6 +108,11 @@ const SCRIPTS: &[ScriptEntry] = &[
         description: "mt バイナリのビルドとシェル環境整備",
     },
     ScriptEntry {
+        name: "mt doctor",
+        category: "config",
+        description: "システム全体の健全性チェック（chezmoi / Docker / ツール / drift）",
+    },
+    ScriptEntry {
         name: "chezmoi apply",
         category: "dotfiles",
         description: "chezmoi ソースを home ディレクトリに展開",
@@ -198,6 +204,7 @@ fn run_script(name: &str) -> anyhow::Result<()> {
         "vector ingest" => run_vector_ingest(),
         "vector search" => run_vector_search(),
         "self install" => self_cmd::run(SelfCommands::Install),
+        "mt doctor" => doctor::run(),
         "chezmoi apply" => chezmoi::run(ChezmoiCommands::Apply),
         "chezmoi diff" => chezmoi::run(ChezmoiCommands::Diff),
         "chezmoi doctor" => chezmoi::run(ChezmoiCommands::Doctor),
