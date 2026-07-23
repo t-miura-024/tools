@@ -4,6 +4,7 @@ mod agent;
 mod chezmoi;
 mod cli;
 mod config;
+mod doctor;
 mod git;
 mod opencode;
 mod plan;
@@ -47,6 +48,8 @@ enum Commands {
     /// agents / skills のマルチプラットフォーム同期
     #[command(subcommand)]
     Agent(agent::AgentCommands),
+    /// システム全体の健全性チェック（chezmoi / Docker / ツール / drift）
+    Doctor,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -63,5 +66,6 @@ fn main() -> anyhow::Result<()> {
         Some(Commands::Plan(cmd)) => plan::run(cmd),
         Some(Commands::Raycast(cmd)) => raycast::run(cmd),
         Some(Commands::Agent(cmd)) => agent::run(cmd),
+        Some(Commands::Doctor) => doctor::run(),
     }
 }

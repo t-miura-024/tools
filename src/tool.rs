@@ -3,7 +3,7 @@ use clap::Subcommand;
 mod brew;
 mod install;
 mod shared;
-mod verify;
+pub mod verify;
 
 #[derive(Subcommand)]
 pub enum ToolCommands {

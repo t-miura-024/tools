@@ -9,13 +9,27 @@ use super::shared::{chezmoi_binary_present, home_dir};
 /// Run `mt chezmoi doctor`: run chezmoi's own doctor first, then add
 /// `mt`-specific checks for the source dir, age key, post-commit hook,
 /// agent-configs/ removal, and platform-native hook placement.
+///
+/// プロセスを終了させずにチェック結果だけが必要な呼び出し元（`mt doctor` など）は
+/// [`run_checks`] を直接呼ぶ。`run` はこのラッパーとして終了コードを伝播する。
 pub fn run() -> anyhow::Result<()> {
+    let code = run_checks()?;
+    if code != 0 {
+        std::process::exit(code);
+    }
+    Ok(())
+}
+
+/// Run all chezmoi doctor checks and return a process exit code without
+/// terminating the process: 0 = all OK, 1 = fatal (chezmoi binary missing),
+/// 2 = some checks failed. `mt doctor` reuses this to aggregate results.
+pub fn run_checks() -> anyhow::Result<i32> {
     style::intro("mt chezmoi doctor");
 
     if !chezmoi_binary_present() {
         style::error("chezmoi バイナリが見つかりません");
         style::info("`mt tool install` を実行して chezmoi を導入してください");
-        std::process::exit(1);
+        return Ok(1);
     }
     style::success("chezmoi バイナリ: 検出");
 
@@ -87,11 +101,11 @@ pub fn run() -> anyhow::Result<()> {
 
     if all_ok {
         style::outro("doctor: すべての mt 固有チェック OK");
+        Ok(0)
     } else {
         style::outro("doctor: 一部未設定項目あり。上のメッセージを参照してください");
-        std::process::exit(2);
+        Ok(2)
     }
-    Ok(())
 }
 
 fn run_chezmoi_native_doctor() -> anyhow::Result<()> {

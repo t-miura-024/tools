@@ -137,3 +137,13 @@ fn test_mt_plan_draft_help() {
         .success()
         .stdout(predicate::str::contains("draft で作成"));
 }
+
+#[test]
+fn test_mt_doctor_help() {
+    let mut cmd = Command::cargo_bin("mt").unwrap();
+    cmd.arg("doctor")
+        .arg("--help")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("健全性"));
+}

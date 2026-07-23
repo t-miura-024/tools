@@ -7,7 +7,9 @@ use crate::tool::shared::{
     run_tool_command,
 };
 
-pub(super) fn verify() -> anyhow::Result<()> {
+/// ツールマニフェスト（Brewfile / mise.toml / bun-global.yml）とインストール状態の
+/// 突合（drift 検証）を実行する。`mt doctor` がセクションとして再利用するため `pub`。
+pub fn verify() -> anyhow::Result<()> {
     style::intro("ツール管理の検証");
 
     let manifests = Manifests::discover()?;
