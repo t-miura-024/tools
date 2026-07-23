@@ -115,11 +115,11 @@ fn event_loop(
                 if state.needs_desc_confirm(&desc) {
                     state.show_empty_desc_confirm = true;
                 } else {
-                    return Ok(Some(build_input(state, desc_area)));
+                    return Ok(build_input(state, desc_area));
                 }
             }
             Some(LoopAction::SubmitConfirmed) => {
-                return Ok(Some(build_input(state, desc_area)));
+                return Ok(build_input(state, desc_area));
             }
             Some(LoopAction::Cancel) => {
                 return Ok(None);
@@ -183,17 +183,16 @@ fn update_hover(
         *popup_hover = None;
         return;
     }
-    if state.popup.is_some() {
-        *hover = None;
-        let popup_area = ui::popup_rect(frame_area);
-        let popup = state.popup.as_ref().unwrap();
-        let filtered = popup.filtered_indices(&state.repos);
-        *popup_hover = ui::popup_hit_test(x, y, popup_area, filtered.len());
+    let Some(popup) = state.popup.as_ref() else {
+        *popup_hover = None;
+        let areas = ui::compute_layout(frame_area);
+        *hover = ui::hit_test_form(x, y, &areas);
         return;
-    }
-    *popup_hover = None;
-    let areas = ui::compute_layout(frame_area);
-    *hover = ui::hit_test_form(x, y, &areas);
+    };
+    *hover = None;
+    let popup_area = ui::popup_rect(frame_area);
+    let filtered = popup.filtered_indices(&state.repos);
+    *popup_hover = ui::popup_hit_test(x, y, popup_area, filtered.len());
 }
 
 fn handle_mouse_event(
@@ -228,43 +227,41 @@ fn handle_mouse_event(
         return None;
     }
 
-    if state.popup.is_some() {
-        let popup_area = ui::popup_rect(frame_area);
-        let popup = state.popup.as_ref().unwrap();
-        let filtered = popup.filtered_indices(&state.repos);
-        if let Some(vis_idx) = ui::popup_hit_test(x, y, popup_area, filtered.len()) {
-            let real_idx = filtered[vis_idx];
-            state.popup.as_mut().unwrap().selected_index = real_idx;
-            state.confirm_repo_selection();
-            *popup_hover = None;
+    let Some(popup) = state.popup.as_mut() else {
+        if let Some(target) = *hover {
+            match target {
+                ClickTarget::Repo => {
+                    state.focus = Field::Repo;
+                    state.open_popup();
+                    *hover = None;
+                }
+                ClickTarget::Title => {
+                    state.focus = Field::Title;
+                }
+                ClickTarget::Description => {
+                    state.focus = Field::Description;
+                }
+            }
         }
         return None;
-    }
-
-    if let Some(target) = *hover {
-        match target {
-            ClickTarget::Repo => {
-                state.focus = Field::Repo;
-                state.open_popup();
-                *hover = None;
-            }
-            ClickTarget::Title => {
-                state.focus = Field::Title;
-            }
-            ClickTarget::Description => {
-                state.focus = Field::Description;
-            }
-        }
+    };
+    let popup_area = ui::popup_rect(frame_area);
+    let filtered = popup.filtered_indices(&state.repos);
+    if let Some(vis_idx) = ui::popup_hit_test(x, y, popup_area, filtered.len()) {
+        let real_idx = filtered[vis_idx];
+        popup.selected_index = real_idx;
+        state.confirm_repo_selection();
+        *popup_hover = None;
     }
     None
 }
 
-fn build_input(state: &FormState, desc_area: &TextArea) -> DraftInput {
-    DraftInput {
-        repo_path: state.repo_path.clone().unwrap(),
+fn build_input(state: &FormState, desc_area: &TextArea) -> Option<DraftInput> {
+    Some(DraftInput {
+        repo_path: state.repo_path.clone()?,
         title: state.title.trim().to_string(),
         description: desc_area.lines().join("\n"),
-    }
+    })
 }
 
 enum FormAction {
@@ -336,7 +333,9 @@ enum PopupAction {
 }
 
 fn handle_popup_key(key: KeyEvent, state: &mut FormState) -> PopupAction {
-    let popup = state.popup.as_mut().unwrap();
+    let Some(popup) = state.popup.as_mut() else {
+        return PopupAction::None;
+    };
 
     match key.code {
         KeyCode::Esc => {
