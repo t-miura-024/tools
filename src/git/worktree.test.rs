@@ -447,7 +447,7 @@ fn test_push_branch_success() {
     run_git(&local, &["commit", "-qm", "feature commit"]);
 
     // 初期状態: bare remote には branch が存在しない
-    let before = command_output("git", &["-C", bare.to_str().unwrap(), "branch"])
+    let before = common::command_output("git", &["-C", bare.to_str().unwrap(), "branch"])
         .expect("bare remote の branch 取得");
     assert!(
         !before.contains("tools-wt-test"),
@@ -457,7 +457,7 @@ fn test_push_branch_success() {
     push_branch(&local, "tools-wt-test").expect("push が成功するはず");
 
     // push 後に bare remote に branch が現れる
-    let after = command_output("git", &["-C", bare.to_str().unwrap(), "branch"])
+    let after = common::command_output("git", &["-C", bare.to_str().unwrap(), "branch"])
         .expect("bare remote の branch 取得 (push 後)");
     assert!(
         after.contains("tools-wt-test"),
@@ -465,7 +465,7 @@ fn test_push_branch_success() {
     );
 
     // upstream が origin/tools-wt-test に設定されているはず
-    let upstream = command_output(
+    let upstream = common::command_output(
         "git",
         &[
             "-C",

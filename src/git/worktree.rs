@@ -1,4 +1,3 @@
-use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
@@ -8,6 +7,7 @@ use dialoguer::Confirm;
 use regex::Regex;
 
 use crate::cli::style;
+use crate::git::common;
 
 struct WorktreeEntry {
     path: String,
@@ -72,12 +72,12 @@ impl WorktreeBuilder {
 }
 
 pub fn select() -> anyhow::Result<()> {
-    ensure_inside_git_repo()?;
-    ensure_fzf()?;
+    common::ensure_inside_git_repo()?;
+    common::ensure_fzf_available()?;
 
-    let current = command_output("git", &["rev-parse", "--show-toplevel"])
+    let current = common::command_output("git", &["rev-parse", "--show-toplevel"])
         .context("現在の Git リポジトリルートを取得できませんでした")?;
-    let porcelain = command_output("git", &["worktree", "list", "--porcelain"])
+    let porcelain = common::command_output("git", &["worktree", "list", "--porcelain"])
         .context("git worktree の一覧を取得できませんでした")?;
     let mut entries = parse_worktree_porcelain(&porcelain);
     collect_shortstat(&mut entries);
@@ -87,7 +87,7 @@ pub fn select() -> anyhow::Result<()> {
     }
 
     let input = "● current worktree\n".to_string() + &format_worktree_rows(&entries, &current);
-    let selected = run_fzf(
+    let selected = common::run_fzf(
         input,
         &[
             "--ansi",
@@ -112,53 +112,6 @@ pub fn select() -> anyhow::Result<()> {
 
     println!("{target}");
     Ok(())
-}
-
-fn ensure_inside_git_repo() -> anyhow::Result<()> {
-    let status = Command::new("git")
-        .args(["rev-parse", "--is-inside-work-tree"])
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
-        .context("git の実行に失敗しました")?;
-
-    if !status.success() {
-        anyhow::bail!("Not inside a git repository.");
-    }
-
-    Ok(())
-}
-
-fn ensure_fzf() -> anyhow::Result<()> {
-    let status = Command::new("fzf")
-        .arg("--version")
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status();
-
-    if !matches!(status, Ok(status) if status.success()) {
-        anyhow::bail!(
-            "fzf がインストールされていません。brew install fzf などでインストールしてください"
-        );
-    }
-
-    Ok(())
-}
-
-fn command_output(command: &str, args: &[&str]) -> anyhow::Result<String> {
-    let output = Command::new(command)
-        .args(args)
-        .output()
-        .with_context(|| format!("{command} の実行に失敗しました"))?;
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        anyhow::bail!("{command} が失敗しました: {}", stderr.trim());
-    }
-
-    Ok(String::from_utf8_lossy(&output.stdout)
-        .trim_end()
-        .to_string())
 }
 
 fn parse_worktree_porcelain(output: &str) -> Vec<WorktreeEntry> {
@@ -192,7 +145,7 @@ fn parse_worktree_porcelain(output: &str) -> Vec<WorktreeEntry> {
 }
 
 pub fn find_worktree_for_branch(branch: &str) -> Option<PathBuf> {
-    let output = command_output("git", &["worktree", "list", "--porcelain"]).ok()?;
+    let output = common::command_output("git", &["worktree", "list", "--porcelain"]).ok()?;
     for entry in parse_worktree_porcelain(&output) {
         if entry.branch.as_deref() == Some(branch) {
             return Some(PathBuf::from(entry.path));
@@ -307,34 +260,8 @@ fn format_shortstat_colored(
     }
 }
 
-fn run_fzf(input: String, args: &[&str]) -> anyhow::Result<String> {
-    let mut child = Command::new("fzf")
-        .args(args)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .spawn()
-        .context("fzf の起動に失敗しました")?;
-
-    child
-        .stdin
-        .as_mut()
-        .context("fzf の stdin を開けませんでした")?
-        .write_all(input.as_bytes())
-        .context("fzf への入力に失敗しました")?;
-
-    let output = child
-        .wait_with_output()
-        .context("fzf の終了待ちに失敗しました")?;
-
-    if !output.status.success() {
-        std::process::exit(output.status.code().unwrap_or(1));
-    }
-
-    Ok(String::from_utf8_lossy(&output.stdout).to_string())
-}
-
 pub fn create(no_push: bool) -> anyhow::Result<()> {
-    ensure_inside_git_repo()?;
+    common::ensure_inside_git_repo()?;
     style::intro("Git worktree 作成");
 
     let main_repo = resolve_main_repo_path()?;
@@ -353,7 +280,7 @@ pub fn create(no_push: bool) -> anyhow::Result<()> {
         .ok_or_else(|| anyhow::anyhow!("main repo 名が取得できません: {}", main_repo.display()))?
         .to_string();
 
-    let porcelain = command_output("git", &["worktree", "list", "--porcelain"])?;
+    let porcelain = common::command_output("git", &["worktree", "list", "--porcelain"])?;
     let entries = parse_worktree_porcelain(&porcelain);
 
     let next_index = next_worktree_index(&entries, &parent_dir, &main_name);
@@ -370,7 +297,7 @@ pub fn create(no_push: bool) -> anyhow::Result<()> {
     }
 
     let base = resolve_base_branch().unwrap_or_else(|_| "HEAD".to_string());
-    let current_repo = command_output("git", &["rev-parse", "--show-toplevel"])?;
+    let current_repo = common::command_output("git", &["rev-parse", "--show-toplevel"])?;
     let attach_to_existing = branch_exists(Path::new(&current_repo), &new_name);
 
     style::info(&format!("worktree パス: {}", new_path.display()));
@@ -480,11 +407,11 @@ fn push_branch(repo_path: &Path, branch: &str) -> anyhow::Result<()> {
 }
 
 pub fn delete(force: bool) -> anyhow::Result<()> {
-    ensure_inside_git_repo()?;
-    ensure_fzf()?;
+    common::ensure_inside_git_repo()?;
+    common::ensure_fzf_available()?;
 
-    let current = command_output("git", &["rev-parse", "--show-toplevel"])?;
-    let porcelain = command_output("git", &["worktree", "list", "--porcelain"])?;
+    let current = common::command_output("git", &["rev-parse", "--show-toplevel"])?;
+    let porcelain = common::command_output("git", &["worktree", "list", "--porcelain"])?;
     let mut entries = parse_worktree_porcelain(&porcelain);
     collect_shortstat(&mut entries);
 
@@ -495,7 +422,7 @@ pub fn delete(force: bool) -> anyhow::Result<()> {
     style::intro("Git worktree 削除");
 
     let input = "● current worktree\n".to_string() + &format_worktree_rows(&entries, &current);
-    let selected = run_fzf(
+    let selected = common::run_fzf(
         input,
         &[
             "--ansi",
@@ -588,7 +515,7 @@ pub fn delete(force: bool) -> anyhow::Result<()> {
 }
 
 fn resolve_main_repo_path() -> anyhow::Result<PathBuf> {
-    let common_dir = command_output(
+    let common_dir = common::command_output(
         "git",
         &["rev-parse", "--path-format=absolute", "--git-common-dir"],
     )?;
@@ -622,15 +549,15 @@ fn next_worktree_index(entries: &[WorktreeEntry], parent_dir: &Path, repo_name: 
 }
 
 fn resolve_base_branch() -> anyhow::Result<String> {
-    if let Ok(target) = command_output("git", &["symbolic-ref", "refs/remotes/origin/HEAD"])
+    if let Ok(target) = common::command_output("git", &["symbolic-ref", "refs/remotes/origin/HEAD"])
         && let Some(short) = target.strip_prefix("refs/heads/")
     {
         return Ok(short.to_string());
     }
-    if command_status("git", &["rev-parse", "--verify", "--quiet", "main"]) {
+    if common::command_status("git", &["rev-parse", "--verify", "--quiet", "main"]) {
         return Ok("main".to_string());
     }
-    if command_status("git", &["rev-parse", "--verify", "--quiet", "master"]) {
+    if common::command_status("git", &["rev-parse", "--verify", "--quiet", "master"]) {
         return Ok("master".to_string());
     }
     bail!(
@@ -638,21 +565,11 @@ fn resolve_base_branch() -> anyhow::Result<String> {
     )
 }
 
-fn command_status(command: &str, args: &[&str]) -> bool {
-    Command::new(command)
-        .args(args)
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
-        .map(|s| s.success())
-        .unwrap_or(false)
-}
-
 fn branch_exists(repo_path: &Path, branch: &str) -> bool {
     let Some(repo_str) = repo_path.to_str() else {
         return false;
     };
-    command_status(
+    common::command_status(
         "git",
         &[
             "-C",
@@ -694,7 +611,7 @@ fn check_worktree_safety(path: &Path) -> anyhow::Result<Vec<SafetyIssue>> {
         return Ok(issues);
     };
 
-    if let Ok(out) = command_output("git", &["-C", path_str, "status", "--porcelain"])
+    if let Ok(out) = common::command_output("git", &["-C", path_str, "status", "--porcelain"])
         && !out.is_empty()
     {
         let count = out.lines().count();
@@ -704,7 +621,7 @@ fn check_worktree_safety(path: &Path) -> anyhow::Result<Vec<SafetyIssue>> {
         });
     }
 
-    if let Ok(upstream) = command_output(
+    if let Ok(upstream) = common::command_output(
         "git",
         &[
             "-C",
@@ -719,7 +636,7 @@ fn check_worktree_safety(path: &Path) -> anyhow::Result<Vec<SafetyIssue>> {
         if !upstream.is_empty() {
             let range = format!("{upstream}..HEAD");
             if let Ok(commits) =
-                command_output("git", &["-C", path_str, "log", "--oneline", &range])
+                common::command_output("git", &["-C", path_str, "log", "--oneline", &range])
                 && !commits.is_empty()
             {
                 let count = commits.lines().count();
@@ -731,7 +648,7 @@ fn check_worktree_safety(path: &Path) -> anyhow::Result<Vec<SafetyIssue>> {
         }
     }
 
-    if let Ok(branch) = command_output(
+    if let Ok(branch) = common::command_output(
         "git",
         &["-C", path_str, "rev-parse", "--abbrev-ref", "HEAD"],
     ) {
@@ -741,7 +658,7 @@ fn check_worktree_safety(path: &Path) -> anyhow::Result<Vec<SafetyIssue>> {
                 if branch == base {
                     continue;
                 }
-                if command_status(
+                if common::command_status(
                     "git",
                     &["-C", path_str, "rev-parse", "--verify", "--quiet", base],
                 ) {

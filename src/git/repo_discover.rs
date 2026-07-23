@@ -1,11 +1,11 @@
 use std::fs;
-use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 use anyhow::{Context, bail};
 
 use crate::config;
+use crate::git::common;
 
 pub struct RepoEntry {
     pub category: String,
@@ -51,7 +51,7 @@ pub fn select_repo() -> anyhow::Result<PathBuf> {
 
     let sorted = sort_entries(entries);
     let input = format_repo_rows(&sorted);
-    let selected = run_fzf(
+    let selected = common::run_fzf(
         input,
         &[
             "--ansi",
@@ -174,33 +174,6 @@ pub fn parse_repo_selection(selected: &str) -> anyhow::Result<String> {
         bail!("リポジトリの選択結果を解析できませんでした");
     }
     Ok(target.to_string())
-}
-
-pub fn run_fzf(input: String, args: &[&str]) -> anyhow::Result<String> {
-    let mut child = Command::new("fzf")
-        .env_remove("FZF_DEFAULT_OPTS")
-        .args(args)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .spawn()
-        .context("fzf の起動に失敗しました")?;
-
-    child
-        .stdin
-        .as_mut()
-        .context("fzf の stdin を開けませんでした")?
-        .write_all(input.as_bytes())
-        .context("fzf への入力に失敗しました")?;
-
-    let output = child
-        .wait_with_output()
-        .context("fzf の終了待ちに失敗しました")?;
-
-    if !output.status.success() {
-        std::process::exit(output.status.code().unwrap_or(1));
-    }
-
-    Ok(String::from_utf8_lossy(&output.stdout).to_string())
 }
 
 fn inspect_repo_dir(path: &Path, category: &str) -> Option<RepoEntry> {
