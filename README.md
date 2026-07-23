@@ -28,6 +28,8 @@ cargo install --path .
 | `mt chezmoi edit`              | chezmoi ソースのファイルを編集          |
 | `mt chezmoi install-hook`      | post-commit hook を冪等に設置（chezmoi apply + 旧 hook クリーンアップ）|
 | `mt chezmoi uninstall-hook`    | post-commit hook を無効化する手順を案内 |
+| `mt chezmoi secret set`        | age 暗号化ファイルに秘密鍵を set（対話入力 + 上書き確認） |
+| `mt chezmoi secret delete`     | age 暗号化ファイルから秘密鍵を delete（対話選択可） |
 | `mt git sync`                 | 現在のブランチを upstream 同期 + target を pull で取り込み |
 | `mt git ship`                  | 自身のブランチで commit & push → target に no-ff マージ & push |
 | `mt git repo create`           | GitHub リポジトリを対話的に作成        |
