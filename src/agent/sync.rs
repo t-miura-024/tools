@@ -70,7 +70,10 @@ pub fn run(mode: SyncMode) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn sync_agents(source_dir: &Path, mode: SyncMode) -> anyhow::Result<Vec<(String, String, String)>> {
+pub(crate) fn sync_agents(
+    source_dir: &Path,
+    mode: SyncMode,
+) -> anyhow::Result<Vec<(String, String, String)>> {
     let cursor_agents = shared::read_cursor_agents(source_dir)?;
     let mut drift_entries = Vec::new();
 
@@ -146,7 +149,10 @@ fn cleanup_orphan_agents(
     Ok(())
 }
 
-fn sync_skills(source_dir: &Path, mode: SyncMode) -> anyhow::Result<Vec<(String, String, String)>> {
+pub(crate) fn sync_skills(
+    source_dir: &Path,
+    mode: SyncMode,
+) -> anyhow::Result<Vec<(String, String, String)>> {
     let cursor_dir = shared::cursor_skills_dir(source_dir);
     let mut drift_entries = Vec::new();
 
@@ -258,3 +264,7 @@ fn diff_detected(path: &std::path::Path, expected_content: &str) -> bool {
         Err(_) => true,
     }
 }
+
+#[cfg(test)]
+#[path = "sync_test.rs"]
+mod sync_tests;
