@@ -68,6 +68,13 @@ pub fn ensure_fzf_present() -> bool {
     command_status("fzf", &["--version"])
 }
 
+pub fn ensure_fzf_available() -> anyhow::Result<()> {
+    if !ensure_fzf_present() {
+        bail!("fzf がインストールされていません。brew install fzf などでインストールしてください");
+    }
+    Ok(())
+}
+
 pub fn run_fzf(input: String, args: &[&str]) -> anyhow::Result<String> {
     let mut child = Command::new("fzf")
         .env_remove("FZF_DEFAULT_OPTS")
