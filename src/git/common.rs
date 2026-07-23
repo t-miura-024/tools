@@ -3,6 +3,24 @@ use std::path::Path;
 use std::process::{Command, Stdio};
 
 use anyhow::{Context, bail};
+use dialoguer::Select;
+
+pub trait ActionSelector {
+    fn select(&self, prompt: &str, options: &[String]) -> anyhow::Result<usize>;
+}
+
+pub struct DialoguerSelector;
+
+impl ActionSelector for DialoguerSelector {
+    fn select(&self, prompt: &str, options: &[String]) -> anyhow::Result<usize> {
+        Select::new()
+            .with_prompt(prompt)
+            .items(options)
+            .default(0)
+            .interact()
+            .context("対話入力ができないため、abort を選択しました")
+    }
+}
 
 pub fn ensure_inside_git_repo() -> anyhow::Result<()> {
     ensure_inside_git_repo_in(&std::env::current_dir()?)

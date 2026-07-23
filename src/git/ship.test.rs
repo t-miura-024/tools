@@ -1,5 +1,20 @@
 use super::*;
+use crate::git::common::ActionSelector;
 use std::process::Command;
+
+struct AbortSelector;
+impl ActionSelector for AbortSelector {
+    fn select(&self, _: &str, _: &[String]) -> anyhow::Result<usize> {
+        Ok(0)
+    }
+}
+
+struct FailSelector;
+impl ActionSelector for FailSelector {
+    fn select(&self, _: &str, _: &[String]) -> anyhow::Result<usize> {
+        anyhow::bail!("対話入力ができないため、abort を選択しました")
+    }
+}
 
 fn run_git(cwd: &Path, args: &[&str]) {
     let status = Command::new("git")
@@ -186,7 +201,8 @@ fn test_checkout_branch_in_success() {
     run_git(&path, &["checkout", "-q", "main"]);
     assert_eq!(current_branch_of(&path), "main");
 
-    let ok = checkout_branch_in(&path, "feature", "main").expect("checkout が成功するはず");
+    let ok =
+        checkout_branch_in(&path, "feature", "main", &AbortSelector).expect("checkout が成功するはず");
     assert!(ok, "存在するブランチへの checkout は true を返すべき");
     assert_eq!(
         current_branch_of(&path),
@@ -198,9 +214,7 @@ fn test_checkout_branch_in_success() {
 #[test]
 fn test_checkout_branch_in_failure_returns_err() {
     let (_tmp, path) = make_temp_git_repo("main");
-    // 非 TTY のテスト環境では handle_failure 内の dialoguer::Select が Err を返すため、
-    // checkout 失敗は bail（Err）として伝播する。
-    let result = checkout_branch_in(&path, "no-such-branch", "main");
+    let result = checkout_branch_in(&path, "no-such-branch", "main", &FailSelector);
     assert!(
         result.is_err(),
         "存在しないブランチへの checkout は Err になるべき"

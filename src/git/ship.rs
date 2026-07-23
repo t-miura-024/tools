@@ -2,11 +2,9 @@ use std::path::{Path, PathBuf};
 
 use anyhow::Context;
 
-use dialoguer::Select;
-
 use crate::cli::style;
 use crate::git::common::{
-    command_output_in, current_branch, ensure_inside_git_repo,
+    ActionSelector, DialoguerSelector, command_output_in, current_branch, ensure_inside_git_repo,
     generate_commit_message, is_protected_branch, resolve_target_branch, snapshot_git_state,
     worktree_has_uncommitted_changes,
 };
@@ -17,6 +15,7 @@ pub fn ship(
     target_default: bool,
     message: Option<String>,
 ) -> anyhow::Result<()> {
+    let selector = DialoguerSelector;
     ensure_inside_git_repo()?;
     style::intro("mt git ship");
 
@@ -70,7 +69,7 @@ pub fn ship(
             "checkout 不要 ({} で既に checkout 済み)",
             target_cwd.display()
         ));
-    } else if !checkout_branch(&target_branch, &current)? {
+    } else if !checkout_branch(&target_branch, &current, &selector)? {
         return Ok(());
     }
     let spinner = style::spinner(&format!("git pull --ff-only origin {target_branch}"));
@@ -84,6 +83,7 @@ pub fn ship(
             "pull target",
             &format!("{e} (origin/{target_branch} への pull に失敗)"),
             &current,
+            &selector,
         )?;
         return Ok(());
     }
@@ -95,7 +95,7 @@ pub fn ship(
             "feature は {} にいるので checkout 不要",
             current_cwd.display()
         ));
-    } else if !checkout_branch(&current, &current)? {
+    } else if !checkout_branch(&current, &current, &selector)? {
         return Ok(());
     }
 
@@ -117,7 +117,7 @@ pub fn ship(
         let spinner = style::spinner("git commit");
         if let Err(e) = command_output_in(&current_cwd, "git", &["commit", "-m", &commit_message]) {
             spinner.finish_with_message("commit 失敗");
-            handle_failure("commit", &e.to_string(), &current)?;
+            handle_failure("commit", &e.to_string(), &current, &selector)?;
             return Ok(());
         }
         spinner.finish_with_message("commit 完了");
@@ -127,7 +127,7 @@ pub fn ship(
     let spinner = style::spinner("git push -u origin HEAD");
     if let Err(e) = command_output_in(&current_cwd, "git", &["push", "-u", "origin", "HEAD"]) {
         spinner.finish_with_message("push 失敗");
-        handle_failure("push feature", &e.to_string(), &current)?;
+        handle_failure("push feature", &e.to_string(), &current, &selector)?;
         return Ok(());
     }
     spinner.finish_with_message("push 完了");
@@ -135,7 +135,7 @@ pub fn ship(
     style::info(&format!(
         "ステップ 5/5: {target_branch} に --no-ff マージして push"
     ));
-    if !has_conflict && !checkout_branch(&target_branch, &current)? {
+    if !has_conflict && !checkout_branch(&target_branch, &current, &selector)? {
         return Ok(());
     }
     let spinner = style::spinner(&format!("git merge --no-ff {current}"));
@@ -154,6 +154,7 @@ pub fn ship(
             "merge --no-ff",
             &format!("{e} ({current} → {target_branch} のマージに失敗)"),
             &current,
+            &selector,
         )?;
         return Ok(());
     }
@@ -166,6 +167,7 @@ pub fn ship(
             "push target",
             &format!("{e} (origin/{target_branch} への push に失敗)"),
             &current,
+            &selector,
         )?;
         return Ok(());
     }
@@ -202,11 +204,20 @@ fn restore_original_branch_in(cwd: &Path, target: &str) -> anyhow::Result<()> {
     }
 }
 
-fn checkout_branch(target: &str, original: &str) -> anyhow::Result<bool> {
-    checkout_branch_in(&std::env::current_dir()?, target, original)
+fn checkout_branch(
+    target: &str,
+    original: &str,
+    selector: &dyn ActionSelector,
+) -> anyhow::Result<bool> {
+    checkout_branch_in(&std::env::current_dir()?, target, original, selector)
 }
 
-fn checkout_branch_in(cwd: &Path, target: &str, original: &str) -> anyhow::Result<bool> {
+fn checkout_branch_in(
+    cwd: &Path,
+    target: &str,
+    original: &str,
+    selector: &dyn ActionSelector,
+) -> anyhow::Result<bool> {
     let spinner = style::spinner(&format!("git checkout {target}"));
     if let Err(e) = command_output_in(cwd, "git", &["checkout", target]) {
         spinner.finish_with_message("checkout 失敗");
@@ -214,6 +225,7 @@ fn checkout_branch_in(cwd: &Path, target: &str, original: &str) -> anyhow::Resul
             "checkout",
             &format!("{e} (git checkout {target} に失敗)"),
             original,
+            selector,
         )?;
         return Ok(false);
     }
@@ -256,23 +268,23 @@ fn add_changed_files_in(cwd: &Path) -> anyhow::Result<Vec<String>> {
     Ok(added)
 }
 
-fn handle_failure(step: &str, detail: &str, current_branch: &str) -> anyhow::Result<()> {
+fn handle_failure(
+    step: &str,
+    detail: &str,
+    current_branch: &str,
+    selector: &dyn ActionSelector,
+) -> anyhow::Result<()> {
     style::error(&format!("[{step}] {detail}"));
     style::info("現在の git 状態:");
     println!("{}", snapshot_git_state());
 
-    let options = vec![
-        "abort - 現状を維持して中断",
-        "rebase 手順を表示 - git pull --rebase の手順を出力",
-        "force 手順を表示 - --force-with-lease の手順を出力（非推奨）",
+    let options: Vec<String> = vec![
+        "abort - 現状を維持して中断".to_string(),
+        "rebase 手順を表示 - git pull --rebase の手順を出力".to_string(),
+        "force 手順を表示 - --force-with-lease の手順を出力（非推奨）".to_string(),
     ];
 
-    let selection = match Select::new()
-        .with_prompt("次のアクションを選択")
-        .items(&options)
-        .default(0)
-        .interact()
-    {
+    let selection = match selector.select("次のアクションを選択", &options) {
         Ok(sel) => sel,
         Err(_) => {
             style::warn("対話入力ができないため、abort を選択しました");
