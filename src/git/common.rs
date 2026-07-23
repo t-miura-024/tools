@@ -41,6 +41,14 @@ pub fn command_output_in(cwd: &Path, command: &str, args: &[&str]) -> anyhow::Re
         .to_string())
 }
 
+pub fn command_output(command: &str, args: &[&str]) -> anyhow::Result<String> {
+    command_output_in(
+        &std::env::current_dir().unwrap_or_else(|_| Path::new(".").to_path_buf()),
+        command,
+        args,
+    )
+}
+
 pub fn command_status(command: &str, args: &[&str]) -> bool {
     command_status_in(
         &std::env::current_dir().unwrap_or_else(|_| Path::new(".").to_path_buf()),
