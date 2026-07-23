@@ -1,6 +1,14 @@
 use super::*;
+use crate::git::common::ActionSelector;
 use std::path::PathBuf;
 use std::process::Command;
+
+struct AbortSelector;
+impl ActionSelector for AbortSelector {
+    fn select(&self, _: &str, _: &[String]) -> anyhow::Result<usize> {
+        Ok(0)
+    }
+}
 
 fn run_git(cwd: &Path, args: &[&str]) {
     let status = Command::new("git")
@@ -28,7 +36,7 @@ fn make_temp_git_repo(branch: &str) -> (tempfile::TempDir, PathBuf) {
 #[test]
 fn test_sync_in_bails_on_protected_branch_main() {
     let (_tmp, path) = make_temp_git_repo("main");
-    let result = sync_in(&path, Some("feature".to_string()), false);
+    let result = sync_in(&path, Some("feature".to_string()), false, &AbortSelector);
     assert!(result.is_err(), "main ブランチでは sync すべきでない");
     let err = result.unwrap_err().to_string();
     assert!(
@@ -40,7 +48,7 @@ fn test_sync_in_bails_on_protected_branch_main() {
 #[test]
 fn test_sync_in_bails_on_protected_branch_master() {
     let (_tmp, path) = make_temp_git_repo("master");
-    let result = sync_in(&path, Some("feature".to_string()), false);
+    let result = sync_in(&path, Some("feature".to_string()), false, &AbortSelector);
     assert!(result.is_err(), "master ブランチでは sync すべきでない");
     let err = result.unwrap_err().to_string();
     assert!(
@@ -54,7 +62,7 @@ fn test_sync_in_bails_on_protected_branch_master() {
 #[test]
 fn test_sync_in_bails_when_target_equals_current() {
     let (_tmp, path) = make_temp_git_repo("feature");
-    let result = sync_in(&path, Some("feature".to_string()), false);
+    let result = sync_in(&path, Some("feature".to_string()), false, &AbortSelector);
     assert!(result.is_err(), "target == current では sync すべきでない");
     let err = result.unwrap_err().to_string();
     assert!(
@@ -80,7 +88,7 @@ fn test_sync_in_bails_when_target_default_resolves_to_current() {
         ],
     );
 
-    let result = sync_in(&path, None, true);
+    let result = sync_in(&path, None, true, &AbortSelector);
     assert!(
         result.is_err(),
         "target_default が current と同じブランチを返す場合は bail すべき"
@@ -99,9 +107,8 @@ fn test_sync_in_passes_guards_on_feature_branch_with_different_target() {
     // feature ブランチで target が異なる場合、ガードを通過して fetch に進む
     // (remote がないため fetch で失敗するが、ガードエラーではない)
     let (_tmp, path) = make_temp_git_repo("feature");
-    let result = sync_in(&path, Some("main".to_string()), false);
-    // fetch 失敗 → handle_failure_in → dialoguer が非対話環境で Err → bail("ユーザー中断")
-    // または fetch 失敗後に Ok(()) を返す
+    let result = sync_in(&path, Some("main".to_string()), false, &AbortSelector);
+    // fetch 失敗 → handle_failure_in → AbortSelector が abort (0) を返す → Ok(())
     // いずれにせよ、ガード条件の bail メッセージではないことを確認
     if let Err(e) = &result {
         let msg = e.to_string();

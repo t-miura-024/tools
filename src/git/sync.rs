@@ -1,18 +1,23 @@
 use std::path::Path;
 
-use dialoguer::Select;
-
 use crate::cli::style;
 use crate::git::common::{
-    command_output_in, current_branch_in, ensure_inside_git_repo_in, is_protected_branch,
-    resolve_target_branch_in, snapshot_git_state_in,
+    ActionSelector, DialoguerSelector, command_output_in, current_branch_in,
+    ensure_inside_git_repo_in, is_protected_branch, resolve_target_branch_in,
+    snapshot_git_state_in,
 };
 
 pub fn sync(target: Option<String>, target_default: bool) -> anyhow::Result<()> {
-    sync_in(&std::env::current_dir()?, target, target_default)
+    let selector = DialoguerSelector;
+    sync_in(&std::env::current_dir()?, target, target_default, &selector)
 }
 
-pub fn sync_in(cwd: &Path, target: Option<String>, target_default: bool) -> anyhow::Result<()> {
+pub fn sync_in(
+    cwd: &Path,
+    target: Option<String>,
+    target_default: bool,
+    selector: &dyn ActionSelector,
+) -> anyhow::Result<()> {
     ensure_inside_git_repo_in(cwd)?;
     style::intro("mt git sync");
 
@@ -36,7 +41,7 @@ pub fn sync_in(cwd: &Path, target: Option<String>, target_default: bool) -> anyh
     let spinner = style::spinner("git fetch origin ...");
     if let Err(e) = command_output_in(cwd, "git", &["fetch", "origin"]) {
         spinner.finish_with_message("fetch 失敗");
-        handle_failure_in(cwd, "fetch", &e.to_string(), &current)?;
+        handle_failure_in(cwd, "fetch", &e.to_string(), &current, selector)?;
         return Ok(());
     }
     spinner.finish_with_message("fetch 完了");
@@ -50,6 +55,7 @@ pub fn sync_in(cwd: &Path, target: Option<String>, target_default: bool) -> anyh
             "ff-only merge",
             &format!("{e} ({upstream} への fast-forward merge に失敗)"),
             &current,
+            selector,
         )?;
         return Ok(());
     }
@@ -66,6 +72,7 @@ pub fn sync_in(cwd: &Path, target: Option<String>, target_default: bool) -> anyh
             "pull target",
             &format!("{e} (origin/{target_branch} の pull に失敗)"),
             &current,
+            selector,
         )?;
         return Ok(());
     }
@@ -82,23 +89,19 @@ fn handle_failure_in(
     step: &str,
     detail: &str,
     current_branch: &str,
+    selector: &dyn ActionSelector,
 ) -> anyhow::Result<()> {
     style::error(&format!("[{step}] {detail}"));
     style::info("現在の git 状態:");
     println!("{}", snapshot_git_state_in(cwd));
 
-    let options = vec![
-        "abort - 現状を維持して中断",
-        "rebase 手順を表示 - git pull --rebase の手順を出力",
-        "force 手順を表示 - --force-with-lease の手順を出力（非推奨）",
+    let options: Vec<String> = vec![
+        "abort - 現状を維持して中断".to_string(),
+        "rebase 手順を表示 - git pull --rebase の手順を出力".to_string(),
+        "force 手順を表示 - --force-with-lease の手順を出力（非推奨）".to_string(),
     ];
 
-    let selection = match Select::new()
-        .with_prompt("次のアクションを選択")
-        .items(&options)
-        .default(0)
-        .interact()
-    {
+    let selection = match selector.select("次のアクションを選択", &options) {
         Ok(sel) => sel,
         Err(_) => {
             style::warn("対話入力ができないため、abort を選択しました");
