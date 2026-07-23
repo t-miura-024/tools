@@ -24,10 +24,6 @@ pub fn ensure_inside_git_repo_in(cwd: &Path) -> anyhow::Result<()> {
     Ok(())
 }
 
-pub fn command_output(command: &str, args: &[&str]) -> anyhow::Result<String> {
-    command_output_in(&std::env::current_dir()?, command, args)
-}
-
 pub fn command_output_in(cwd: &Path, command: &str, args: &[&str]) -> anyhow::Result<String> {
     let output = Command::new(command)
         .args(args)

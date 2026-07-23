@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use anyhow::Context;
 
@@ -6,7 +6,7 @@ use dialoguer::Select;
 
 use crate::cli::style;
 use crate::git::common::{
-    command_output, command_output_in, current_branch, ensure_inside_git_repo,
+    command_output_in, current_branch, ensure_inside_git_repo,
     generate_commit_message, is_protected_branch, resolve_target_branch, snapshot_git_state,
     worktree_has_uncommitted_changes,
 };
@@ -182,8 +182,12 @@ pub fn ship(
 }
 
 fn restore_original_branch(target: &str) -> anyhow::Result<()> {
+    restore_original_branch_in(&std::env::current_dir()?, target)
+}
+
+fn restore_original_branch_in(cwd: &Path, target: &str) -> anyhow::Result<()> {
     let spinner = style::spinner(&format!("git checkout {target}"));
-    match command_output("git", &["checkout", target]) {
+    match command_output_in(cwd, "git", &["checkout", target]) {
         Ok(_) => {
             spinner.finish_with_message(format!("checkout {target} 完了"));
             Ok(())
@@ -199,8 +203,12 @@ fn restore_original_branch(target: &str) -> anyhow::Result<()> {
 }
 
 fn checkout_branch(target: &str, original: &str) -> anyhow::Result<bool> {
+    checkout_branch_in(&std::env::current_dir()?, target, original)
+}
+
+fn checkout_branch_in(cwd: &Path, target: &str, original: &str) -> anyhow::Result<bool> {
     let spinner = style::spinner(&format!("git checkout {target}"));
-    if let Err(e) = command_output("git", &["checkout", target]) {
+    if let Err(e) = command_output_in(cwd, "git", &["checkout", target]) {
         spinner.finish_with_message("checkout 失敗");
         handle_failure(
             "checkout",
@@ -213,9 +221,10 @@ fn checkout_branch(target: &str, original: &str) -> anyhow::Result<bool> {
     Ok(true)
 }
 
-fn add_changed_files_in(cwd: &std::path::Path) -> anyhow::Result<Vec<String>> {
-    let status = command_output_in(cwd, "git", &["status", "--porcelain"])?;
-    let mut added = Vec::new();
+/// `git status --porcelain` の出力を `(index_status, path)` の列に解析する。
+/// 4 文字未満の行はスキップし、rename (`OLD -> NEW`) は NEW 側を path とする。
+fn parse_status_lines(status: &str) -> Vec<(char, String)> {
+    let mut entries = Vec::new();
     for line in status.lines() {
         if line.len() < 4 {
             continue;
@@ -227,13 +236,22 @@ fn add_changed_files_in(cwd: &std::path::Path) -> anyhow::Result<Vec<String>> {
             path
         };
         let index_status = line.as_bytes().first().copied().unwrap_or(b' ') as char;
+        entries.push((index_status, actual_path.to_string()));
+    }
+    entries
+}
+
+fn add_changed_files_in(cwd: &Path) -> anyhow::Result<Vec<String>> {
+    let status = command_output_in(cwd, "git", &["status", "--porcelain"])?;
+    let mut added = Vec::new();
+    for (index_status, path) in parse_status_lines(&status) {
         if matches!(index_status, 'M' | 'A' | 'D' | 'R' | 'C' | 'T') {
-            added.push(actual_path.to_string());
+            added.push(path);
             continue;
         }
-        command_output_in(cwd, "git", &["add", "--", actual_path])
-            .with_context(|| format!("git add {actual_path} に失敗"))?;
-        added.push(actual_path.to_string());
+        command_output_in(cwd, "git", &["add", "--", &path])
+            .with_context(|| format!("git add {path} に失敗"))?;
+        added.push(path);
     }
     Ok(added)
 }
@@ -284,3 +302,7 @@ fn handle_failure(step: &str, detail: &str, current_branch: &str) -> anyhow::Res
 
     Ok(())
 }
+
+#[cfg(test)]
+#[path = "ship.test.rs"]
+mod tests;
