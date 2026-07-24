@@ -741,6 +741,651 @@ describe('engine', () => {
     });
   });
 
+  describe('condition-based step skipping', () => {
+    it('should skip step when condition returns false', async () => {
+      const tmpDir = path.join(TEST_BASE_DIR, 'condition-skip-test');
+      fs.mkdirSync(tmpDir, { recursive: true });
+      const workflowPath = path.join(tmpDir, 'condition-skip-workflow.ts');
+      fs.writeFileSync(workflowPath, `
+        const def = {
+          id: 'condition-skip-test',
+          steps: [
+            {
+              key: 'step1',
+              phase: 'first',
+              type: 'task',
+              maxRetries: 0,
+              onFail: { action: 'abort' },
+              task: {
+                action: 'run_subagent',
+                subagentType: 'test',
+                buildPrompt: (ctx) => 'step1 prompt',
+              },
+              check: (ctx) => ({ status: 'pass', reasons: [] }),
+            },
+            {
+              key: 'step2_conditional',
+              phase: 'conditional',
+              type: 'task',
+              maxRetries: 0,
+              onFail: { action: 'abort' },
+              condition: (ctx) => false,
+              task: {
+                action: 'run_subagent',
+                subagentType: 'test',
+                buildPrompt: (ctx) => 'step2 prompt',
+              },
+              check: (ctx) => ({ status: 'pass', reasons: [] }),
+            },
+            {
+              key: 'step3',
+              phase: 'third',
+              type: 'task',
+              maxRetries: 0,
+              onFail: { action: 'abort' },
+              task: {
+                action: 'run_subagent',
+                subagentType: 'test',
+                buildPrompt: (ctx) => 'step3 prompt',
+              },
+              check: (ctx) => ({ status: 'pass', reasons: [] }),
+            },
+          ],
+        };
+        export default def;
+      `);
+
+      const { sessionId } = await init(workflowPath, TEST_BASE_DIR);
+
+      // step1 executes normally
+      const r1 = await next(sessionId, TEST_BASE_DIR);
+      expect(r1.stepKey).toBe('step1');
+      await report(sessionId, { stepKey: 'step1', status: 'completed', subagentOutput: 'done' }, TEST_BASE_DIR);
+
+      // next should skip step2 (condition=false) and return step3
+      const r2 = await next(sessionId, TEST_BASE_DIR);
+      expect(r2.stepKey).toBe('step3');
+
+      // verify step2 is marked as skipped in DB
+      const db = new Database(path.join(TEST_BASE_DIR, sessionId, 'workflow.db'));
+      const step2 = db.query('SELECT status FROM steps WHERE session_id = ? AND step_key = ?').get(sessionId, 'step2_conditional') as Record<string, unknown>;
+      expect(step2.status).toBe('skipped');
+      db.close();
+    });
+
+    it('should execute step when condition returns true', async () => {
+      const tmpDir = path.join(TEST_BASE_DIR, 'condition-pass-test');
+      fs.mkdirSync(tmpDir, { recursive: true });
+      const workflowPath = path.join(tmpDir, 'condition-pass-workflow.ts');
+      fs.writeFileSync(workflowPath, `
+        const def = {
+          id: 'condition-pass-test',
+          steps: [
+            {
+              key: 'step1',
+              phase: 'first',
+              type: 'task',
+              maxRetries: 0,
+              onFail: { action: 'abort' },
+              condition: (ctx) => true,
+              task: {
+                action: 'run_subagent',
+                subagentType: 'test',
+                buildPrompt: (ctx) => 'step1 prompt',
+              },
+              check: (ctx) => ({ status: 'pass', reasons: [] }),
+            },
+          ],
+        };
+        export default def;
+      `);
+
+      const { sessionId } = await init(workflowPath, TEST_BASE_DIR);
+      const r1 = await next(sessionId, TEST_BASE_DIR);
+      expect(r1.stepKey).toBe('step1');
+      expect(r1.prompt).toBe('step1 prompt');
+    });
+
+    it('should execute step when condition is undefined (backward compat)', async () => {
+      const { sessionId } = await init(FIXTURE_WORKFLOW, TEST_BASE_DIR);
+      const r1 = await next(sessionId, TEST_BASE_DIR);
+      expect(r1.stepKey).toBe('step1_task');
+    });
+
+    it('should skip multiple consecutive steps with false conditions', async () => {
+      const tmpDir = path.join(TEST_BASE_DIR, 'multi-skip-test');
+      fs.mkdirSync(tmpDir, { recursive: true });
+      const workflowPath = path.join(tmpDir, 'multi-skip-workflow.ts');
+      fs.writeFileSync(workflowPath, `
+        const def = {
+          id: 'multi-skip-test',
+          steps: [
+            {
+              key: 'step1',
+              phase: 'first',
+              type: 'task',
+              maxRetries: 0,
+              onFail: { action: 'abort' },
+              task: {
+                action: 'run_subagent',
+                subagentType: 'test',
+                buildPrompt: (ctx) => 'step1',
+              },
+              check: (ctx) => ({ status: 'pass', reasons: [] }),
+            },
+            {
+              key: 'step2_skip',
+              phase: 'skip1',
+              type: 'task',
+              maxRetries: 0,
+              onFail: { action: 'abort' },
+              condition: (ctx) => false,
+              task: {
+                action: 'run_subagent',
+                subagentType: 'test',
+                buildPrompt: (ctx) => 'step2',
+              },
+              check: (ctx) => ({ status: 'pass', reasons: [] }),
+            },
+            {
+              key: 'step3_skip',
+              phase: 'skip2',
+              type: 'task',
+              maxRetries: 0,
+              onFail: { action: 'abort' },
+              condition: (ctx) => false,
+              task: {
+                action: 'run_subagent',
+                subagentType: 'test',
+                buildPrompt: (ctx) => 'step3',
+              },
+              check: (ctx) => ({ status: 'pass', reasons: [] }),
+            },
+            {
+              key: 'step4',
+              phase: 'last',
+              type: 'task',
+              maxRetries: 0,
+              onFail: { action: 'abort' },
+              task: {
+                action: 'run_subagent',
+                subagentType: 'test',
+                buildPrompt: (ctx) => 'step4',
+              },
+              check: (ctx) => ({ status: 'pass', reasons: [] }),
+            },
+          ],
+        };
+        export default def;
+      `);
+
+      const { sessionId } = await init(workflowPath, TEST_BASE_DIR);
+
+      await next(sessionId, TEST_BASE_DIR);
+      await report(sessionId, { stepKey: 'step1', status: 'completed', subagentOutput: 'done' }, TEST_BASE_DIR);
+
+      // Should skip step2 and step3, land on step4
+      const r = await next(sessionId, TEST_BASE_DIR);
+      expect(r.stepKey).toBe('step4');
+
+      const db = new Database(path.join(TEST_BASE_DIR, sessionId, 'workflow.db'));
+      const s2 = db.query('SELECT status FROM steps WHERE session_id = ? AND step_key = ?').get(sessionId, 'step2_skip') as Record<string, unknown>;
+      const s3 = db.query('SELECT status FROM steps WHERE session_id = ? AND step_key = ?').get(sessionId, 'step3_skip') as Record<string, unknown>;
+      expect(s2.status).toBe('skipped');
+      expect(s3.status).toBe('skipped');
+      db.close();
+    });
+
+    it('should mark session done when all remaining steps are skipped', async () => {
+      const tmpDir = path.join(TEST_BASE_DIR, 'all-skip-test');
+      fs.mkdirSync(tmpDir, { recursive: true });
+      const workflowPath = path.join(tmpDir, 'all-skip-workflow.ts');
+      fs.writeFileSync(workflowPath, `
+        const def = {
+          id: 'all-skip-test',
+          steps: [
+            {
+              key: 'step1',
+              phase: 'first',
+              type: 'task',
+              maxRetries: 0,
+              onFail: { action: 'abort' },
+              task: {
+                action: 'run_subagent',
+                subagentType: 'test',
+                buildPrompt: (ctx) => 'step1',
+              },
+              check: (ctx) => ({ status: 'pass', reasons: [] }),
+            },
+            {
+              key: 'step2_skip',
+              phase: 'skip',
+              type: 'task',
+              maxRetries: 0,
+              onFail: { action: 'abort' },
+              condition: (ctx) => false,
+              task: {
+                action: 'run_subagent',
+                subagentType: 'test',
+                buildPrompt: (ctx) => 'step2',
+              },
+              check: (ctx) => ({ status: 'pass', reasons: [] }),
+            },
+          ],
+        };
+        export default def;
+      `);
+
+      const { sessionId } = await init(workflowPath, TEST_BASE_DIR);
+
+      await next(sessionId, TEST_BASE_DIR);
+      await report(sessionId, { stepKey: 'step1', status: 'completed', subagentOutput: 'done' }, TEST_BASE_DIR);
+
+      // All remaining steps skipped → session done
+      await expect(next(sessionId, TEST_BASE_DIR)).rejects.toThrow('All steps completed');
+
+      const db = new Database(path.join(TEST_BASE_DIR, sessionId, 'workflow.db'));
+      const session = db.query('SELECT status FROM sessions WHERE id = ?').get(sessionId) as Record<string, unknown>;
+      expect(session.status).toBe('done');
+      db.close();
+    });
+
+    it('should provide gateChoices in condition context', async () => {
+      const tmpDir = path.join(TEST_BASE_DIR, 'gate-choices-test');
+      fs.mkdirSync(tmpDir, { recursive: true });
+      const workflowPath = path.join(tmpDir, 'gate-choices-workflow.ts');
+      fs.writeFileSync(workflowPath, `
+        let capturedCtx = null;
+        const def = {
+          id: 'gate-choices-test',
+          steps: [
+            {
+              key: 'gate_step',
+              phase: 'gate',
+              type: 'human_gate',
+              maxRetries: 1,
+              onFail: { action: 'escalate' },
+              humanGate: {
+                presentArtifacts: [],
+                choices: [
+                  { value: 'approve', label: 'OK' },
+                  { value: 'abort', label: 'Abort' },
+                ],
+              },
+              check: (ctx) => ({ status: 'pass', reasons: [] }),
+            },
+            {
+              key: 'conditional_step',
+              phase: 'conditional',
+              type: 'task',
+              maxRetries: 0,
+              onFail: { action: 'abort' },
+              condition: (ctx) => {
+                capturedCtx = ctx;
+                return ctx.gateChoices['gate_step'] === 'approve';
+              },
+              task: {
+                action: 'run_subagent',
+                subagentType: 'test',
+                buildPrompt: (ctx) => 'conditional',
+              },
+              check: (ctx) => ({ status: 'pass', reasons: [] }),
+            },
+            {
+              key: 'final_step',
+              phase: 'final',
+              type: 'task',
+              maxRetries: 0,
+              onFail: { action: 'abort' },
+              task: {
+                action: 'run_subagent',
+                subagentType: 'test',
+                buildPrompt: (ctx) => 'final',
+              },
+              check: (ctx) => ({ status: 'pass', reasons: [] }),
+            },
+          ],
+        };
+        export default def;
+        export function getCapturedCtx() { return capturedCtx; }
+      `);
+
+      const { sessionId } = await init(workflowPath, TEST_BASE_DIR);
+
+      // Pass the gate with 'approve'
+      await next(sessionId, TEST_BASE_DIR);
+      await report(sessionId, { stepKey: 'gate_step', status: 'completed', subagentOutput: 'approve' }, TEST_BASE_DIR);
+
+      // conditional_step should execute because gateChoices['gate_step'] === 'approve'
+      const r = await next(sessionId, TEST_BASE_DIR);
+      expect(r.stepKey).toBe('conditional_step');
+    });
+
+    it('should execute step when gateChoices condition is met', async () => {
+      const tmpDir = path.join(TEST_BASE_DIR, 'gate-execute-test');
+      fs.mkdirSync(tmpDir, { recursive: true });
+      const workflowPath = path.join(tmpDir, 'gate-execute-workflow.ts');
+      fs.writeFileSync(workflowPath, `
+        const def = {
+          id: 'gate-execute-test',
+          steps: [
+            {
+              key: 'gate_step',
+              phase: 'gate',
+              type: 'human_gate',
+              maxRetries: 1,
+              onFail: { action: 'escalate' },
+              humanGate: {
+                presentArtifacts: [],
+                choices: [
+                  { value: 'approve', label: 'OK' },
+                  { value: 'abort', label: 'Abort' },
+                ],
+              },
+              check: (ctx) => ({ status: 'pass', reasons: [] }),
+            },
+            {
+              key: 'conditional_step',
+              phase: 'conditional',
+              type: 'task',
+              maxRetries: 0,
+              onFail: { action: 'abort' },
+              condition: (ctx) => ctx.gateChoices['gate_step'] === 'approve',
+              task: {
+                action: 'run_subagent',
+                subagentType: 'test',
+                buildPrompt: (ctx) => 'conditional',
+              },
+              check: (ctx) => ({ status: 'pass', reasons: [] }),
+            },
+            {
+              key: 'final_step',
+              phase: 'final',
+              type: 'task',
+              maxRetries: 0,
+              onFail: { action: 'abort' },
+              task: {
+                action: 'run_subagent',
+                subagentType: 'test',
+                buildPrompt: (ctx) => 'final',
+              },
+              check: (ctx) => ({ status: 'pass', reasons: [] }),
+            },
+          ],
+        };
+        export default def;
+      `);
+
+      const { sessionId } = await init(workflowPath, TEST_BASE_DIR);
+
+      // Gate approves → condition gateChoices['gate_step'] === 'approve' is true → step executes
+      await next(sessionId, TEST_BASE_DIR);
+      await report(sessionId, { stepKey: 'gate_step', status: 'completed', subagentOutput: 'approve' }, TEST_BASE_DIR);
+
+      const r = await next(sessionId, TEST_BASE_DIR);
+      expect(r.stepKey).toBe('conditional_step');
+    });
+
+    it('should provide artifacts in condition context', async () => {
+      const tmpDir = path.join(TEST_BASE_DIR, 'condition-artifacts-test');
+      fs.mkdirSync(tmpDir, { recursive: true });
+      const workflowPath = path.join(tmpDir, 'condition-artifacts-workflow.ts');
+      fs.writeFileSync(workflowPath, `
+        const def = {
+          id: 'condition-artifacts-test',
+          steps: [
+            {
+              key: 'step1',
+              phase: 'first',
+              type: 'task',
+              maxRetries: 0,
+              onFail: { action: 'abort' },
+              task: {
+                action: 'run_subagent',
+                subagentType: 'test',
+                buildPrompt: (ctx) => 'step1',
+              },
+              check: (ctx) => ({ status: 'pass', reasons: [] }),
+            },
+            {
+              key: 'step2_conditional',
+              phase: 'conditional',
+              type: 'task',
+              maxRetries: 0,
+              onFail: { action: 'abort' },
+              condition: (ctx) => ctx.artifacts.some(a => a.artifactKey === 'needed.txt'),
+              task: {
+                action: 'run_subagent',
+                subagentType: 'test',
+                buildPrompt: (ctx) => 'step2',
+              },
+              check: (ctx) => ({ status: 'pass', reasons: [] }),
+            },
+            {
+              key: 'step3',
+              phase: 'last',
+              type: 'task',
+              maxRetries: 0,
+              onFail: { action: 'abort' },
+              task: {
+                action: 'run_subagent',
+                subagentType: 'test',
+                buildPrompt: (ctx) => 'step3',
+              },
+              check: (ctx) => ({ status: 'pass', reasons: [] }),
+            },
+          ],
+        };
+        export default def;
+      `);
+
+      const { sessionId } = await init(workflowPath, TEST_BASE_DIR);
+
+      // step1 completes WITHOUT producing the needed artifact
+      await next(sessionId, TEST_BASE_DIR);
+      await report(sessionId, { stepKey: 'step1', status: 'completed', subagentOutput: 'done' }, TEST_BASE_DIR);
+
+      // step2 should be skipped because artifact 'needed.txt' doesn't exist
+      const r = await next(sessionId, TEST_BASE_DIR);
+      expect(r.stepKey).toBe('step3');
+
+      const db = new Database(path.join(TEST_BASE_DIR, sessionId, 'workflow.db'));
+      const s2 = db.query('SELECT status FROM steps WHERE session_id = ? AND step_key = ?').get(sessionId, 'step2_conditional') as Record<string, unknown>;
+      expect(s2.status).toBe('skipped');
+      db.close();
+    });
+  });
+
+  describe('revise resets subsequent steps', () => {
+    it('should reset target and all subsequent steps to pending on revise', async () => {
+      const tmpDir = path.join(TEST_BASE_DIR, 'revise-reset-test');
+      fs.mkdirSync(tmpDir, { recursive: true });
+      const workflowPath = path.join(tmpDir, 'revise-reset-workflow.ts');
+      fs.writeFileSync(workflowPath, `
+        const def = {
+          id: 'revise-reset-test',
+          steps: [
+            {
+              key: 'grill',
+              phase: 'Grill',
+              type: 'task',
+              maxRetries: 0,
+              onFail: { action: 'abort' },
+              task: {
+                action: 'run_subagent',
+                subagentType: 'test',
+                buildPrompt: (ctx) => 'grill prompt',
+              },
+              check: (ctx) => ({ status: 'pass', reasons: [] }),
+            },
+            {
+              key: 'prepare',
+              phase: 'Prepare',
+              type: 'task',
+              maxRetries: 0,
+              onFail: { action: 'abort' },
+              task: {
+                action: 'run_subagent',
+                subagentType: 'test',
+                buildPrompt: (ctx) => 'prepare prompt',
+              },
+              check: (ctx) => ({ status: 'pass', reasons: [] }),
+            },
+            {
+              key: 'refined_gate',
+              phase: 'Gate',
+              type: 'human_gate',
+              maxRetries: 1,
+              onFail: { action: 'escalate' },
+              humanGate: {
+                presentArtifacts: [],
+                choices: [
+                  { value: 'approve', label: 'OK' },
+                  { value: 'revise', label: 'Revise' },
+                  { value: 'abort', label: 'Abort' },
+                ],
+                reviseTargetStep: 'grill',
+              },
+              check: (ctx) => ({ status: 'pass', reasons: [] }),
+            },
+            {
+              key: 'finalize',
+              phase: 'Finalize',
+              type: 'task',
+              maxRetries: 0,
+              onFail: { action: 'abort' },
+              task: {
+                action: 'run_subagent',
+                subagentType: 'test',
+                buildPrompt: (ctx) => 'finalize prompt',
+              },
+              check: (ctx) => ({ status: 'pass', reasons: [] }),
+            },
+          ],
+        };
+        export default def;
+      `);
+
+      const { sessionId } = await init(workflowPath, TEST_BASE_DIR);
+
+      // Execute grill → prepare → gate
+      await next(sessionId, TEST_BASE_DIR);
+      await report(sessionId, { stepKey: 'grill', status: 'completed', subagentOutput: 'done' }, TEST_BASE_DIR);
+
+      await next(sessionId, TEST_BASE_DIR);
+      await report(sessionId, { stepKey: 'prepare', status: 'completed', subagentOutput: 'done' }, TEST_BASE_DIR);
+
+      await next(sessionId, TEST_BASE_DIR);
+      const gateResult = await report(sessionId, { stepKey: 'refined_gate', status: 'completed', subagentOutput: 'revise' }, TEST_BASE_DIR);
+
+      expect(gateResult.nextAction).toBe('goto');
+      expect(gateResult.targetStep).toBe('grill');
+
+      // Verify all steps from grill onwards are reset to pending
+      const db = new Database(path.join(TEST_BASE_DIR, sessionId, 'workflow.db'));
+      const steps = db.query('SELECT step_key, status, retry_count FROM steps WHERE session_id = ? ORDER BY step_index').all(sessionId) as Record<string, unknown>[];
+
+      expect(steps[0].step_key).toBe('grill');
+      expect(steps[0].status).toBe('pending');
+      expect(steps[0].retry_count).toBe(0);
+
+      expect(steps[1].step_key).toBe('prepare');
+      expect(steps[1].status).toBe('pending');
+      expect(steps[1].retry_count).toBe(0);
+
+      expect(steps[2].step_key).toBe('refined_gate');
+      expect(steps[2].status).toBe('pending');
+      expect(steps[2].retry_count).toBe(0);
+
+      expect(steps[3].step_key).toBe('finalize');
+      expect(steps[3].status).toBe('pending');
+      expect(steps[3].retry_count).toBe(0);
+      db.close();
+
+      // Verify we can re-execute from grill
+      const r = await next(sessionId, TEST_BASE_DIR);
+      expect(r.stepKey).toBe('grill');
+    });
+
+    it('should allow full re-execution after revise', async () => {
+      const tmpDir = path.join(TEST_BASE_DIR, 'revise-full-test');
+      fs.mkdirSync(tmpDir, { recursive: true });
+      const workflowPath = path.join(tmpDir, 'revise-full-workflow.ts');
+      fs.writeFileSync(workflowPath, `
+        const def = {
+          id: 'revise-full-test',
+          steps: [
+            {
+              key: 'work',
+              phase: 'Work',
+              type: 'task',
+              maxRetries: 0,
+              onFail: { action: 'abort' },
+              task: {
+                action: 'run_subagent',
+                subagentType: 'test',
+                buildPrompt: (ctx) => 'work',
+              },
+              check: (ctx) => ({ status: 'pass', reasons: [] }),
+            },
+            {
+              key: 'gate',
+              phase: 'Gate',
+              type: 'human_gate',
+              maxRetries: 1,
+              onFail: { action: 'escalate' },
+              humanGate: {
+                presentArtifacts: [],
+                choices: [
+                  { value: 'approve', label: 'OK' },
+                  { value: 'revise', label: 'Revise' },
+                ],
+                reviseTargetStep: 'work',
+              },
+              check: (ctx) => ({ status: 'pass', reasons: [] }),
+            },
+            {
+              key: 'done_step',
+              phase: 'Done',
+              type: 'task',
+              maxRetries: 0,
+              onFail: { action: 'abort' },
+              task: {
+                action: 'run_subagent',
+                subagentType: 'test',
+                buildPrompt: (ctx) => 'done',
+              },
+              check: (ctx) => ({ status: 'pass', reasons: [] }),
+            },
+          ],
+        };
+        export default def;
+      `);
+
+      const { sessionId } = await init(workflowPath, TEST_BASE_DIR);
+
+      // First pass: work → gate (revise)
+      await next(sessionId, TEST_BASE_DIR);
+      await report(sessionId, { stepKey: 'work', status: 'completed', subagentOutput: 'done' }, TEST_BASE_DIR);
+      await next(sessionId, TEST_BASE_DIR);
+      await report(sessionId, { stepKey: 'gate', status: 'completed', subagentOutput: 'revise' }, TEST_BASE_DIR);
+
+      // Second pass: work → gate (approve) → done_step
+      await next(sessionId, TEST_BASE_DIR);
+      await report(sessionId, { stepKey: 'work', status: 'completed', subagentOutput: 'done again' }, TEST_BASE_DIR);
+      await next(sessionId, TEST_BASE_DIR);
+      await report(sessionId, { stepKey: 'gate', status: 'completed', subagentOutput: 'approve' }, TEST_BASE_DIR);
+
+      const r = await next(sessionId, TEST_BASE_DIR);
+      expect(r.stepKey).toBe('done_step');
+
+      await report(sessionId, { stepKey: 'done_step', status: 'completed', subagentOutput: 'finished' }, TEST_BASE_DIR);
+
+      const s = status(sessionId, TEST_BASE_DIR);
+      expect(s.sessionStatus).toBe('done');
+    });
+  });
+
   describe('review loop with requeueSource', () => {
     it('should requeue review step as pending after must>0 failure, and re-run it after fix', async () => {
       const tmpDir = path.join(TEST_BASE_DIR, 'requeue-test');
