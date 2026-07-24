@@ -74,6 +74,21 @@ fn test_format_external_label_name() {
 }
 
 #[test]
+fn test_parse_issue_number_from_url() {
+    assert_eq!(
+        parse_issue_number_from_url("https://github.com/owner/repo/issues/54"),
+        Some(54)
+    );
+    assert_eq!(
+        parse_issue_number_from_url("https://github.com/owner/repo/issues/1"),
+        Some(1)
+    );
+    assert_eq!(parse_issue_number_from_url("https://github.com/owner/repo"), None);
+    assert_eq!(parse_issue_number_from_url(""), None);
+    assert_eq!(parse_issue_number_from_url("not-a-url"), None);
+}
+
+#[test]
 fn test_parse_config_from_str() {
     let json = r#"{
         "owner": "testuser",

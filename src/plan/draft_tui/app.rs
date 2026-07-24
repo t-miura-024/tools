@@ -171,8 +171,8 @@ fn event_loop(
     }
 }
 
-/// repo 切替時: 「今回作成」「既存」をクリアし、選択 repo があれば既存 Issue の
-/// 非同期 fetch を発火する（fetch 中はローディング表示）。
+/// repo 切替時: 「今回作成」「既存」をクリアし、スクロールをリセットする。
+/// 選択 repo があれば既存 Issue の非同期 fetch を発火する（fetch 中はローディング表示）。
 fn on_repo_changed(
     state: &mut FormState,
     config: &PlanConfig,
@@ -180,6 +180,8 @@ fn on_repo_changed(
 ) {
     state.created_issues.clear();
     state.existing_issues.clear();
+    *state.created_list_state.offset_mut() = 0;
+    *state.existing_list_state.offset_mut() = 0;
 
     let Some(repo_path) = state.repo_path.clone() else {
         state.fetch_phase = FetchPhase::Idle;
@@ -293,9 +295,13 @@ fn start_submit(
     let config = config.clone();
     std::thread::spawn(move || {
         let result = draft::submit_draft(&config, &repo_path, &title, &description)
-            .map(|url| CreatedIssue {
-                title: title.clone(),
-                url,
+            .map(|url| {
+                let number = draft::parse_issue_number_from_url(&url).unwrap_or(0);
+                CreatedIssue {
+                    number,
+                    title: title.clone(),
+                    url,
+                }
             })
             .map_err(|e| e.to_string());
         let _ = tx.send((repo_path, result));
@@ -394,6 +400,32 @@ fn update_hover(
     *popup_hover = ui::popup_hit_test(x, y, popup_area, filtered.len());
 }
 
+/// マウスカーソル位置が「今回作成」または「既存」パネル上にある場合、
+/// 対応する `ListState` のスクロールオフセットを `delta`（+1 / -1）だけ変更する。
+/// パネル外の操作は何もしない。
+fn scroll_panel_at(
+    state: &mut FormState,
+    x: u16,
+    y: u16,
+    frame_area: ratatui::layout::Rect,
+    delta: i32,
+) {
+    let areas = ui::compute_layout(frame_area);
+    let pos: ratatui::layout::Position = (x, y).into();
+
+    if areas.created.contains(pos) {
+        let offset = state.created_list_state.offset() as i32 + delta;
+        let max_offset = state.created_issues.len().saturating_sub(1) as i32;
+        *state.created_list_state.offset_mut() =
+            offset.clamp(0, max_offset.max(0)) as usize;
+    } else if areas.existing.contains(pos) {
+        let offset = state.existing_list_state.offset() as i32 + delta;
+        let max_offset = state.existing_issues.len().saturating_sub(1) as i32;
+        *state.existing_list_state.offset_mut() =
+            offset.clamp(0, max_offset.max(0)) as usize;
+    }
+}
+
 fn handle_mouse_event(
     mouse: MouseEvent,
     state: &mut FormState,
@@ -412,6 +444,14 @@ fn handle_mouse_event(
     match mouse.kind {
         MouseEventKind::Moved => {
             update_hover(x, y, state, frame_area, hover, popup_hover);
+            return None;
+        }
+        MouseEventKind::ScrollUp => {
+            scroll_panel_at(state, x, y, frame_area, -1);
+            return None;
+        }
+        MouseEventKind::ScrollDown => {
+            scroll_panel_at(state, x, y, frame_area, 1);
             return None;
         }
         MouseEventKind::Down(crossterm::event::MouseButton::Left) => {
@@ -658,6 +698,7 @@ mod tests {
         tx.send((
             PathBuf::from("/home/user/src/tools"),
             Ok(CreatedIssue {
+                number: 1,
                 title: "my title".to_string(),
                 url: "https://github.com/o/r/issues/1".to_string(),
             }),
@@ -694,6 +735,7 @@ mod tests {
         tx.send((
             PathBuf::from("/home/user/src/tools"),
             Ok(CreatedIssue {
+                number: 9,
                 title: "old repo title".to_string(),
                 url: "https://github.com/o/r/issues/9".to_string(),
             }),

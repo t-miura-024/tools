@@ -30,6 +30,7 @@ pub struct StatusOptions {
 /// 今回作成した Issue の表示用情報。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CreatedIssue {
+    pub number: u64,
     pub title: String,
     pub url: String,
 }
@@ -316,6 +317,12 @@ pub fn parse_github_repo_url(url: &str) -> Option<(String, String)> {
     }
 
     None
+}
+
+/// GitHub Issue URL（`https://github.com/{owner}/{repo}/issues/{number}`）から
+/// Issue 番号を抽出する。解析できない場合は `None`。
+pub fn parse_issue_number_from_url(url: &str) -> Option<u64> {
+    url.rsplit('/').next()?.parse().ok()
 }
 
 pub fn format_external_label_name(selected_owner: &str, selected_name: &str) -> String {

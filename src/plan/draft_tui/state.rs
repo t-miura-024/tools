@@ -1,5 +1,7 @@
 use std::path::{Path, PathBuf};
 
+use ratatui::widgets::ListState;
+
 use crate::git::repo::repo_discover::{RepoEntry, find_matching_entry_index};
 use crate::plan::draft::{CreatedIssue, ExistingIssue};
 
@@ -154,6 +156,10 @@ pub struct FormState {
     /// 「既存」セクション（当前 repo スコープの open な kind/plan）
     pub existing_issues: Vec<ExistingIssue>,
     pub fetch_phase: FetchPhase,
+    /// 「今回作成」パネルのスクロール状態
+    pub created_list_state: ListState,
+    /// 「既存」パネルのスクロール状態
+    pub existing_list_state: ListState,
 }
 
 impl FormState {
@@ -172,6 +178,8 @@ impl FormState {
             created_issues: Vec::new(),
             existing_issues: Vec::new(),
             fetch_phase: FetchPhase::default(),
+            created_list_state: ListState::default(),
+            existing_list_state: ListState::default(),
         }
     }
 
@@ -278,10 +286,12 @@ impl FormState {
 
     /// submit 成功時に title / description 入力をクリアし、作成 Issue を
     /// 「今回作成」セクションの先頭に追加する。repo 選択は維持される。
+    /// スクロールは先頭（最新）にリセットされる。
     pub fn record_created(&mut self, issue: CreatedIssue) {
         self.created_issues.insert(0, issue);
         self.title.clear();
         self.title_cursor = 0;
+        *self.created_list_state.offset_mut() = 0;
     }
 }
 
@@ -647,6 +657,7 @@ mod tests {
         state.title_cursor = 5;
 
         state.record_created(CreatedIssue {
+            number: 1,
             title: "first".to_string(),
             url: "https://github.com/o/r/issues/1".to_string(),
         });
@@ -657,12 +668,27 @@ mod tests {
         // 2 件目は先頭に入る（最新が先頭）
         state.title = "second".to_string();
         state.record_created(CreatedIssue {
+            number: 2,
             title: "second".to_string(),
             url: "https://github.com/o/r/issues/2".to_string(),
         });
         assert_eq!(state.created_issues.len(), 2);
         assert_eq!(state.created_issues[0].title, "second");
         assert_eq!(state.created_issues[1].title, "first");
+    }
+
+    #[test]
+    fn record_created_resets_scroll_offset() {
+        let mut state = FormState::new(vec![]);
+        // スクロールが進んだ状態をシミュレート
+        *state.created_list_state.offset_mut() = 5;
+
+        state.record_created(CreatedIssue {
+            number: 10,
+            title: "new".to_string(),
+            url: "https://github.com/o/r/issues/10".to_string(),
+        });
+        assert_eq!(state.created_list_state.offset(), 0);
     }
 
     #[test]

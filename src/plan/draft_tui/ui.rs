@@ -386,7 +386,8 @@ fn draw_repo_popup(
 }
 
 /// 「今回作成」セクション。当前 repo スコープ、最新が先頭。
-fn draw_created_section(frame: &mut Frame, state: &FormState, area: Rect) {
+/// Issue 番号付きで表示し、`ListState` によるスクロールに対応する。
+fn draw_created_section(frame: &mut Frame, state: &mut FormState, area: Rect) {
     let block = Block::default()
         .borders(Borders::ALL)
         .border_style(Style::default().fg(Color::DarkGray))
@@ -413,17 +414,22 @@ fn draw_created_section(frame: &mut Frame, state: &FormState, area: Rect) {
         .map(|issue| {
             ListItem::new(Line::from(vec![
                 Span::styled(" ✔ ", Style::default().fg(Color::Green)),
+                Span::styled(
+                    format!("#{} ", issue.number),
+                    Style::default().fg(Color::DarkGray),
+                ),
                 Span::styled(issue.title.as_str(), Style::default().fg(Color::White)),
             ]))
         })
         .collect();
     let list = List::new(items);
-    frame.render_widget(list, inner);
+    frame.render_stateful_widget(list, inner, &mut state.created_list_state);
 }
 
 /// 「既存」セクション。当前 repo スコープの open な kind/plan Issue。
 /// fetch 中はローディング表示、失敗時はエラーを表示する。
-fn draw_existing_section(frame: &mut Frame, state: &FormState, area: Rect, tick: u64) {
+/// `ListState` によるスクロールに対応する。
+fn draw_existing_section(frame: &mut Frame, state: &mut FormState, area: Rect, tick: u64) {
     let block = Block::default()
         .borders(Borders::ALL)
         .border_style(Style::default().fg(Color::DarkGray))
@@ -473,7 +479,7 @@ fn draw_existing_section(frame: &mut Frame, state: &FormState, area: Rect, tick:
                     })
                     .collect();
                 let list = List::new(items);
-                frame.render_widget(list, inner);
+                frame.render_stateful_widget(list, inner, &mut state.existing_list_state);
             }
         }
         FetchPhase::Failed(ref msg) => {
