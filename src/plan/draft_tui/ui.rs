@@ -2,7 +2,7 @@ use ratatui::Frame;
 use ratatui::layout::{Alignment, Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Clear, List, ListItem, Paragraph, Wrap};
+use ratatui::widgets::{Block, Borders, Clear, List, ListItem, Paragraph};
 use tui_textarea::TextArea;
 
 use super::state::{Field, FormState};
@@ -83,36 +83,8 @@ pub fn popup_hit_test(
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ConfirmClick {
-    Yes,
-    No,
-}
-
-pub fn confirm_hit_test(x: u16, y: u16, dialog_area: Rect) -> Option<ConfirmClick> {
-    if !dialog_area.contains((x, y).into()) {
-        return None;
-    }
-    let button_y = dialog_area.y + 4;
-    if y != button_y {
-        return None;
-    }
-    let inner_x = x.saturating_sub(dialog_area.x);
-    if inner_x >= 3 && inner_x <= 10 {
-        return Some(ConfirmClick::Yes);
-    }
-    if inner_x >= 14 && inner_x <= 21 {
-        return Some(ConfirmClick::No);
-    }
-    None
-}
-
 pub fn popup_rect(frame_area: Rect) -> Rect {
     centered_rect(70, 70, frame_area)
-}
-
-pub fn confirm_rect(frame_area: Rect) -> Rect {
-    centered_rect(50, 20, frame_area)
 }
 
 pub fn draw(
@@ -138,10 +110,6 @@ pub fn draw(
 
     if let Some(ref popup) = state.popup {
         draw_repo_popup(frame, state, popup, popup_hover);
-    }
-
-    if state.show_empty_desc_confirm {
-        draw_confirm_dialog(frame);
     }
 }
 
@@ -302,9 +270,7 @@ fn draw_description_field(
 }
 
 fn draw_help_bar(frame: &mut Frame, state: &FormState, area: Rect) {
-    let hints = if state.show_empty_desc_confirm {
-        "y: 送信  n: 戻る"
-    } else if state.popup.is_some() {
+    let hints = if state.popup.is_some() {
         "↑↓: 移動  Enter: 選択  Esc: 閉じる  入力: 絞り込み"
     } else {
         "Tab/Shift-Tab: 移動  Enter: リポ選択  Ctrl+S: 送信  Esc: キャンセル"
@@ -359,39 +325,6 @@ fn draw_repo_popup(
 
     let list = List::new(items).block(block);
     frame.render_widget(list, area);
-}
-
-fn draw_confirm_dialog(frame: &mut Frame) {
-    let area = confirm_rect(frame.area());
-    frame.render_widget(Clear, area);
-
-    let block = Block::default()
-        .borders(Borders::ALL)
-        .border_style(Style::default().fg(Color::Yellow))
-        .title(Span::styled(
-            " 確認 ",
-            Style::default()
-                .fg(Color::Yellow)
-                .add_modifier(Modifier::BOLD),
-        ));
-
-    let text = vec![
-        Line::from(""),
-        Line::from(Span::styled(
-            " 説明が空ですが、このまま起票しますか？",
-            Style::default().fg(Color::White),
-        )),
-        Line::from(""),
-        Line::from(Span::styled(
-            "   y: 送信    n: 戻る",
-            Style::default().fg(Color::DarkGray),
-        )),
-    ];
-
-    let paragraph = Paragraph::new(text)
-        .block(block)
-        .wrap(Wrap { trim: false });
-    frame.render_widget(paragraph, area);
 }
 
 fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
@@ -516,35 +449,4 @@ mod tests {
         assert_eq!(popup_hit_test(20, 6, popup_area, 10), None);
     }
 
-    #[test]
-    fn confirm_hit_test_yes() {
-        let dialog = Rect::new(25, 16, 50, 8);
-        let y_line = dialog.y + 4;
-        assert_eq!(
-            confirm_hit_test(dialog.x + 4, y_line, dialog),
-            Some(ConfirmClick::Yes)
-        );
-    }
-
-    #[test]
-    fn confirm_hit_test_no() {
-        let dialog = Rect::new(25, 16, 50, 8);
-        let y_line = dialog.y + 4;
-        assert_eq!(
-            confirm_hit_test(dialog.x + 15, y_line, dialog),
-            Some(ConfirmClick::No)
-        );
-    }
-
-    #[test]
-    fn confirm_hit_test_wrong_line() {
-        let dialog = Rect::new(25, 16, 50, 8);
-        assert_eq!(confirm_hit_test(dialog.x + 4, dialog.y + 2, dialog), None);
-    }
-
-    #[test]
-    fn confirm_hit_test_outside() {
-        let dialog = Rect::new(25, 16, 50, 8);
-        assert_eq!(confirm_hit_test(0, 0, dialog), None);
-    }
 }

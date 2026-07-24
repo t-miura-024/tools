@@ -17,7 +17,7 @@ use tui_textarea::TextArea;
 
 use super::state::{Field, FormState};
 use super::ui;
-use super::ui::{ClickTarget, ConfirmClick};
+use super::ui::ClickTarget;
 
 pub struct DraftInput {
     pub repo_path: PathBuf,
@@ -111,14 +111,6 @@ fn event_loop(
 
         match action {
             Some(LoopAction::SubmitRequested) => {
-                let desc = desc_area.lines().join("\n");
-                if state.needs_desc_confirm(&desc) {
-                    state.show_empty_desc_confirm = true;
-                } else {
-                    return Ok(build_input(state, desc_area));
-                }
-            }
-            Some(LoopAction::SubmitConfirmed) => {
                 return Ok(build_input(state, desc_area));
             }
             Some(LoopAction::Cancel) => {
@@ -131,7 +123,6 @@ fn event_loop(
 
 enum LoopAction {
     SubmitRequested,
-    SubmitConfirmed,
     Cancel,
 }
 
@@ -140,15 +131,6 @@ fn handle_key_event(
     state: &mut FormState,
     desc_area: &mut TextArea,
 ) -> Option<LoopAction> {
-    if state.show_empty_desc_confirm {
-        match handle_confirm_key(key, state, desc_area) {
-            ConfirmAction::Submit => return Some(LoopAction::SubmitConfirmed),
-            ConfirmAction::Back => {}
-            ConfirmAction::None => {}
-        }
-        return None;
-    }
-
     if state.popup.is_some() {
         match handle_popup_key(key, state) {
             PopupAction::Selected => {}
@@ -178,11 +160,6 @@ fn update_hover(
     hover: &mut Option<ClickTarget>,
     popup_hover: &mut Option<usize>,
 ) {
-    if state.show_empty_desc_confirm {
-        *hover = None;
-        *popup_hover = None;
-        return;
-    }
     let Some(popup) = state.popup.as_ref() else {
         *popup_hover = None;
         let areas = ui::compute_layout(frame_area);
@@ -213,18 +190,6 @@ fn handle_mouse_event(
             update_hover(x, y, state, frame_area, hover, popup_hover);
         }
         _ => return None,
-    }
-
-    if state.show_empty_desc_confirm {
-        let dialog = ui::confirm_rect(frame_area);
-        if let Some(click) = ui::confirm_hit_test(x, y, dialog) {
-            state.show_empty_desc_confirm = false;
-            return match click {
-                ConfirmClick::Yes => Some(LoopAction::SubmitConfirmed),
-                ConfirmClick::No => None,
-            };
-        }
-        return None;
     }
 
     let Some(popup) = state.popup.as_mut() else {
@@ -372,26 +337,3 @@ fn handle_popup_key(key: KeyEvent, state: &mut FormState) -> PopupAction {
     }
 }
 
-enum ConfirmAction {
-    Submit,
-    Back,
-    None,
-}
-
-fn handle_confirm_key(
-    key: KeyEvent,
-    state: &mut FormState,
-    _desc_area: &TextArea,
-) -> ConfirmAction {
-    match key.code {
-        KeyCode::Char('y') | KeyCode::Char('Y') => {
-            state.show_empty_desc_confirm = false;
-            ConfirmAction::Submit
-        }
-        KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Esc => {
-            state.show_empty_desc_confirm = false;
-            ConfirmAction::Back
-        }
-        _ => ConfirmAction::None,
-    }
-}
