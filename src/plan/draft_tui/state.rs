@@ -106,7 +106,6 @@ pub struct FormState {
     pub title_cursor: usize,
     pub repos: Vec<RepoEntry>,
     pub popup: Option<RepoPopup>,
-    pub show_empty_desc_confirm: bool,
     pub desc_scroll_top: usize,
 }
 
@@ -120,7 +119,6 @@ impl FormState {
             title_cursor: 0,
             repos,
             popup: None,
-            show_empty_desc_confirm: false,
             desc_scroll_top: 0,
         }
     }
@@ -218,10 +216,6 @@ impl FormState {
 
     pub fn can_submit(&self) -> bool {
         !self.title.trim().is_empty() && self.repo_path.is_some()
-    }
-
-    pub fn needs_desc_confirm(&self, description: &str) -> bool {
-        description.trim().is_empty()
     }
 }
 
@@ -464,14 +458,6 @@ mod tests {
         state.confirm_repo_selection();
         state.title_insert(' ');
         assert!(!state.can_submit());
-    }
-
-    #[test]
-    fn needs_desc_confirm_when_empty() {
-        let state = FormState::new(vec![]);
-        assert!(state.needs_desc_confirm(""));
-        assert!(state.needs_desc_confirm("  \n  "));
-        assert!(!state.needs_desc_confirm("hello"));
     }
 
     #[test]
