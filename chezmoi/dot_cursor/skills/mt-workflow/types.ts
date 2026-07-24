@@ -17,9 +17,15 @@ export interface StepDef {
   maxRetries: number;
   onFail: OnFailStrategy;
   check: (ctx: CheckCtx) => CheckResult;
+  condition?: (ctx: ConditionCtx) => boolean;
   task?: TaskStepDef;
   humanGate?: HumanGateStepDef;
   parallel?: ParallelStepDef;
+}
+
+export interface ConditionCtx {
+  gateChoices: Record<string, string>;
+  artifacts: ArtifactRecord[];
 }
 
 export interface TaskStepDef {

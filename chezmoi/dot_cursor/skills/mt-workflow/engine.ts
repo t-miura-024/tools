@@ -14,6 +14,7 @@ import type {
   StepAttemptRow,
   ArtifactRow,
   CheckCtx,
+  ConditionCtx,
   PromptCtx,
   AttemptResult,
   AttemptSummary,
@@ -250,12 +251,47 @@ export async function next(
     }
   }
 
-  const currentStep = dbRowToStepRow(currentStepRaw);
-  const stepDef = stepDefsByKey.get(currentStep.stepKey);
+  let currentStep = dbRowToStepRow(currentStepRaw);
+  let stepDef = stepDefsByKey.get(currentStep.stepKey);
 
   if (!stepDef) {
     db.close();
     throw new EngineError(`Step definition not found in workflow: ${currentStep.stepKey}`);
+  }
+
+  // Condition evaluation: skip steps whose condition returns false
+  while (currentStep.status === 'pending' && stepDef.condition) {
+    const conditionCtx = buildConditionCtx(db, sessionId);
+    if (stepDef.condition(conditionCtx)) {
+      break;
+    }
+    // Mark step as skipped
+    db.run(`UPDATE steps SET status = 'skipped' WHERE id = ?`, [currentStep.id]);
+
+    // Find next pending step
+    const nextRow = db.query(
+      `SELECT * FROM steps WHERE session_id = ? AND step_index > ? AND status = 'pending' ORDER BY step_index LIMIT 1`,
+    ).get(sessionId, currentStep.stepIndex) as Record<string, unknown> | undefined;
+
+    if (!nextRow) {
+      const allDone = db.query(
+        `SELECT COUNT(*) as cnt FROM steps WHERE session_id = ? AND status NOT IN ('passed', 'skipped')`,
+      ).get(sessionId) as Record<string, unknown>;
+      if ((allDone.cnt as number) === 0) {
+        db.run(`UPDATE sessions SET status = 'done', updated_at = datetime('now') WHERE id = ?`, [sessionId]);
+        db.close();
+        throw new EngineError(`All steps completed for session: ${sessionId}`);
+      }
+      db.close();
+      throw new EngineError(`No pending steps found for session: ${sessionId}`);
+    }
+
+    currentStep = dbRowToStepRow(nextRow);
+    stepDef = stepDefsByKey.get(currentStep.stepKey);
+    if (!stepDef) {
+      db.close();
+      throw new EngineError(`Step definition not found in workflow: ${currentStep.stepKey}`);
+    }
   }
 
   const previousAttempts = getPreviousAttempts(db, currentStep.id);
@@ -409,6 +445,18 @@ function handleHumanGateTransition(
   if (answer === 'revise') {
     const targetStep = stepDef.humanGate?.reviseTargetStep ?? stepDef.onFail.target ?? step.stepKey;
     db.run('UPDATE steps SET status = \'passed\' WHERE id = ?', [step.id]);
+
+    // Reset target and all subsequent steps to pending
+    const targetStepRow = db.query(
+      'SELECT step_index FROM steps WHERE session_id = ? AND step_key = ?',
+    ).get(sessionId, targetStep) as Record<string, unknown> | undefined;
+    if (targetStepRow) {
+      db.run(
+        `UPDATE steps SET status = 'pending', retry_count = 0 WHERE session_id = ? AND step_index >= ?`,
+        [sessionId, targetStepRow.step_index as number],
+      );
+    }
+
     db.run('UPDATE sessions SET current_step = ?, updated_at = datetime(\'now\') WHERE id = ?', [targetStep, sessionId]);
     return {
       sessionId,
@@ -754,4 +802,24 @@ function getArtifacts(db: Database, sessionId: string): ArtifactRecord[] {
     'SELECT * FROM artifacts WHERE session_id = ?',
   ).all(sessionId) as Record<string, unknown>[];
   return rows.map((r) => dbRowToArtifactRow(r));
+}
+
+function buildConditionCtx(db: Database, sessionId: string): ConditionCtx {
+  const artifacts = getArtifacts(db, sessionId);
+  const gateChoices: Record<string, string> = {};
+
+  const gateStepRows = db.query(
+    `SELECT id, step_key FROM steps WHERE session_id = ? AND type = 'human_gate' AND status = 'passed'`,
+  ).all(sessionId) as Record<string, unknown>[];
+
+  for (const gs of gateStepRows) {
+    const attempt = db.query(
+      `SELECT result_json FROM step_attempts WHERE step_id = ? AND check_status = 'pass' ORDER BY attempt_number DESC LIMIT 1`,
+    ).get(gs.id as number) as Record<string, unknown> | undefined;
+    if (attempt?.result_json) {
+      gateChoices[gs.step_key as string] = (attempt.result_json as string).trim();
+    }
+  }
+
+  return { gateChoices, artifacts };
 }
