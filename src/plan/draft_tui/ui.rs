@@ -5,7 +5,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, List, ListItem, Paragraph};
 use tui_textarea::TextArea;
 
-use super::state::{Field, FormState};
+use super::state::{AuthStatus, Field, FormState};
 
 #[derive(Debug, Clone)]
 pub struct LayoutAreas {
@@ -269,6 +269,23 @@ fn draw_description_field(
     }
 }
 
+fn auth_status_span(status: AuthStatus) -> Span<'static> {
+    match status {
+        AuthStatus::Checking => Span::styled(
+            " ⏳ 認証を確認中...（送信は認証完了後に可能になります）",
+            Style::default().fg(Color::Yellow),
+        ),
+        AuthStatus::Authenticated => Span::styled(
+            " ✔ 認証済み",
+            Style::default().fg(Color::Green),
+        ),
+        AuthStatus::Failed => Span::styled(
+            " ✖ gh CLI の認証に失敗しました。ターミナルで `gh auth login` を実行してください（送信できません）",
+            Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+        ),
+    }
+}
+
 fn draw_help_bar(frame: &mut Frame, state: &FormState, area: Rect) {
     let hints = if state.popup.is_some() {
         "↑↓: 移動  Enter: 選択  Esc: 閉じる  入力: 絞り込み"
@@ -276,10 +293,13 @@ fn draw_help_bar(frame: &mut Frame, state: &FormState, area: Rect) {
         "Tab/Shift-Tab: 移動  Enter: リポ選択  Ctrl+S: 送信  Esc: キャンセル"
     };
 
-    let paragraph = Paragraph::new(Line::from(vec![Span::styled(
-        format!(" {hints}"),
-        Style::default().fg(Color::DarkGray),
-    )]))
+    let paragraph = Paragraph::new(vec![
+        Line::from(Span::styled(
+            format!(" {hints}"),
+            Style::default().fg(Color::DarkGray),
+        )),
+        Line::from(auth_status_span(state.auth_status)),
+    ])
     .alignment(Alignment::Left);
 
     frame.render_widget(paragraph, area);

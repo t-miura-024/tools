@@ -2,6 +2,7 @@ use std::fs;
 use std::io::IsTerminal;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
+use std::sync::mpsc;
 
 use anyhow::{Context, bail};
 use serde::Deserialize;
@@ -33,7 +34,11 @@ pub fn run() -> anyhow::Result<()> {
 
     let config = load_config()?;
 
-    let input = match super::draft_tui::run_tui()? {
+    // 認証チェックはフォーム入力に依存しないため、フォーム表示中に裏で先走りさせる。
+    // 結果は mpsc チャンネル経由で TUI 側にポーリングされる。
+    let auth_rx = spawn_gh_auth_check();
+
+    let input = match super::draft_tui::run_tui(auth_rx)? {
         Some(input) => input,
         None => {
             style::outro("キャンセルしました");
@@ -45,15 +50,25 @@ pub fn run() -> anyhow::Result<()> {
     let (target_repo, has_external_label) =
         determine_target(&selected_owner, &selected_name, &config.owner);
 
-    let spinner = style::spinner("認証・リポジトリを確認中...");
-    check_gh_auth()?;
-    verify_repo_exists(&target_repo)?;
-    ensure_labels(
-        &target_repo,
-        &selected_owner,
-        &selected_name,
-        has_external_label,
-    )?;
+    // リポジトリ確認と label 作成は互いに独立しているため並列に実行し、
+    // 任一の失敗で bail する。
+    let spinner = style::spinner("リポジトリを確認中...");
+    std::thread::scope(|s| -> anyhow::Result<()> {
+        let repo_result = s.spawn(|| verify_repo_exists(&target_repo));
+        let label_result = s.spawn(|| {
+            ensure_labels(
+                &target_repo,
+                &selected_owner,
+                &selected_name,
+                has_external_label,
+            )
+        });
+        let repo_result = repo_result.join().expect("リポジトリ確認スレッドが異常終了しました");
+        let label_result = label_result.join().expect("label 作成スレッドが異常終了しました");
+        repo_result?;
+        label_result?;
+        Ok(())
+    })?;
     spinner.finish_with_message("✔ 確認完了");
 
     let external_label = if has_external_label {
@@ -154,6 +169,19 @@ fn check_gh_auth() -> anyhow::Result<()> {
         bail!("gh CLI が認証されていません。\n  gh auth login を実行してください");
     }
     Ok(())
+}
+
+/// `check_gh_auth` をバックグラウンドスレッドで起動し、結果の Receiver を返す。
+///
+/// 送信値は `true` = 認証成功、`false` = 認証失敗。gh コマンドの責務は
+/// このモジュール内に閉じ、TUI 側はチャンネル結果のみを受け取る。
+fn spawn_gh_auth_check() -> mpsc::Receiver<bool> {
+    let (tx, rx) = mpsc::channel();
+    std::thread::spawn(move || {
+        let authenticated = check_gh_auth().is_ok();
+        let _ = tx.send(authenticated);
+    });
+    rx
 }
 
 pub fn get_repo_owner_and_name(repo_path: &std::path::Path) -> anyhow::Result<(String, String)> {

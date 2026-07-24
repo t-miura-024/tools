@@ -2,6 +2,19 @@ use std::path::{Path, PathBuf};
 
 use crate::git::repo::repo_discover::{RepoEntry, find_matching_entry_index};
 
+/// gh CLI の認証状態。フォーム表示中にバックグラウンドで確認され、
+/// 送信ゲート（`can_submit`）と UI 表示に反映される。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum AuthStatus {
+    /// 認証確認中（送信は待機）
+    #[default]
+    Checking,
+    /// 認証成功（送信可）
+    Authenticated,
+    /// 認証失敗（送信ブロック、`gh auth login` を案内）
+    Failed,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Field {
     Repo,
@@ -107,6 +120,7 @@ pub struct FormState {
     pub repos: Vec<RepoEntry>,
     pub popup: Option<RepoPopup>,
     pub desc_scroll_top: usize,
+    pub auth_status: AuthStatus,
 }
 
 impl FormState {
@@ -120,6 +134,7 @@ impl FormState {
             repos,
             popup: None,
             desc_scroll_top: 0,
+            auth_status: AuthStatus::default(),
         }
     }
 
@@ -214,8 +229,13 @@ impl FormState {
         }
     }
 
+    /// 送信可否。タイトル・リポジトリが埋まっていることに加え、
+    /// 認証が完了（`Authenticated`）していることを要求する。
+    /// 認証中（`Checking`）は送信待機、認証失敗（`Failed`）は送信ブロックとなる。
     pub fn can_submit(&self) -> bool {
-        !self.title.trim().is_empty() && self.repo_path.is_some()
+        !self.title.trim().is_empty()
+            && self.repo_path.is_some()
+            && self.auth_status == AuthStatus::Authenticated
     }
 }
 
@@ -440,6 +460,7 @@ mod tests {
     fn can_submit_requires_title_and_repo() {
         let repos = sample_repos();
         let mut state = FormState::new(repos);
+        state.auth_status = AuthStatus::Authenticated;
         assert!(!state.can_submit());
 
         state.title_insert('t');
@@ -454,10 +475,50 @@ mod tests {
     fn can_submit_empty_title_fails() {
         let repos = sample_repos();
         let mut state = FormState::new(repos);
+        state.auth_status = AuthStatus::Authenticated;
         state.open_popup();
         state.confirm_repo_selection();
         state.title_insert(' ');
         assert!(!state.can_submit());
+    }
+
+    #[test]
+    fn auth_status_defaults_to_checking() {
+        let state = FormState::new(vec![]);
+        assert_eq!(state.auth_status, AuthStatus::Checking);
+    }
+
+    #[test]
+    fn can_submit_blocked_while_auth_checking() {
+        let repos = sample_repos();
+        let mut state = FormState::new(repos);
+        state.auth_status = AuthStatus::Checking;
+        state.title_insert('t');
+        state.open_popup();
+        state.confirm_repo_selection();
+        assert!(!state.can_submit());
+    }
+
+    #[test]
+    fn can_submit_blocked_when_auth_failed() {
+        let repos = sample_repos();
+        let mut state = FormState::new(repos);
+        state.auth_status = AuthStatus::Failed;
+        state.title_insert('t');
+        state.open_popup();
+        state.confirm_repo_selection();
+        assert!(!state.can_submit());
+    }
+
+    #[test]
+    fn can_submit_allowed_when_authenticated() {
+        let repos = sample_repos();
+        let mut state = FormState::new(repos);
+        state.auth_status = AuthStatus::Authenticated;
+        state.title_insert('t');
+        state.open_popup();
+        state.confirm_repo_selection();
+        assert!(state.can_submit());
     }
 
     #[test]

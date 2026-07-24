@@ -1,5 +1,6 @@
 use std::io;
 use std::path::PathBuf;
+use std::sync::mpsc;
 use std::time::Duration;
 
 use anyhow::Context;
@@ -15,7 +16,7 @@ use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
 use tui_textarea::{CursorMove, TextArea};
 
-use super::state::{Field, FormState};
+use super::state::{AuthStatus, Field, FormState};
 use super::ui;
 use super::ui::ClickTarget;
 
@@ -25,7 +26,12 @@ pub struct DraftInput {
     pub description: String,
 }
 
-pub fn run_tui() -> anyhow::Result<Option<DraftInput>> {
+/// フォーム TUI を起動する。
+///
+/// `auth_rx` は `draft.rs` 側で起動されたバックグラウンド認証チェック
+/// （`gh auth status`）の結果チャンネル。送信値は `true` = 認証成功、
+/// `false` = 認証失敗。イベントループ内でポーリングされ `AuthStatus` に反映される。
+pub fn run_tui(auth_rx: mpsc::Receiver<bool>) -> anyhow::Result<Option<DraftInput>> {
     let repos = load_repos()?;
     let mut state = FormState::new(repos);
     apply_cwd_default_selection(&mut state);
@@ -43,7 +49,7 @@ pub fn run_tui() -> anyhow::Result<Option<DraftInput>> {
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend).context("ターミナルの作成に失敗しました")?;
 
-    let result = event_loop(&mut terminal, &mut state, &mut desc_area);
+    let result = event_loop(&mut terminal, &mut state, &mut desc_area, &auth_rx);
 
     disable_raw_mode()?;
     execute!(
@@ -84,10 +90,14 @@ fn event_loop(
     terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
     state: &mut FormState,
     desc_area: &mut TextArea,
+    auth_rx: &mpsc::Receiver<bool>,
 ) -> anyhow::Result<Option<DraftInput>> {
     let mut hover: Option<ClickTarget> = None;
     let mut popup_hover: Option<usize> = None;
     loop {
+        // バックグラウンド認証結果をポーリング（未確定の間のみ更新）
+        update_auth_status(state, auth_rx);
+
         terminal.draw(|frame| ui::draw(frame, state, desc_area, hover, popup_hover))?;
 
         if !event::poll(Duration::from_millis(100))? {
@@ -124,6 +134,35 @@ fn event_loop(
 enum LoopAction {
     SubmitRequested,
     Cancel,
+}
+
+/// 認証状態が未確定（`Checking`）の間のみバックグラウンド結果をポーリングし、
+/// 確定後は状態を維持する。
+///
+/// 確定（`Authenticated` / `Failed`）後もポーリングを続けると、送信スレッド
+/// 終了による `Disconnected` で確定済みの状態が `Failed` に上書きされてしまう
+/// ため、ガードが必要。
+fn update_auth_status(state: &mut FormState, rx: &mpsc::Receiver<bool>) {
+    if state.auth_status == AuthStatus::Checking
+        && let Some(status) = poll_auth_status(rx)
+    {
+        state.auth_status = status;
+    }
+}
+
+/// バックグラウンド認証チャンネルを非ブロッキングで確認し、状態変化があれば返す。
+///
+/// - `Ok(true)` → `Authenticated`
+/// - `Ok(false)` → `Failed`
+/// - まだ結果なし（`Empty`）→ `None`（状態維持）
+/// - 送信側切断（`Disconnected`、スレッド異常終了等）→ `Failed`（安全側倒し）
+fn poll_auth_status(rx: &mpsc::Receiver<bool>) -> Option<AuthStatus> {
+    match rx.try_recv() {
+        Ok(true) => Some(AuthStatus::Authenticated),
+        Ok(false) => Some(AuthStatus::Failed),
+        Err(mpsc::TryRecvError::Empty) => None,
+        Err(mpsc::TryRecvError::Disconnected) => Some(AuthStatus::Failed),
+    }
 }
 
 fn handle_key_event(
@@ -366,6 +405,59 @@ fn handle_popup_key(key: KeyEvent, state: &mut FormState) -> PopupAction {
             PopupAction::None
         }
         _ => PopupAction::None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn poll_auth_status_empty_returns_none() {
+        let (_tx, rx) = mpsc::channel();
+        assert_eq!(poll_auth_status(&rx), None);
+    }
+
+    #[test]
+    fn poll_auth_status_authenticated() {
+        let (tx, rx) = mpsc::channel();
+        tx.send(true).unwrap();
+        assert_eq!(poll_auth_status(&rx), Some(AuthStatus::Authenticated));
+    }
+
+    #[test]
+    fn poll_auth_status_failed() {
+        let (tx, rx) = mpsc::channel();
+        tx.send(false).unwrap();
+        assert_eq!(poll_auth_status(&rx), Some(AuthStatus::Failed));
+    }
+
+    #[test]
+    fn poll_auth_status_disconnected_returns_failed() {
+        let (tx, rx) = mpsc::channel::<bool>();
+        drop(tx);
+        assert_eq!(poll_auth_status(&rx), Some(AuthStatus::Failed));
+    }
+
+    /// 回帰テスト: 認証成功（`Ok(true)`）受信後に送信スレッドが終了して
+    /// チャンネルが `Disconnected` になっても、確定済みの `Authenticated` が
+    /// 維持されること（`Failed` に上書きされないこと）。
+    #[test]
+    fn authenticated_state_survives_sender_disconnect() {
+        let (tx, rx) = mpsc::channel();
+        let mut state = FormState::new(vec![]);
+        assert_eq!(state.auth_status, AuthStatus::Checking);
+
+        // 認証成功を受信 → Authenticated に確定
+        tx.send(true).unwrap();
+        update_auth_status(&mut state, &rx);
+        assert_eq!(state.auth_status, AuthStatus::Authenticated);
+
+        // 送信スレッド終了 → 次回ポーリングは Disconnected になるが、
+        // ガードにより確定済み状態は維持される
+        drop(tx);
+        update_auth_status(&mut state, &rx);
+        assert_eq!(state.auth_status, AuthStatus::Authenticated);
     }
 }
 
