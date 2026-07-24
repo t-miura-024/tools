@@ -1,6 +1,33 @@
 use std::path::{Path, PathBuf};
 
 use crate::git::repo::repo_discover::{RepoEntry, find_matching_entry_index};
+use crate::plan::draft::{CreatedIssue, ExistingIssue};
+
+/// submit（Issue 作成）の進行状態。
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub enum SubmitPhase {
+    /// 通常フォーム（submit 可）
+    #[default]
+    Idle,
+    /// 送信中（ローディングオーバーレイ表示、esc/ctrl+C は無視）
+    Submitting,
+    /// 送信失敗（エラーオーバーレイ表示、キー押下で Idle に戻る）
+    Error(String),
+}
+
+/// 既存 Issue fetch の進行状態。
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub enum FetchPhase {
+    /// repo 未選択（fetch 対象なし）
+    #[default]
+    Idle,
+    /// fetch 中（ローディング表示）
+    Loading,
+    /// fetch 完了（`existing_issues` に結果あり）
+    Loaded,
+    /// fetch 失敗
+    Failed(String),
+}
 
 /// gh CLI の認証状態。フォーム表示中にバックグラウンドで確認され、
 /// 送信ゲート（`can_submit`）と UI 表示に反映される。
@@ -121,6 +148,12 @@ pub struct FormState {
     pub popup: Option<RepoPopup>,
     pub desc_scroll_top: usize,
     pub auth_status: AuthStatus,
+    pub submit_phase: SubmitPhase,
+    /// 「今回作成」セクション（当前 repo スコープ、最新が先頭）
+    pub created_issues: Vec<CreatedIssue>,
+    /// 「既存」セクション（当前 repo スコープの open な kind/plan）
+    pub existing_issues: Vec<ExistingIssue>,
+    pub fetch_phase: FetchPhase,
 }
 
 impl FormState {
@@ -135,6 +168,10 @@ impl FormState {
             popup: None,
             desc_scroll_top: 0,
             auth_status: AuthStatus::default(),
+            submit_phase: SubmitPhase::default(),
+            created_issues: Vec::new(),
+            existing_issues: Vec::new(),
+            fetch_phase: FetchPhase::default(),
         }
     }
 
@@ -230,12 +267,21 @@ impl FormState {
     }
 
     /// 送信可否。タイトル・リポジトリが埋まっていることに加え、
-    /// 認証が完了（`Authenticated`）していることを要求する。
+    /// 認証が完了（`Authenticated`）し、かつ送信中でないことを要求する。
     /// 認証中（`Checking`）は送信待機、認証失敗（`Failed`）は送信ブロックとなる。
     pub fn can_submit(&self) -> bool {
         !self.title.trim().is_empty()
             && self.repo_path.is_some()
             && self.auth_status == AuthStatus::Authenticated
+            && self.submit_phase == SubmitPhase::Idle
+    }
+
+    /// submit 成功時に title / description 入力をクリアし、作成 Issue を
+    /// 「今回作成」セクションの先頭に追加する。repo 選択は維持される。
+    pub fn record_created(&mut self, issue: CreatedIssue) {
+        self.created_issues.insert(0, issue);
+        self.title.clear();
+        self.title_cursor = 0;
     }
 }
 
@@ -565,5 +611,66 @@ mod tests {
             Some(PathBuf::from("/home/user/doc/notes"))
         );
         assert!(state.repo_display.contains("doc/notes"));
+    }
+
+    #[test]
+    fn can_submit_blocked_while_submitting() {
+        let repos = sample_repos();
+        let mut state = FormState::new(repos);
+        state.auth_status = AuthStatus::Authenticated;
+        state.title_insert('t');
+        state.open_popup();
+        state.confirm_repo_selection();
+        assert!(state.can_submit());
+
+        state.submit_phase = SubmitPhase::Submitting;
+        assert!(!state.can_submit());
+    }
+
+    #[test]
+    fn can_submit_blocked_while_error() {
+        let repos = sample_repos();
+        let mut state = FormState::new(repos);
+        state.auth_status = AuthStatus::Authenticated;
+        state.title_insert('t');
+        state.open_popup();
+        state.confirm_repo_selection();
+
+        state.submit_phase = SubmitPhase::Error("boom".to_string());
+        assert!(!state.can_submit());
+    }
+
+    #[test]
+    fn record_created_prepends_and_clears_title() {
+        let mut state = FormState::new(vec![]);
+        state.title = "first".to_string();
+        state.title_cursor = 5;
+
+        state.record_created(CreatedIssue {
+            title: "first".to_string(),
+            url: "https://github.com/o/r/issues/1".to_string(),
+        });
+        assert!(state.title.is_empty());
+        assert_eq!(state.title_cursor, 0);
+        assert_eq!(state.created_issues.len(), 1);
+
+        // 2 件目は先頭に入る（最新が先頭）
+        state.title = "second".to_string();
+        state.record_created(CreatedIssue {
+            title: "second".to_string(),
+            url: "https://github.com/o/r/issues/2".to_string(),
+        });
+        assert_eq!(state.created_issues.len(), 2);
+        assert_eq!(state.created_issues[0].title, "second");
+        assert_eq!(state.created_issues[1].title, "first");
+    }
+
+    #[test]
+    fn submit_phase_defaults_to_idle() {
+        let state = FormState::new(vec![]);
+        assert_eq!(state.submit_phase, SubmitPhase::Idle);
+        assert_eq!(state.fetch_phase, FetchPhase::Idle);
+        assert!(state.created_issues.is_empty());
+        assert!(state.existing_issues.is_empty());
     }
 }

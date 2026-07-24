@@ -9,7 +9,7 @@ use serde::Deserialize;
 
 use crate::cli::style;
 
-#[derive(Deserialize, Debug, PartialEq)]
+#[derive(Deserialize, Debug, PartialEq, Clone)]
 pub struct PlanConfig {
     pub owner: String,
     #[serde(rename = "projectNumber")]
@@ -22,9 +22,24 @@ pub struct PlanConfig {
     pub status_options: StatusOptions,
 }
 
-#[derive(Deserialize, Debug, PartialEq)]
+#[derive(Deserialize, Debug, PartialEq, Clone)]
 pub struct StatusOptions {
     pub draft: String,
+}
+
+/// 今回作成した Issue の表示用情報。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CreatedIssue {
+    pub title: String,
+    pub url: String,
+}
+
+/// 既存の open な `kind/plan` Issue の表示用情報。
+#[derive(Deserialize, Debug, Clone, PartialEq, Eq)]
+pub struct ExistingIssue {
+    pub number: u64,
+    pub title: String,
+    pub url: String,
 }
 
 pub fn run() -> anyhow::Result<()> {
@@ -38,21 +53,42 @@ pub fn run() -> anyhow::Result<()> {
     // 結果は mpsc チャンネル経由で TUI 側にポーリングされる。
     let auth_rx = spawn_gh_auth_check();
 
-    let input = match super::draft_tui::run_tui(auth_rx)? {
-        Some(input) => input,
-        None => {
-            style::outro("キャンセルしました");
-            return Ok(());
-        }
-    };
+    // 起票（submit）は TUI 内のバックグラウンドスレッドで実行される。
+    // TUI は終了時に今回セッションで作成した Issue 一覧を返す。
+    let created = super::draft_tui::run_tui(config, auth_rx)?;
 
-    let (selected_owner, selected_name) = get_repo_owner_and_name(&input.repo_path)?;
+    if created.is_empty() {
+        style::outro("キャンセルしました");
+    } else {
+        println!();
+        style::success(&format!("🎉 {} 件の Issue を作成しました！", created.len()));
+        for issue in &created {
+            println!("     {}", issue.url);
+        }
+        println!();
+    }
+
+    Ok(())
+}
+
+/// 起票パイプライン全体（repo 検証・label 確保・Issue 作成・Project 追加/Status 設定）
+/// を実行し、成功時は作成した Issue の URL を返す。
+///
+/// TUI のバックグラウンドスレッドから呼ばれることを想定し、イベントループを
+/// ブロッキングしない。いずれかの段階で失敗した場合はエラーを返す（このとき
+/// Issue が作成済みでも Project 設定失敗ならエラーとして扱われる）。
+pub fn submit_draft(
+    config: &PlanConfig,
+    repo_path: &std::path::Path,
+    title: &str,
+    description: &str,
+) -> anyhow::Result<String> {
+    let (selected_owner, selected_name) = get_repo_owner_and_name(repo_path)?;
     let (target_repo, has_external_label) =
         determine_target(&selected_owner, &selected_name, &config.owner);
 
     // リポジトリ確認と label 作成は互いに独立しているため並列に実行し、
     // 任一の失敗で bail する。
-    let spinner = style::spinner("リポジトリを確認中...");
     std::thread::scope(|s| -> anyhow::Result<()> {
         let repo_result = s.spawn(|| verify_repo_exists(&target_repo));
         let label_result = s.spawn(|| {
@@ -69,7 +105,6 @@ pub fn run() -> anyhow::Result<()> {
         label_result?;
         Ok(())
     })?;
-    spinner.finish_with_message("✔ 確認完了");
 
     let external_label = if has_external_label {
         Some(format_external_label_name(&selected_owner, &selected_name))
@@ -78,28 +113,71 @@ pub fn run() -> anyhow::Result<()> {
     };
     let issue_url = create_issue(
         &target_repo,
-        &input.title,
-        &input.description,
+        title,
+        description,
         external_label.as_deref(),
     )?;
 
-    match add_to_project_and_set_status(&config, &issue_url) {
-        Ok(()) => {
-            println!();
-            style::success("🎉　Issue を作成しました！");
-            println!("     {issue_url}");
-            println!();
-        }
-        Err(e) => {
-            style::error(&format!(
-                "Project/Status の設定に失敗しました: {}\nIssue URL: {issue_url}",
-                e
-            ));
-            std::process::exit(1);
-        }
+    add_to_project_and_set_status(config, &issue_url)
+        .map_err(|e| anyhow::anyhow!("Project/Status の設定に失敗しました: {e}\nIssue URL: {issue_url}"))?;
+
+    Ok(issue_url)
+}
+
+/// 選択リポジトリに対応する target repo の open な `kind/plan` Issue を取得する。
+///
+/// external repo の場合は external label でも絞り込み、当前 repo スコープの
+/// Issue のみを返す。TUI のバックグラウンド fetch から呼ばれる。
+pub fn fetch_existing_for_repo(
+    repo_path: &std::path::Path,
+    config_owner: &str,
+) -> anyhow::Result<Vec<ExistingIssue>> {
+    let (selected_owner, selected_name) = get_repo_owner_and_name(repo_path)?;
+    let (target_repo, has_external_label) =
+        determine_target(&selected_owner, &selected_name, config_owner);
+    let external_label = if has_external_label {
+        Some(format_external_label_name(&selected_owner, &selected_name))
+    } else {
+        None
+    };
+    fetch_existing_issues(&target_repo, external_label.as_deref())
+}
+
+/// 指定 repo の open な `kind/plan` Issue を `gh issue list` で取得する。
+/// `extra_label` が指定された場合は AND 条件で追加絞り込みする。
+fn fetch_existing_issues(repo: &str, extra_label: Option<&str>) -> anyhow::Result<Vec<ExistingIssue>> {
+    let mut args = vec![
+        "issue",
+        "list",
+        "--repo",
+        repo,
+        "--label",
+        "kind/plan",
+        "--state",
+        "open",
+        "--limit",
+        "100",
+        "--json",
+        "number,title,url",
+    ];
+    if let Some(label) = extra_label {
+        args.push("--label");
+        args.push(label);
     }
 
-    Ok(())
+    let output = Command::new("gh")
+        .args(&args)
+        .output()
+        .context("gh issue list の実行に失敗しました")?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        bail!("既存 Issue の取得に失敗しました: {}", stderr.trim());
+    }
+
+    let issues: Vec<ExistingIssue> = serde_json::from_slice(&output.stdout)
+        .context("gh issue list の出力を解析できませんでした")?;
+    Ok(issues)
 }
 
 pub fn determine_target(
