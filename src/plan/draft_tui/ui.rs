@@ -5,7 +5,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, List, ListItem, Paragraph};
 use tui_textarea::TextArea;
 
-use super::state::{AuthStatus, Field, FormState};
+use super::state::{AuthStatus, FetchPhase, Field, FormState, SubmitPhase};
 
 #[derive(Debug, Clone)]
 pub struct LayoutAreas {
@@ -13,26 +13,53 @@ pub struct LayoutAreas {
     pub title: Rect,
     pub desc_label: Rect,
     pub desc_text: Rect,
+    /// 「今回作成」セクション（当前 repo スコープ）
+    pub created: Rect,
+    /// 「既存」セクション（当前 repo スコープの open な kind/plan）
+    pub existing: Rect,
     pub help_bar: Rect,
 }
 
+/// フォーム（左カラム）と「今回作成」「既存」パネル（右カラム）、
+/// 全幅ヘルプバー（最下部）のレイアウトを計算する。
 pub fn compute_layout(area: Rect) -> LayoutAreas {
-    let chunks = Layout::default()
+    let rows = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Min(5), Constraint::Length(3)])
+        .split(area);
+    let main = rows[0];
+    let help_bar = rows[1];
+
+    let cols = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Percentage(58), Constraint::Percentage(42)])
+        .split(main);
+    let form = cols[0];
+    let panel = cols[1];
+
+    let form_chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
             Constraint::Length(3),
             Constraint::Length(3),
             Constraint::Length(3),
-            Constraint::Min(5),
-            Constraint::Length(3),
+            Constraint::Min(3),
         ])
-        .split(area);
+        .split(form);
+
+    let panel_chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Percentage(35), Constraint::Percentage(65)])
+        .split(panel);
+
     LayoutAreas {
-        repo: chunks[0],
-        title: chunks[1],
-        desc_label: chunks[2],
-        desc_text: chunks[3],
-        help_bar: chunks[4],
+        repo: form_chunks[0],
+        title: form_chunks[1],
+        desc_label: form_chunks[2],
+        desc_text: form_chunks[3],
+        created: panel_chunks[0],
+        existing: panel_chunks[1],
+        help_bar,
     }
 }
 
@@ -93,6 +120,7 @@ pub fn draw(
     desc_area: &TextArea,
     hover: Option<ClickTarget>,
     popup_hover: Option<usize>,
+    tick: u64,
 ) {
     let areas = compute_layout(frame.area());
 
@@ -106,11 +134,16 @@ pub fn draw(
         areas.desc_text,
         hover == Some(ClickTarget::Description),
     );
+    draw_created_section(frame, state, areas.created);
+    draw_existing_section(frame, state, areas.existing, tick);
     draw_help_bar(frame, state, areas.help_bar);
 
     if let Some(ref popup) = state.popup {
         draw_repo_popup(frame, state, popup, popup_hover);
     }
+
+    // submit オーバーレイ（送信中ローディング / 失敗エラー）は最前面に描画する
+    draw_submit_overlay(frame, state, tick);
 }
 
 fn field_style(focused: bool) -> Style {
@@ -287,10 +320,15 @@ fn auth_status_span(status: AuthStatus) -> Span<'static> {
 }
 
 fn draw_help_bar(frame: &mut Frame, state: &FormState, area: Rect) {
-    let hints = if state.popup.is_some() {
-        "↑↓: 移動  Enter: 選択  Esc: 閉じる  入力: 絞り込み"
-    } else {
-        "Tab/Shift-Tab: 移動  Enter: リポ選択  Ctrl+S: 送信  Esc: キャンセル"
+    let hints = match state.submit_phase {
+        SubmitPhase::Submitting => "送信中...（完了まで esc / ctrl+C は無効です）",
+        SubmitPhase::Error(_) => "何かキーを押すとフォームに戻ります",
+        SubmitPhase::Idle if state.popup.is_some() => {
+            "↑↓: 移動  Enter: 選択  Esc: 閉じる  入力: 絞り込み"
+        }
+        SubmitPhase::Idle => {
+            "Tab/Shift-Tab: 移動  Enter: リポ選択  Ctrl+S: 送信  Esc/Ctrl+C: 終了"
+        }
     };
 
     let paragraph = Paragraph::new(vec![
@@ -345,6 +383,177 @@ fn draw_repo_popup(
 
     let list = List::new(items).block(block);
     frame.render_widget(list, area);
+}
+
+/// 「今回作成」セクション。当前 repo スコープ、最新が先頭。
+fn draw_created_section(frame: &mut Frame, state: &FormState, area: Rect) {
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::DarkGray))
+        .title(Span::styled(
+            format!(" 🎉 今回作成 ({}) ", state.created_issues.len()),
+            Style::default().fg(Color::Green).add_modifier(Modifier::BOLD),
+        ));
+
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+
+    if state.created_issues.is_empty() {
+        let placeholder = Paragraph::new(Span::styled(
+            " (まだありません)",
+            Style::default().fg(Color::DarkGray),
+        ));
+        frame.render_widget(placeholder, inner);
+        return;
+    }
+
+    let items: Vec<ListItem> = state
+        .created_issues
+        .iter()
+        .map(|issue| {
+            ListItem::new(Line::from(vec![
+                Span::styled(" ✔ ", Style::default().fg(Color::Green)),
+                Span::styled(issue.title.as_str(), Style::default().fg(Color::White)),
+            ]))
+        })
+        .collect();
+    let list = List::new(items);
+    frame.render_widget(list, inner);
+}
+
+/// 「既存」セクション。当前 repo スコープの open な kind/plan Issue。
+/// fetch 中はローディング表示、失敗時はエラーを表示する。
+fn draw_existing_section(frame: &mut Frame, state: &FormState, area: Rect, tick: u64) {
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::DarkGray))
+        .title(Span::styled(
+            " 📋 既存の計画 ".to_string(),
+            Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+        ));
+
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+
+    match state.fetch_phase {
+        FetchPhase::Idle => {
+            let placeholder = Paragraph::new(Span::styled(
+                " (リポジトリを選択してください)",
+                Style::default().fg(Color::DarkGray),
+            ));
+            frame.render_widget(placeholder, inner);
+        }
+        FetchPhase::Loading => {
+            let spinner = spinner_frame(tick);
+            let loading = Paragraph::new(Line::from(vec![
+                Span::styled(format!(" {spinner} "), Style::default().fg(Color::Yellow)),
+                Span::styled("読み込み中...", Style::default().fg(Color::Yellow)),
+            ]));
+            frame.render_widget(loading, inner);
+        }
+        FetchPhase::Loaded => {
+            if state.existing_issues.is_empty() {
+                let placeholder = Paragraph::new(Span::styled(
+                    " (open な計画 Issue はありません)",
+                    Style::default().fg(Color::DarkGray),
+                ));
+                frame.render_widget(placeholder, inner);
+            } else {
+                let items: Vec<ListItem> = state
+                    .existing_issues
+                    .iter()
+                    .map(|issue| {
+                        ListItem::new(Line::from(vec![
+                            Span::styled(
+                                format!(" #{} ", issue.number),
+                                Style::default().fg(Color::DarkGray),
+                            ),
+                            Span::styled(issue.title.as_str(), Style::default().fg(Color::White)),
+                        ]))
+                    })
+                    .collect();
+                let list = List::new(items);
+                frame.render_widget(list, inner);
+            }
+        }
+        FetchPhase::Failed(ref msg) => {
+            let error = Paragraph::new(Span::styled(
+                format!(" ✖ {msg}"),
+                Style::default().fg(Color::Red),
+            ));
+            frame.render_widget(error, inner);
+        }
+    }
+}
+
+/// submit 中のローディングオーバーレイ、または失敗時のエラーオーバーレイを描画する。
+/// Idle の場合は何もしない。
+fn draw_submit_overlay(frame: &mut Frame, state: &FormState, tick: u64) {
+    match state.submit_phase {
+        SubmitPhase::Idle => {}
+        SubmitPhase::Submitting => {
+            let area = centered_rect(50, 20, frame.area());
+            frame.render_widget(Clear, area);
+            let block = Block::default()
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(Color::Yellow))
+                .title(Span::styled(
+                    " 送信中 ",
+                    Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+                ));
+            let inner = block.inner(area);
+            frame.render_widget(block, area);
+
+            let spinner = spinner_frame(tick);
+            let body = Paragraph::new(vec![
+                Line::from(""),
+                Line::from(vec![
+                    Span::styled(format!("  {spinner} "), Style::default().fg(Color::Yellow)),
+                    Span::styled("Issue を作成しています...", Style::default().fg(Color::White)),
+                ]),
+                Line::from(Span::styled(
+                    "  （完了まで esc / ctrl+C は無効です）",
+                    Style::default().fg(Color::DarkGray),
+                )),
+            ])
+            .alignment(Alignment::Left);
+            frame.render_widget(body, inner);
+        }
+        SubmitPhase::Error(ref msg) => {
+            let area = centered_rect(70, 40, frame.area());
+            frame.render_widget(Clear, area);
+            let block = Block::default()
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(Color::Red))
+                .title(Span::styled(
+                    " エラー ",
+                    Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+                ));
+            let inner = block.inner(area);
+            frame.render_widget(block, area);
+
+            let mut lines: Vec<Line> = vec![Line::from("")];
+            for line in msg.lines() {
+                lines.push(Line::from(Span::styled(
+                    format!("  {line}"),
+                    Style::default().fg(Color::Red),
+                )));
+            }
+            lines.push(Line::from(""));
+            lines.push(Line::from(Span::styled(
+                "  何かキーを押すとフォームに戻ります（入力は保持されます）",
+                Style::default().fg(Color::DarkGray),
+            )));
+            let body = Paragraph::new(lines).alignment(Alignment::Left);
+            frame.render_widget(body, inner);
+        }
+    }
+}
+
+/// ローディングアニメーション用のスピナーフレームを tick から選ぶ。
+fn spinner_frame(tick: u64) -> &'static str {
+    const FRAMES: &[&str] = &["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+    FRAMES[(tick as usize) % FRAMES.len()]
 }
 
 fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
@@ -430,18 +639,35 @@ mod tests {
     }
 
     #[test]
-    fn compute_layout_splits_five_regions() {
+    fn compute_layout_splits_form_panel_and_help_bar() {
         let areas = compute_layout(test_area());
+        // フォーム（左カラム）は上部から縦積み
         assert_eq!(areas.repo.height, 3);
         assert_eq!(areas.title.height, 3);
         assert_eq!(areas.desc_label.height, 3);
-        assert!(areas.desc_text.height >= 5);
-        assert_eq!(areas.help_bar.height, 3);
+        assert!(areas.desc_text.height >= 3);
         assert_eq!(areas.repo.y, 0);
         assert_eq!(areas.title.y, 3);
         assert_eq!(areas.desc_label.y, 6);
         assert_eq!(areas.desc_text.y, 9);
+        // フォームは左カラム（x=0 起点）
+        assert_eq!(areas.repo.x, 0);
+        // 「今回作成」「既存」は右カラム（フォームより右）
+        assert!(areas.created.x > areas.repo.x);
+        assert!(areas.existing.x > areas.repo.x);
+        assert!(areas.existing.y >= areas.created.y + areas.created.height);
+        // ヘルプバーは最下部の全幅
+        assert_eq!(areas.help_bar.height, 3);
         assert_eq!(areas.help_bar.y, 37);
+    }
+
+    #[test]
+    fn spinner_frame_cycles() {
+        assert_eq!(spinner_frame(0), "⠋");
+        assert_eq!(spinner_frame(1), "⠙");
+        // 周期は 10
+        assert_eq!(spinner_frame(10), "⠋");
+        assert_eq!(spinner_frame(11), "⠙");
     }
 
     #[test]

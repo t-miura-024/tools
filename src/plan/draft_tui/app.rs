@@ -16,27 +16,35 @@ use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
 use tui_textarea::{CursorMove, TextArea};
 
-use super::state::{AuthStatus, Field, FormState};
+use crate::plan::draft::{self, CreatedIssue, ExistingIssue, PlanConfig};
+
+use super::state::{AuthStatus, FetchPhase, Field, FormState, SubmitPhase};
 use super::ui;
 use super::ui::ClickTarget;
 
-pub struct DraftInput {
-    pub repo_path: PathBuf,
-    pub title: String,
-    pub description: String,
-}
+/// submit スレッドからの結果。stale 判定のため起票時の repo_path を添える。
+/// 成功時は作成 Issue、失敗時はエラーメッセージ。
+type SubmitResult = (PathBuf, Result<CreatedIssue, String>);
+/// fetch スレッドからの結果。stale 判定のため repo_path を添える。
+type FetchResult = (PathBuf, Result<Vec<ExistingIssue>, String>);
 
 /// フォーム TUI を起動する。
 ///
 /// `auth_rx` は `draft.rs` 側で起動されたバックグラウンド認証チェック
 /// （`gh auth status`）の結果チャンネル。送信値は `true` = 認証成功、
 /// `false` = 認証失敗。イベントループ内でポーリングされ `AuthStatus` に反映される。
-pub fn run_tui(auth_rx: mpsc::Receiver<bool>) -> anyhow::Result<Option<DraftInput>> {
+///
+/// submit（Issue 作成）と既存 Issue fetch は TUI 内のバックグラウンドスレッドで
+/// 実行され、イベントループはチャネル経由で結果を受け取って描画する。
+/// 終了時（esc / ctrl+C、submit 中以外）に今回セッションで作成した Issue 一覧を返す。
+pub fn run_tui(
+    config: PlanConfig,
+    auth_rx: mpsc::Receiver<bool>,
+) -> anyhow::Result<Vec<CreatedIssue>> {
     let repos = load_repos()?;
     let mut state = FormState::new(repos);
     apply_cwd_default_selection(&mut state);
-    let mut desc_area = TextArea::default();
-    desc_area.set_placeholder_text("説明を入力...（複数行可）");
+    let mut desc_area = new_desc_area();
 
     let mut stdout = io::stdout();
     stdout
@@ -49,7 +57,7 @@ pub fn run_tui(auth_rx: mpsc::Receiver<bool>) -> anyhow::Result<Option<DraftInpu
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend).context("ターミナルの作成に失敗しました")?;
 
-    let result = event_loop(&mut terminal, &mut state, &mut desc_area, &auth_rx);
+    let result = event_loop(&mut terminal, &mut state, &mut desc_area, &auth_rx, &config);
 
     disable_raw_mode()?;
     execute!(
@@ -59,6 +67,12 @@ pub fn run_tui(auth_rx: mpsc::Receiver<bool>) -> anyhow::Result<Option<DraftInpu
     )?;
 
     result
+}
+
+fn new_desc_area() -> TextArea<'static> {
+    let mut desc_area = TextArea::default();
+    desc_area.set_placeholder_text("説明を入力...（複数行可）");
+    desc_area
 }
 
 fn load_repos() -> anyhow::Result<Vec<crate::git::repo::repo_discover::RepoEntry>> {
@@ -91,14 +105,40 @@ fn event_loop(
     state: &mut FormState,
     desc_area: &mut TextArea,
     auth_rx: &mpsc::Receiver<bool>,
-) -> anyhow::Result<Option<DraftInput>> {
+    config: &PlanConfig,
+) -> anyhow::Result<Vec<CreatedIssue>> {
     let mut hover: Option<ClickTarget> = None;
     let mut popup_hover: Option<usize> = None;
+    let mut tick: u64 = 0;
+
+    // バックグラウンドジョブの結果チャンネル（必要時に生成）
+    let mut submit_rx: Option<mpsc::Receiver<SubmitResult>> = None;
+    let mut fetch_rx: Option<mpsc::Receiver<FetchResult>> = None;
+
+    // セッション全体で作成した Issue（終了時のサマリー用）
+    let mut session_created: Vec<CreatedIssue> = Vec::new();
+
+    // repo 切替検出用。初期値 None とし、起動時のデフォルト選択も fetch を発火させる。
+    let mut last_repo: Option<PathBuf> = None;
+
     loop {
         // バックグラウンド認証結果をポーリング（未確定の間のみ更新）
         update_auth_status(state, auth_rx);
 
-        terminal.draw(|frame| ui::draw(frame, state, desc_area, hover, popup_hover))?;
+        // repo 切替を検出し、「今回作成」「既存」を当前 repo スコープに更新する。
+        if state.repo_path != last_repo {
+            on_repo_changed(state, config, &mut fetch_rx);
+            last_repo = state.repo_path.clone();
+        }
+
+        // 既存 Issue fetch 結果をポーリング
+        poll_fetch_result(state, &mut fetch_rx);
+
+        // submit 結果をポーリング（完了後もループ継続、戻り値はテスト用にのみ使用）
+        let _ = poll_submit_result(state, desc_area, &mut submit_rx, &mut session_created);
+
+        terminal.draw(|frame| ui::draw(frame, state, desc_area, hover, popup_hover, tick))?;
+        tick = tick.wrapping_add(1);
 
         if !event::poll(Duration::from_millis(100))? {
             continue;
@@ -120,19 +160,150 @@ fn event_loop(
         };
 
         match action {
-            Some(LoopAction::SubmitRequested) => {
-                return Ok(build_input(state, desc_area));
+            Some(LoopAction::StartSubmit) => {
+                start_submit(state, desc_area, config, &mut submit_rx);
             }
             Some(LoopAction::Cancel) => {
-                return Ok(None);
+                return Ok(session_created);
             }
             None => {}
         }
     }
 }
 
+/// repo 切替時: 「今回作成」「既存」をクリアし、選択 repo があれば既存 Issue の
+/// 非同期 fetch を発火する（fetch 中はローディング表示）。
+fn on_repo_changed(
+    state: &mut FormState,
+    config: &PlanConfig,
+    fetch_rx: &mut Option<mpsc::Receiver<FetchResult>>,
+) {
+    state.created_issues.clear();
+    state.existing_issues.clear();
+
+    let Some(repo_path) = state.repo_path.clone() else {
+        state.fetch_phase = FetchPhase::Idle;
+        *fetch_rx = None;
+        return;
+    };
+
+    state.fetch_phase = FetchPhase::Loading;
+    let (tx, rx) = mpsc::channel();
+    *fetch_rx = Some(rx);
+    let config_owner = config.owner.clone();
+    std::thread::spawn(move || {
+        let result = draft::fetch_existing_for_repo(&repo_path, &config_owner)
+            .map_err(|e| e.to_string());
+        let _ = tx.send((repo_path, result));
+    });
+}
+
+/// 既存 Issue fetch 結果を非ブロッキングでポーリングし、当前 repo の結果のみ反映する。
+fn poll_fetch_result(state: &mut FormState, fetch_rx: &mut Option<mpsc::Receiver<FetchResult>>) {
+    let Some(rx) = fetch_rx.as_ref() else {
+        return;
+    };
+    match rx.try_recv() {
+        Ok((path, result)) => {
+            // stale ガード: 既に別の repo に切替済みの結果は破棄する
+            if Some(path) == state.repo_path {
+                match result {
+                    Ok(issues) => {
+                        state.existing_issues = issues;
+                        state.fetch_phase = FetchPhase::Loaded;
+                    }
+                    Err(msg) => {
+                        state.existing_issues.clear();
+                        state.fetch_phase = FetchPhase::Failed(msg);
+                    }
+                }
+            }
+            *fetch_rx = None;
+        }
+        Err(mpsc::TryRecvError::Empty) => {}
+        Err(mpsc::TryRecvError::Disconnected) => {
+            if state.fetch_phase == FetchPhase::Loading {
+                state.fetch_phase = FetchPhase::Failed("fetch スレッドが異常終了しました".to_string());
+            }
+            *fetch_rx = None;
+        }
+    }
+}
+
+/// submit 結果を非ブロッキングでポーリングする。
+///
+/// - 成功: セッション一覧に追加する。起票時の repo が当前 repo と一致する場合のみ
+///   「今回作成」に追加し title/description をクリアする（repo 切替後の stale 結果で
+///   別 repo の入力やセクションを汚さないため）。
+/// - 失敗: エラーメッセージをオーバーレイ表示（title/description は保持）
+///
+/// 結果を受信した（完了した）場合に `true` を返す。
+fn poll_submit_result(
+    state: &mut FormState,
+    desc_area: &mut TextArea,
+    submit_rx: &mut Option<mpsc::Receiver<SubmitResult>>,
+    session_created: &mut Vec<CreatedIssue>,
+) -> bool {
+    let Some(rx) = submit_rx.as_ref() else {
+        return false;
+    };
+    match rx.try_recv() {
+        Ok((path, Ok(issue))) => {
+            session_created.push(issue.clone());
+            // 当前 repo スコープの起票のみフォーム反映（stale ガード）
+            if Some(path) == state.repo_path {
+                state.record_created(issue);
+                *desc_area = new_desc_area();
+            }
+            state.submit_phase = SubmitPhase::Idle;
+            *submit_rx = None;
+            true
+        }
+        Ok((_path, Err(msg))) => {
+            state.submit_phase = SubmitPhase::Error(msg);
+            *submit_rx = None;
+            true
+        }
+        Err(mpsc::TryRecvError::Empty) => false,
+        Err(mpsc::TryRecvError::Disconnected) => {
+            state.submit_phase =
+                SubmitPhase::Error("送信スレッドが異常終了しました".to_string());
+            *submit_rx = None;
+            true
+        }
+    }
+}
+
+/// ctrl+S 押下時に submit をバックグラウンドスレッドで開始する。
+fn start_submit(
+    state: &mut FormState,
+    desc_area: &TextArea,
+    config: &PlanConfig,
+    submit_rx: &mut Option<mpsc::Receiver<SubmitResult>>,
+) {
+    let Some(repo_path) = state.repo_path.clone() else {
+        return;
+    };
+    let title = state.title.trim().to_string();
+    let description = desc_area.lines().join("\n");
+    state.submit_phase = SubmitPhase::Submitting;
+
+    let (tx, rx) = mpsc::channel();
+    *submit_rx = Some(rx);
+    let config = config.clone();
+    std::thread::spawn(move || {
+        let result = draft::submit_draft(&config, &repo_path, &title, &description)
+            .map(|url| CreatedIssue {
+                title: title.clone(),
+                url,
+            })
+            .map_err(|e| e.to_string());
+        let _ = tx.send((repo_path, result));
+    });
+}
+
 enum LoopAction {
-    SubmitRequested,
+    StartSubmit,
     Cancel,
 }
 
@@ -170,6 +341,18 @@ fn handle_key_event(
     state: &mut FormState,
     desc_area: &mut TextArea,
 ) -> Option<LoopAction> {
+    // submit 状態に応じたキー制御
+    match state.submit_phase {
+        // 送信中は esc / ctrl+C を含めすべてのキーを無視する
+        SubmitPhase::Submitting => return None,
+        // エラー表示中は任意のキー押下でフォームに戻る（入力は保持）
+        SubmitPhase::Error(_) => {
+            state.submit_phase = SubmitPhase::Idle;
+            return None;
+        }
+        SubmitPhase::Idle => {}
+    }
+
     if state.popup.is_some() {
         match handle_popup_key(key, state) {
             PopupAction::Selected => {}
@@ -181,7 +364,7 @@ fn handle_key_event(
 
     match handle_form_key(key, state, desc_area) {
         FormAction::Submit => {
-            return Some(LoopAction::SubmitRequested);
+            return Some(LoopAction::StartSubmit);
         }
         FormAction::Cancel => {
             return Some(LoopAction::Cancel);
@@ -219,6 +402,11 @@ fn handle_mouse_event(
     hover: &mut Option<ClickTarget>,
     popup_hover: &mut Option<usize>,
 ) -> Option<LoopAction> {
+    // submit 中・エラー表示中はマウス操作を無視する
+    if state.submit_phase != SubmitPhase::Idle {
+        return None;
+    }
+
     let (x, y) = (mouse.column, mouse.row);
 
     match mouse.kind {
@@ -290,14 +478,6 @@ fn handle_mouse_event(
         *popup_hover = None;
     }
     None
-}
-
-fn build_input(state: &FormState, desc_area: &TextArea) -> Option<DraftInput> {
-    Some(DraftInput {
-        repo_path: state.repo_path.clone()?,
-        title: state.title.trim().to_string(),
-        description: desc_area.lines().join("\n"),
-    })
 }
 
 enum FormAction {
@@ -459,5 +639,193 @@ mod tests {
         update_auth_status(&mut state, &rx);
         assert_eq!(state.auth_status, AuthStatus::Authenticated);
     }
-}
 
+    /// submit 成功（当前 repo 一致）: 「今回作成」に追加され、title/description が
+    /// クリアされ、Idle に戻る。
+    #[test]
+    fn poll_submit_result_success_records_and_clears() {
+        let mut state = FormState::new(vec![]);
+        state.repo_path = Some(PathBuf::from("/home/user/src/tools"));
+        state.submit_phase = SubmitPhase::Submitting;
+        state.title = "my title".to_string();
+        state.title_cursor = 8;
+        let mut desc_area = new_desc_area();
+        desc_area.insert_str("some description");
+        let mut session_created = Vec::new();
+
+        let (tx, rx) = mpsc::channel();
+        let mut submit_rx = Some(rx);
+        tx.send((
+            PathBuf::from("/home/user/src/tools"),
+            Ok(CreatedIssue {
+                title: "my title".to_string(),
+                url: "https://github.com/o/r/issues/1".to_string(),
+            }),
+        ))
+        .unwrap();
+
+        let completed = poll_submit_result(&mut state, &mut desc_area, &mut submit_rx, &mut session_created);
+        assert!(completed);
+        assert_eq!(state.submit_phase, SubmitPhase::Idle);
+        assert_eq!(state.created_issues.len(), 1);
+        assert_eq!(state.created_issues[0].url, "https://github.com/o/r/issues/1");
+        assert!(state.title.is_empty());
+        assert_eq!(state.title_cursor, 0);
+        assert!(desc_area.lines().iter().all(|l| l.is_empty()));
+        assert_eq!(session_created.len(), 1);
+        assert!(submit_rx.is_none());
+    }
+
+    /// submit 成功だが repo 切替済み（stale）: セッション一覧には追加されるが、
+    /// 当前 repo の「今回作成」や入力には反映されない。
+    #[test]
+    fn poll_submit_result_success_stale_repo_does_not_touch_form() {
+        let mut state = FormState::new(vec![]);
+        state.repo_path = Some(PathBuf::from("/home/user/src/webapp"));
+        state.submit_phase = SubmitPhase::Submitting;
+        state.title = "new repo title".to_string();
+        state.title_cursor = 13;
+        let mut desc_area = new_desc_area();
+        desc_area.insert_str("new repo desc");
+        let mut session_created = Vec::new();
+
+        let (tx, rx) = mpsc::channel();
+        let mut submit_rx = Some(rx);
+        tx.send((
+            PathBuf::from("/home/user/src/tools"),
+            Ok(CreatedIssue {
+                title: "old repo title".to_string(),
+                url: "https://github.com/o/r/issues/9".to_string(),
+            }),
+        ))
+        .unwrap();
+
+        let completed = poll_submit_result(&mut state, &mut desc_area, &mut submit_rx, &mut session_created);
+        assert!(completed);
+        assert_eq!(state.submit_phase, SubmitPhase::Idle);
+        // セッション一覧には追加される
+        assert_eq!(session_created.len(), 1);
+        // 当前 repo のセクション・入力はそのまま
+        assert!(state.created_issues.is_empty());
+        assert_eq!(state.title, "new repo title");
+        assert_eq!(state.title_cursor, 13);
+        assert_eq!(desc_area.lines().join("\n"), "new repo desc");
+    }
+
+    /// submit 失敗: エラーメッセージがセットされ、title/description は保持される。
+    #[test]
+    fn poll_submit_result_error_preserves_input() {
+        let mut state = FormState::new(vec![]);
+        state.repo_path = Some(PathBuf::from("/home/user/src/tools"));
+        state.submit_phase = SubmitPhase::Submitting;
+        state.title = "keep me".to_string();
+        state.title_cursor = 7;
+        let mut desc_area = new_desc_area();
+        desc_area.insert_str("keep this desc");
+        let mut session_created = Vec::new();
+
+        let (tx, rx) = mpsc::channel();
+        let mut submit_rx = Some(rx);
+        tx.send((
+            PathBuf::from("/home/user/src/tools"),
+            Err("boom".to_string()),
+        ))
+        .unwrap();
+
+        let completed = poll_submit_result(&mut state, &mut desc_area, &mut submit_rx, &mut session_created);
+        assert!(completed);
+        assert_eq!(state.submit_phase, SubmitPhase::Error("boom".to_string()));
+        assert_eq!(state.title, "keep me");
+        assert_eq!(state.title_cursor, 7);
+        assert_eq!(desc_area.lines().join("\n"), "keep this desc");
+        assert!(state.created_issues.is_empty());
+        assert!(session_created.is_empty());
+    }
+
+    /// submit 結果未到着: 状態変化なし、`false` を返す。
+    #[test]
+    fn poll_submit_result_empty_no_change() {
+        let mut state = FormState::new(vec![]);
+        state.submit_phase = SubmitPhase::Submitting;
+        let mut desc_area = new_desc_area();
+        let mut session_created = Vec::new();
+
+        let (_tx, rx) = mpsc::channel();
+        let mut submit_rx = Some(rx);
+        let completed = poll_submit_result(&mut state, &mut desc_area, &mut submit_rx, &mut session_created);
+        assert!(!completed);
+        assert_eq!(state.submit_phase, SubmitPhase::Submitting);
+        assert!(submit_rx.is_some());
+    }
+
+    /// fetch 結果: 当前 repo の結果のみ反映される。
+    #[test]
+    fn poll_fetch_result_applies_matching_repo() {
+        let mut state = FormState::new(vec![]);
+        state.repo_path = Some(PathBuf::from("/home/user/src/tools"));
+        state.fetch_phase = FetchPhase::Loading;
+
+        let (tx, rx) = mpsc::channel();
+        let mut fetch_rx = Some(rx);
+        tx.send((
+            PathBuf::from("/home/user/src/tools"),
+            Ok(vec![ExistingIssue {
+                number: 5,
+                title: "existing".to_string(),
+                url: "https://github.com/o/r/issues/5".to_string(),
+            }]),
+        ))
+        .unwrap();
+
+        poll_fetch_result(&mut state, &mut fetch_rx);
+        assert_eq!(state.fetch_phase, FetchPhase::Loaded);
+        assert_eq!(state.existing_issues.len(), 1);
+        assert_eq!(state.existing_issues[0].number, 5);
+        assert!(fetch_rx.is_none());
+    }
+
+    /// fetch 結果: stale（別 repo に切替済み）の結果は破棄される。
+    #[test]
+    fn poll_fetch_result_ignores_stale_repo() {
+        let mut state = FormState::new(vec![]);
+        state.repo_path = Some(PathBuf::from("/home/user/src/webapp"));
+        state.fetch_phase = FetchPhase::Loading;
+
+        let (tx, rx) = mpsc::channel();
+        let mut fetch_rx = Some(rx);
+        tx.send((
+            PathBuf::from("/home/user/src/tools"),
+            Ok(vec![ExistingIssue {
+                number: 5,
+                title: "stale".to_string(),
+                url: "https://github.com/o/r/issues/5".to_string(),
+            }]),
+        ))
+        .unwrap();
+
+        poll_fetch_result(&mut state, &mut fetch_rx);
+        assert_eq!(state.fetch_phase, FetchPhase::Loading);
+        assert!(state.existing_issues.is_empty());
+        assert!(fetch_rx.is_none());
+    }
+
+    /// fetch 失敗: Failed 状態に遷移する。
+    #[test]
+    fn poll_fetch_result_failure_sets_failed() {
+        let mut state = FormState::new(vec![]);
+        state.repo_path = Some(PathBuf::from("/home/user/src/tools"));
+        state.fetch_phase = FetchPhase::Loading;
+
+        let (tx, rx) = mpsc::channel();
+        let mut fetch_rx = Some(rx);
+        tx.send((
+            PathBuf::from("/home/user/src/tools"),
+            Err("network error".to_string()),
+        ))
+        .unwrap();
+
+        poll_fetch_result(&mut state, &mut fetch_rx);
+        assert_eq!(state.fetch_phase, FetchPhase::Failed("network error".to_string()));
+        assert!(state.existing_issues.is_empty());
+    }
+}
