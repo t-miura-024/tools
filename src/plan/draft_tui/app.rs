@@ -13,7 +13,7 @@ use crossterm::ExecutableCommand;
 use crossterm::execute;
 use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
-use tui_textarea::TextArea;
+use tui_textarea::{CursorMove, TextArea};
 
 use super::state::{Field, FormState};
 use super::ui;
@@ -104,7 +104,7 @@ fn event_loop(
             }
             Event::Mouse(mouse) => {
                 let frame_area = terminal.get_frame().area();
-                handle_mouse_event(mouse, state, frame_area, &mut hover, &mut popup_hover)
+                handle_mouse_event(mouse, state, desc_area, frame_area, &mut hover, &mut popup_hover)
             }
             _ => None,
         };
@@ -175,6 +175,7 @@ fn update_hover(
 fn handle_mouse_event(
     mouse: MouseEvent,
     state: &mut FormState,
+    desc_area: &mut TextArea,
     frame_area: ratatui::layout::Rect,
     hover: &mut Option<ClickTarget>,
     popup_hover: &mut Option<usize>,
@@ -194,6 +195,7 @@ fn handle_mouse_event(
 
     let Some(popup) = state.popup.as_mut() else {
         if let Some(target) = *hover {
+            let areas = ui::compute_layout(frame_area);
             match target {
                 ClickTarget::Repo => {
                     state.focus = Field::Repo;
@@ -202,9 +204,39 @@ fn handle_mouse_event(
                 }
                 ClickTarget::Title => {
                     state.focus = Field::Title;
+                    state.title_cursor = ui::title_click_to_cursor(x, &areas.title, &state.title);
                 }
                 ClickTarget::Description => {
                     state.focus = Field::Description;
+                    let desc_full = ratatui::layout::Rect {
+                        x: areas.desc_label.x,
+                        y: areas.desc_label.y,
+                        width: areas.desc_label.width,
+                        height: areas.desc_label.height + areas.desc_text.height,
+                    };
+                    let lines: Vec<String> =
+                        desc_area.lines().iter().map(|s| s.to_string()).collect();
+                    let (target_row, target_col) = ui::desc_click_to_row_col(
+                        x,
+                        y,
+                        &desc_full,
+                        state.desc_scroll_top,
+                        &lines,
+                    );
+                    let (cur_row, _cur_col) = desc_area.cursor();
+                    if target_row > cur_row {
+                        for _ in 0..(target_row - cur_row) {
+                            desc_area.move_cursor(CursorMove::Down);
+                        }
+                    } else if target_row < cur_row {
+                        for _ in 0..(cur_row - target_row) {
+                            desc_area.move_cursor(CursorMove::Up);
+                        }
+                    }
+                    desc_area.move_cursor(CursorMove::Head);
+                    for _ in 0..target_col {
+                        desc_area.move_cursor(CursorMove::Forward);
+                    }
                 }
             }
         }

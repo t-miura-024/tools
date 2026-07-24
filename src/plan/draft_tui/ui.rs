@@ -359,6 +359,48 @@ fn unicode_width(s: &str) -> u16 {
         .sum()
 }
 
+pub fn title_click_to_cursor(click_x: u16, area: &Rect, title: &str) -> usize {
+    let text_start = area.x + 2;
+    let click_col = click_x.saturating_sub(text_start);
+    let mut acc_width: u16 = 0;
+    for (byte_pos, c) in title.char_indices() {
+        let char_w: u16 = if c.is_ascii() { 1 } else { 2 };
+        if acc_width + char_w > click_col {
+            return byte_pos;
+        }
+        acc_width += char_w;
+    }
+    title.len()
+}
+
+pub fn desc_click_to_row_col(
+    click_x: u16,
+    click_y: u16,
+    area: &Rect,
+    scroll_top: usize,
+    lines: &[String],
+) -> (usize, usize) {
+    if lines.is_empty() {
+        return (0, 0);
+    }
+    let inner_x = area.x + 1;
+    let inner_y = area.y + 1;
+    let row = (click_y.saturating_sub(inner_y) as usize + scroll_top).min(lines.len() - 1);
+    let click_col = click_x.saturating_sub(inner_x);
+    let line = &lines[row];
+    let mut acc_width: u16 = 0;
+    let mut col = 0usize;
+    for c in line.chars() {
+        let char_w: u16 = if c.is_ascii() { 1 } else { 2 };
+        if acc_width + char_w > click_col {
+            break;
+        }
+        acc_width += char_w;
+        col += 1;
+    }
+    (row, col)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -447,6 +489,112 @@ mod tests {
     fn popup_hit_test_border_not_item() {
         let popup_area = Rect::new(15, 6, 70, 28);
         assert_eq!(popup_hit_test(20, 6, popup_area, 10), None);
+    }
+
+    #[test]
+    fn title_click_ascii() {
+        let area = Rect::new(0, 3, 100, 3);
+        assert_eq!(title_click_to_cursor(2, &area, "hello"), 0);
+        assert_eq!(title_click_to_cursor(3, &area, "hello"), 1);
+        assert_eq!(title_click_to_cursor(5, &area, "hello"), 3);
+        assert_eq!(title_click_to_cursor(7, &area, "hello"), 5);
+        assert_eq!(title_click_to_cursor(50, &area, "hello"), 5);
+    }
+
+    #[test]
+    fn title_click_unicode() {
+        let area = Rect::new(0, 3, 100, 3);
+        assert_eq!(title_click_to_cursor(2, &area, "日本語"), 0);
+        assert_eq!(title_click_to_cursor(3, &area, "日本語"), 0);
+        assert_eq!(title_click_to_cursor(4, &area, "日本語"), 3);
+        assert_eq!(title_click_to_cursor(5, &area, "日本語"), 3);
+        assert_eq!(title_click_to_cursor(6, &area, "日本語"), 6);
+        assert_eq!(title_click_to_cursor(7, &area, "日本語"), 6);
+        assert_eq!(title_click_to_cursor(8, &area, "日本語"), 9);
+    }
+
+    #[test]
+    fn title_click_mixed() {
+        let area = Rect::new(0, 3, 100, 3);
+        assert_eq!(title_click_to_cursor(2, &area, "a日b"), 0);
+        assert_eq!(title_click_to_cursor(3, &area, "a日b"), 1);
+        assert_eq!(title_click_to_cursor(4, &area, "a日b"), 1);
+        assert_eq!(title_click_to_cursor(5, &area, "a日b"), 4);
+        assert_eq!(title_click_to_cursor(6, &area, "a日b"), 5);
+    }
+
+    #[test]
+    fn title_click_empty() {
+        let area = Rect::new(0, 3, 100, 3);
+        assert_eq!(title_click_to_cursor(5, &area, ""), 0);
+    }
+
+    #[test]
+    fn title_click_before_text_start() {
+        let area = Rect::new(0, 3, 100, 3);
+        assert_eq!(title_click_to_cursor(0, &area, "hello"), 0);
+        assert_eq!(title_click_to_cursor(1, &area, "hello"), 0);
+    }
+
+    #[test]
+    fn desc_click_basic() {
+        let area = Rect::new(0, 6, 100, 10);
+        let lines = vec![
+            "hello".to_string(),
+            "world".to_string(),
+            "foo".to_string(),
+        ];
+        assert_eq!(desc_click_to_row_col(1, 7, &area, 0, &lines), (0, 0));
+        assert_eq!(desc_click_to_row_col(3, 7, &area, 0, &lines), (0, 2));
+        assert_eq!(desc_click_to_row_col(1, 8, &area, 0, &lines), (1, 0));
+        assert_eq!(desc_click_to_row_col(4, 9, &area, 0, &lines), (2, 3));
+    }
+
+    #[test]
+    fn desc_click_with_scroll() {
+        let area = Rect::new(0, 6, 100, 10);
+        let lines = vec![
+            "line0".to_string(),
+            "line1".to_string(),
+            "line2".to_string(),
+            "line3".to_string(),
+        ];
+        assert_eq!(desc_click_to_row_col(1, 7, &area, 2, &lines), (2, 0));
+        assert_eq!(desc_click_to_row_col(1, 8, &area, 2, &lines), (3, 0));
+    }
+
+    #[test]
+    fn desc_click_clamps_row() {
+        let area = Rect::new(0, 6, 100, 10);
+        let lines = vec!["only".to_string()];
+        assert_eq!(desc_click_to_row_col(50, 20, &area, 0, &lines), (0, 4));
+    }
+
+    #[test]
+    fn desc_click_unicode() {
+        let area = Rect::new(0, 6, 100, 10);
+        let lines = vec!["日本語".to_string()];
+        assert_eq!(desc_click_to_row_col(1, 7, &area, 0, &lines), (0, 0));
+        assert_eq!(desc_click_to_row_col(2, 7, &area, 0, &lines), (0, 0));
+        assert_eq!(desc_click_to_row_col(3, 7, &area, 0, &lines), (0, 1));
+        assert_eq!(desc_click_to_row_col(4, 7, &area, 0, &lines), (0, 1));
+        assert_eq!(desc_click_to_row_col(5, 7, &area, 0, &lines), (0, 2));
+        assert_eq!(desc_click_to_row_col(6, 7, &area, 0, &lines), (0, 2));
+        assert_eq!(desc_click_to_row_col(7, 7, &area, 0, &lines), (0, 3));
+    }
+
+    #[test]
+    fn desc_click_empty_lines() {
+        let area = Rect::new(0, 6, 100, 10);
+        let lines: Vec<String> = vec![];
+        assert_eq!(desc_click_to_row_col(5, 7, &area, 0, &lines), (0, 0));
+    }
+
+    #[test]
+    fn desc_click_past_line_end() {
+        let area = Rect::new(0, 6, 100, 10);
+        let lines = vec!["ab".to_string()];
+        assert_eq!(desc_click_to_row_col(50, 7, &area, 0, &lines), (0, 2));
     }
 
 }
