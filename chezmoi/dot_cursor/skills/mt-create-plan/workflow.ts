@@ -47,6 +47,7 @@ function readPrepareDecision(artifacts: ArtifactRecord[]): PrepareDecision | und
 // ---------------------------------------------------------------------------
 
 const PREPARE_DECISION_KEY = 'prepare-decision.json';
+const ISSUE_BODY_KEY = 'issue-body.md';
 const mtPlanDir = join(import.meta.dir, '..', 'mt-plan');
 
 // ---------------------------------------------------------------------------
@@ -110,13 +111,13 @@ const def: WorkflowDef = {
             '### 4. 最終本文の確定',
             '',
             `plan-format.md（${join(mtPlanDir, 'plan-format.md')}）に従い、Issue body の最終本文を確定する。`,
-            '確定した本文をセッションディレクトリに `issue-body.md` として書き出す。',
+            `確定した本文をセッションディレクトリに \`${ISSUE_BODY_KEY}\` として書き出す。`,
             '',
             '## 成果物',
             '',
             'report 時の `artifacts` に以下を含める:',
             '```json',
-            `{"key": "issue-body.md", "path": "${ctx.sessionDir}/issue-body.md"}`,
+            `{"key": "${ISSUE_BODY_KEY}", "path": "${join(ctx.sessionDir, ISSUE_BODY_KEY)}"}`,
             '```',
             '',
             '## セッション情報',
@@ -221,7 +222,7 @@ const def: WorkflowDef = {
       maxRetries: 1,
       onFail: { action: 'abort' },
       humanGate: {
-        presentArtifacts: [PREPARE_DECISION_KEY],
+        presentArtifacts: [ISSUE_BODY_KEY, PREPARE_DECISION_KEY],
         choices: [
           { value: 'approve', label: '承認する', desc: '提示された起票案（分解要否を含む）で進める' },
           { value: 'revise', label: '修正する', desc: 'Grill Phase に戻って内容を再検討する' },
