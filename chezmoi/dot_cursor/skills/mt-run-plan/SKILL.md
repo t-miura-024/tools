@@ -22,10 +22,10 @@ description: >
 
 ## 実装を含む計画の進め方
 
-- 作業はすべて `mt-plan-work-executor` SubAgent に委譲する。オーケストレーターはファイル編集を行わず、ユニットの割り振り・進行管理に専念する
+- 作業はすべて `mt-plan-work-executor` SubAgent に委譲する。オーケストレーターはファイル編集を行わず、ミッションの割り振り・進行管理に専念する
 - executor SubAgent は可能な範囲で合意済み seam に対する TDD（Red → Green）を使う
 - 変更中は typecheck と関連テストをこまめに走らせ、最後に広い検証を 1 回通す
-- レビューは全ユニット完了後に Step 4（`review_work`）で自動実行される（SubAgent `mt-plan-work-reviewer` による 5 軸レビュー）。オーケストレーターが別途 `mt-review-diff` を呼ぶ必要はない
+- レビューは全ミッション完了後に Step 4（`review_work`）で自動実行される（SubAgent `mt-plan-work-reviewer` による 5 軸レビュー）。オーケストレーターが別途 `mt-review-diff` を呼ぶ必要はない
 - 仕様にない振る舞いは追加しない
 
 ## エンジン起動
@@ -57,20 +57,20 @@ bun run ~/.config/opencode/skills/mt-workflow/cli.ts status --session <id>
 |------|-----|------|------|
 | 1 | `identify_plan` | human_gate | 計画 Issue 番号の特定 |
 | 2 | `start_execution` | task | Issue 検証、refined→in-progress 遷移、body 読み込み |
-| 3 | `execute_work` | task | `## 🧩 実行単位` を読み取り、依存解決して executor SubAgent（mt-plan-work-executor）を並列起動。再実行時は agent-review.json + human-feedback.json の指摘を統合して修正指示。セクションなしの場合は計画全体を 1 ユニットとして単一委譲 |
+| 3 | `execute_work` | task | `## 🧩 ミッション` を読み取り、Wave 方式で executor SubAgent（mt-plan-work-executor）を並列起動。再実行時は agent-review.json + human-feedback.json の指摘を統合して修正指示。セクションなしの場合は計画全体を 1 ミッションとして単一委譲 |
 | 4 | `review_work` | task | 証拠収集スクリプト実行 → SubAgent（mt-plan-work-reviewer）委譲。5軸レビュー、agent-review.json 出力。must>0 なら auto-goto execute_work |
 | 5 | `review_followups_gate` | human_gate | should/want の対応要否確認。revise→execute_work（human-feedback.json 書き込み） |
 | 6 | `confirm_done` | human_gate | Done 確認。revise→execute_work（human-feedback.json 書き込み） |
 | 7 | `finalize_done` | task | in-progress→done 遷移（`transition-plan.ts`）、完了報告 |
 
-## 実行単位
+## ミッション
 
-計画 Issue に `## 🧩 実行単位` セクションがある場合、`execute_work` は各ユニットを依存関係に従って executor SubAgent に委譲する。
+計画 Issue に `## 🧩 ミッション` セクションがある場合、`execute_work` は各ミッションを Wave 方式に従って executor SubAgent に委譲する。
 
-- 依存なしのユニット同士は同一メッセージで複数の Task ツール呼び出しにより並列起動される（最大 5 同時）
-- 依存があるユニットは先行ユニットの完了後に起動される
-- セクションがない場合は計画全体を 1 ユニットとして単一の executor SubAgent に委譲する
-- ユニット間でスコープ（対象ファイル）が重複しないように計画作成時に担保する。フォーマットとルールの詳細は `plan-format.md` の `🧩 実行単位` セクションを参照
+- 同じ Wave 内のミッションは同一メッセージで複数の Task ツール呼び出しにより並列起動される（最大 5 同時）
+- 異なる Wave は番号順に直列実行される（Wave 2 は Wave 1 の全ミッション完了後に開始）
+- セクションがない場合は計画全体を 1 ミッションとして単一の executor SubAgent に委譲する
+- ミッション間でスコープ（対象ファイル）が重複しないように計画作成時に担保する。フォーマットとルールの詳細は `plan-format.md` の `🧩 ミッション` セクションを参照
 
 ## レビューループ
 
