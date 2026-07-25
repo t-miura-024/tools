@@ -426,6 +426,74 @@ fn scroll_panel_at(
     }
 }
 
+/// マウスカーソル位置がタイトル欄上にある場合、Shift+ホイールで横スクロールする。
+/// `delta` は表示列単位のスクロール量（負 = 左、正 = 右）。
+fn scroll_title_horizontal(
+    state: &mut FormState,
+    x: u16,
+    y: u16,
+    frame_area: ratatui::layout::Rect,
+    delta: i32,
+) {
+    let areas = ui::compute_layout(frame_area);
+    let pos: ratatui::layout::Position = (x, y).into();
+    if !areas.title.contains(pos) {
+        return;
+    }
+    let new_scroll = (state.title_scroll_left as i32 + delta).max(0) as usize;
+    state.title_scroll_left = new_scroll;
+}
+
+/// マウスカーソル位置が説明欄上にある場合、Shift+ホイールで横スクロールする。
+/// `delta` は表示列単位のスクロール量（負 = 左、正 = 右）。
+fn scroll_desc_horizontal(
+    state: &mut FormState,
+    x: u16,
+    y: u16,
+    frame_area: ratatui::layout::Rect,
+    delta: i32,
+) {
+    let areas = ui::compute_layout(frame_area);
+    let desc_full = ratatui::layout::Rect {
+        x: areas.desc_label.x,
+        y: areas.desc_label.y,
+        width: areas.desc_label.width,
+        height: areas.desc_label.height + areas.desc_text.height,
+    };
+    let pos: ratatui::layout::Position = (x, y).into();
+    if !desc_full.contains(pos) {
+        return;
+    }
+    let new_scroll = (state.desc_scroll_left as i32 + delta).max(0) as usize;
+    state.desc_scroll_left = new_scroll;
+}
+
+/// マウスカーソル位置が説明欄上にある場合、ホイールで縦スクロールする。
+/// `delta` は行単位のスクロール量（負 = 上、正 = 下）。
+fn scroll_desc_vertical(
+    state: &mut FormState,
+    desc_area: &TextArea,
+    x: u16,
+    y: u16,
+    frame_area: ratatui::layout::Rect,
+    delta: i32,
+) {
+    let areas = ui::compute_layout(frame_area);
+    let desc_full = ratatui::layout::Rect {
+        x: areas.desc_label.x,
+        y: areas.desc_label.y,
+        width: areas.desc_label.width,
+        height: areas.desc_label.height + areas.desc_text.height,
+    };
+    let pos: ratatui::layout::Position = (x, y).into();
+    if !desc_full.contains(pos) {
+        return;
+    }
+    let total_lines = desc_area.lines().len();
+    let new_scroll = (state.desc_scroll_top as i32 + delta).max(0) as usize;
+    state.desc_scroll_top = new_scroll.min(total_lines.saturating_sub(1));
+}
+
 fn handle_mouse_event(
     mouse: MouseEvent,
     state: &mut FormState,
@@ -447,11 +515,23 @@ fn handle_mouse_event(
             return None;
         }
         MouseEventKind::ScrollUp => {
-            scroll_panel_at(state, x, y, frame_area, -1);
+            if mouse.modifiers.contains(KeyModifiers::SHIFT) {
+                scroll_title_horizontal(state, x, y, frame_area, -3);
+                scroll_desc_horizontal(state, x, y, frame_area, -3);
+            } else {
+                scroll_panel_at(state, x, y, frame_area, -1);
+                scroll_desc_vertical(state, desc_area, x, y, frame_area, -1);
+            }
             return None;
         }
         MouseEventKind::ScrollDown => {
-            scroll_panel_at(state, x, y, frame_area, 1);
+            if mouse.modifiers.contains(KeyModifiers::SHIFT) {
+                scroll_title_horizontal(state, x, y, frame_area, 3);
+                scroll_desc_horizontal(state, x, y, frame_area, 3);
+            } else {
+                scroll_panel_at(state, x, y, frame_area, 1);
+                scroll_desc_vertical(state, desc_area, x, y, frame_area, 1);
+            }
             return None;
         }
         MouseEventKind::Down(crossterm::event::MouseButton::Left) => {
@@ -471,7 +551,7 @@ fn handle_mouse_event(
                 }
                 ClickTarget::Title => {
                     state.focus = Field::Title;
-                    state.title_cursor = ui::title_click_to_cursor(x, &areas.title, &state.title);
+                    state.title_cursor = ui::title_click_to_cursor(x, &areas.title, &state.title, state.title_scroll_left);
                 }
                 ClickTarget::Description => {
                     state.focus = Field::Description;
@@ -488,6 +568,7 @@ fn handle_mouse_event(
                         y,
                         &desc_full,
                         state.desc_scroll_top,
+                        state.desc_scroll_left,
                         &lines,
                     );
                     let (cur_row, _cur_col) = desc_area.cursor();
