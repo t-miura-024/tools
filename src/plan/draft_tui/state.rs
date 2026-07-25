@@ -146,13 +146,10 @@ pub struct FormState {
     pub repo_display: String,
     pub title: String,
     pub title_cursor: usize,
-    /// タイトル欄の横スクロールオフセット（表示列単位）
-    pub title_scroll_left: usize,
     pub repos: Vec<RepoEntry>,
     pub popup: Option<RepoPopup>,
+    /// 説明欄の縦スクロールオフセット（視覚行単位）
     pub desc_scroll_top: usize,
-    /// 説明欄の横スクロールオフセット（表示列単位）
-    pub desc_scroll_left: usize,
     pub auth_status: AuthStatus,
     pub submit_phase: SubmitPhase,
     /// 「今回作成」セクション（当前 repo スコープ、最新が先頭）
@@ -164,6 +161,10 @@ pub struct FormState {
     pub created_list_state: ListState,
     /// 「既存」パネルのスクロール状態
     pub existing_list_state: ListState,
+    /// タイトル欄のテキスト表示幅（描画時に更新、↑/↓視覚行移動に使用）
+    pub title_view_width: usize,
+    /// 説明欄のテキスト表示幅（描画時に更新、↑/↓視覚行移動に使用）
+    pub desc_view_width: usize,
 }
 
 impl FormState {
@@ -174,11 +175,9 @@ impl FormState {
             repo_display: String::from("(未選択)"),
             title: String::new(),
             title_cursor: 0,
-            title_scroll_left: 0,
             repos,
             popup: None,
             desc_scroll_top: 0,
-            desc_scroll_left: 0,
             auth_status: AuthStatus::default(),
             submit_phase: SubmitPhase::default(),
             created_issues: Vec::new(),
@@ -186,6 +185,8 @@ impl FormState {
             fetch_phase: FetchPhase::default(),
             created_list_state: ListState::default(),
             existing_list_state: ListState::default(),
+            title_view_width: 0,
+            desc_view_width: 0,
         }
     }
 
@@ -297,8 +298,6 @@ impl FormState {
         self.created_issues.insert(0, issue);
         self.title.clear();
         self.title_cursor = 0;
-        self.title_scroll_left = 0;
-        self.desc_scroll_left = 0;
         *self.created_list_state.offset_mut() = 0;
     }
 }
@@ -697,44 +696,6 @@ mod tests {
             url: "https://github.com/o/r/issues/10".to_string(),
         });
         assert_eq!(state.created_list_state.offset(), 0);
-    }
-
-    #[test]
-    fn title_scroll_left_defaults_to_zero() {
-        let state = FormState::new(vec![]);
-        assert_eq!(state.title_scroll_left, 0);
-    }
-
-    #[test]
-    fn desc_scroll_left_defaults_to_zero() {
-        let state = FormState::new(vec![]);
-        assert_eq!(state.desc_scroll_left, 0);
-    }
-
-    #[test]
-    fn record_created_resets_title_scroll_left() {
-        let mut state = FormState::new(vec![]);
-        state.title_scroll_left = 10;
-
-        state.record_created(CreatedIssue {
-            number: 1,
-            title: "t".to_string(),
-            url: "https://github.com/o/r/issues/1".to_string(),
-        });
-        assert_eq!(state.title_scroll_left, 0);
-    }
-
-    #[test]
-    fn record_created_resets_desc_scroll_left() {
-        let mut state = FormState::new(vec![]);
-        state.desc_scroll_left = 15;
-
-        state.record_created(CreatedIssue {
-            number: 1,
-            title: "t".to_string(),
-            url: "https://github.com/o/r/issues/1".to_string(),
-        });
-        assert_eq!(state.desc_scroll_left, 0);
     }
 
     #[test]

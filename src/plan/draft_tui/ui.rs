@@ -2,7 +2,7 @@ use ratatui::Frame;
 use ratatui::layout::{Alignment, Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Clear, List, ListItem, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState};
+use ratatui::widgets::{Block, Borders, Clear, List, ListItem, Paragraph, Wrap};
 use tui_textarea::TextArea;
 
 use super::state::{AuthStatus, FetchPhase, Field, FormState, SubmitPhase};
@@ -22,7 +22,10 @@ pub struct LayoutAreas {
 
 /// フォーム（左カラム）と「今回作成」「既存」パネル（右カラム）、
 /// 全幅ヘルプバー（最下部）のレイアウトを計算する。
-pub fn compute_layout(area: Rect) -> LayoutAreas {
+///
+/// タイトル欄の高さは折り返し行数に応じて動的に決まり、
+/// 伸びた分だけ説明欄の表示領域が縮む（フォーム全体の縦幅は固定）。
+pub fn compute_layout(area: Rect, title: &str) -> LayoutAreas {
     let rows = Layout::default()
         .direction(Direction::Vertical)
         .constraints([Constraint::Min(5), Constraint::Length(3)])
@@ -37,11 +40,13 @@ pub fn compute_layout(area: Rect) -> LayoutAreas {
     let form = cols[0];
     let panel = cols[1];
 
+    let title_height = compute_title_height(title, form.width);
+
     let form_chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
             Constraint::Length(3),
-            Constraint::Length(3),
+            Constraint::Length(title_height),
             Constraint::Length(3),
             Constraint::Min(3),
         ])
@@ -122,7 +127,7 @@ pub fn draw(
     popup_hover: Option<usize>,
     tick: u64,
 ) {
-    let areas = compute_layout(frame.area());
+    let areas = compute_layout(frame.area(), &state.title);
 
     draw_repo_field(frame, state, areas.repo, hover == Some(ClickTarget::Repo));
     draw_title_field(frame, state, areas.title, hover == Some(ClickTarget::Title));
@@ -193,6 +198,8 @@ fn draw_repo_field(frame: &mut Frame, state: &FormState, area: Rect, hovered: bo
     frame.render_widget(paragraph, area);
 }
 
+/// タイトル欄を折り返し（Wrap）で描画する。
+/// 折り返し行数に応じて枠の縦幅が自動調整され、常に全行表示される（縦スクロールなし）。
 fn draw_title_field(frame: &mut Frame, state: &mut FormState, area: Rect, hovered: bool) {
     let focused = state.focus == Field::Title;
     let title = Span::styled(" ✏️ タイトル ", field_style(focused));
@@ -213,74 +220,41 @@ fn draw_title_field(frame: &mut Frame, state: &mut FormState, area: Rect, hovere
         return;
     }
 
-    let view_width = inner.width as usize;
     // 先頭スペース 1 列分を差し引いたテキスト表示幅
-    let text_view_width = view_width.saturating_sub(1);
-    let total_width = unicode_width(&state.title) as usize;
-    let cursor_col = unicode_width(&state.title[..state.title_cursor]) as usize;
+    let text_view_width = inner.width.saturating_sub(1) as usize;
+    state.title_view_width = text_view_width;
 
-    // --- 自動横スクロール（カーソル追従） ---
-    // Pass 1: 大まかなスクロール調整
-    if cursor_col < state.title_scroll_left {
-        state.title_scroll_left = cursor_col;
-    }
-    if text_view_width > 0 && cursor_col >= state.title_scroll_left + text_view_width {
-        state.title_scroll_left = cursor_col + 1 - text_view_width;
-    }
-    // 文字境界にスナップ
-    state.title_scroll_left = snap_to_char_boundary(&state.title, state.title_scroll_left);
+    // 折り返し視覚行を計算
+    let visual_lines = wrap_line(&state.title, text_view_width);
 
-    // 省略記号を考慮した実効幅で Pass 2
-    let left_ellipsis = state.title_scroll_left > 0;
-    let right_ellipsis = state.title_scroll_left + text_view_width < total_width;
-    let content_width = text_view_width
-        .saturating_sub(if left_ellipsis { 1 } else { 0 })
-        .saturating_sub(if right_ellipsis { 1 } else { 0 });
-    if cursor_col < state.title_scroll_left {
-        state.title_scroll_left = cursor_col;
-    }
-    if content_width > 0 && cursor_col >= state.title_scroll_left + content_width {
-        state.title_scroll_left = cursor_col + 1 - content_width;
-    }
-    state.title_scroll_left = snap_to_char_boundary(&state.title, state.title_scroll_left);
+    // 各視覚行を Line に変換（先頭スペース付き）
+    let lines: Vec<Line> = visual_lines
+        .iter()
+        .map(|&(start, end)| {
+            Line::from(vec![
+                Span::styled(" ", Style::default()),
+                Span::styled(
+                    state.title[start..end].to_string(),
+                    Style::default().fg(Color::White),
+                ),
+            ])
+        })
+        .collect();
 
-    // クランプ
-    let max_scroll = total_width.saturating_sub(text_view_width);
-    if state.title_scroll_left > max_scroll {
-        state.title_scroll_left = max_scroll;
-    }
-
-    // --- 描画 ---
-    let scroll_left = state.title_scroll_left;
-    let left_ellipsis = scroll_left > 0;
-    let right_ellipsis = scroll_left + text_view_width < total_width;
-    let content_width = text_view_width
-        .saturating_sub(if left_ellipsis { 1 } else { 0 })
-        .saturating_sub(if right_ellipsis { 1 } else { 0 });
-
-    let (visible_text, actual_start_col) =
-        slice_text_by_width(&state.title, scroll_left, content_width);
-
-    let mut spans: Vec<Span> = vec![Span::styled(" ", Style::default().fg(Color::White))];
-    if left_ellipsis {
-        spans.push(Span::styled("…", Style::default().fg(Color::DarkGray)));
-    }
-    spans.push(Span::styled(visible_text, Style::default().fg(Color::White)));
-    if right_ellipsis {
-        spans.push(Span::styled("…", Style::default().fg(Color::DarkGray)));
-    }
-
-    let paragraph = Paragraph::new(Line::from(spans));
+    let paragraph = Paragraph::new(lines).wrap(Wrap { trim: true });
     frame.render_widget(paragraph, inner);
 
     if focused {
-        let cursor_offset = cursor_col.saturating_sub(actual_start_col);
-        let cursor_x = inner.x + 1 + (if left_ellipsis { 1 } else { 0 }) + cursor_offset as u16;
-        let cursor_y = inner.y;
+        let (cursor_visual_line, cursor_vcol) =
+            cursor_to_visual_pos(&state.title, state.title_cursor, text_view_width);
+        let cursor_x = inner.x + 1 + cursor_vcol as u16; // +1 for leading space
+        let cursor_y = inner.y + cursor_visual_line as u16;
         frame.set_cursor_position((cursor_x, cursor_y));
     }
 }
 
+/// 説明欄を折り返し（Wrap）で描画する。
+/// 縦スクロール（マウスホイール + カーソル追従）は視覚行単位で管理する。
 fn draw_description_field(
     frame: &mut Frame,
     state: &mut FormState,
@@ -309,57 +283,36 @@ fn draw_description_field(
     let lines = desc_area.lines();
     let (cursor_row, cursor_col) = desc_area.cursor();
 
-    // スクロールバー用の領域を確保（右端: 縦、下端: 横）
-    let text_render_width = inner.width.saturating_sub(1);
-    let text_render_height = inner.height.saturating_sub(1);
-    let visible_height = text_render_height as usize;
-    let text_view_width = text_render_width as usize;
+    let text_view_width = inner.width as usize;
+    let visible_height = inner.height as usize;
+    state.desc_view_width = text_view_width;
 
-    // --- 縦スクロール（カーソル追従）---
-    if cursor_row < state.desc_scroll_top {
-        state.desc_scroll_top = cursor_row;
-    } else if visible_height > 0 && cursor_row >= state.desc_scroll_top + visible_height {
-        state.desc_scroll_top = cursor_row + 1 - visible_height;
+    // 全論理行の視覚行をフラットに展開: (logical_row, start_byte, end_byte)
+    let mut flat_visual: Vec<(usize, usize, usize)> = Vec::new();
+    for (row, line) in lines.iter().enumerate() {
+        for (start, end) in wrap_line(line, text_view_width) {
+            flat_visual.push((row, start, end));
+        }
     }
+    let total_visual = flat_visual.len();
 
-    // --- 横スクロール（カーソル追従）---
-    let current_line = lines.get(cursor_row).map(|s| s.as_str()).unwrap_or("");
-    let byte_offset = current_line
-        .char_indices()
-        .nth(cursor_col)
-        .map(|(i, _)| i)
-        .unwrap_or(current_line.len());
-    let cursor_display_col = unicode_width(&current_line[..byte_offset]) as usize;
-    let cursor_line_width = unicode_width(current_line) as usize;
+    // --- 縦スクロール（カーソル追従、視覚行単位）---
+    let lines_vec: Vec<String> = lines.iter().map(|s| s.to_string()).collect();
+    let (cursor_visual, cursor_vcol) =
+        desc_cursor_to_visual(&lines_vec, cursor_row, cursor_col, text_view_width);
 
-    // Pass 1: 大まかなスクロール調整
-    if cursor_display_col < state.desc_scroll_left {
-        state.desc_scroll_left = cursor_display_col;
+    if cursor_visual < state.desc_scroll_top {
+        state.desc_scroll_top = cursor_visual;
+    } else if visible_height > 0 && cursor_visual >= state.desc_scroll_top + visible_height {
+        state.desc_scroll_top = cursor_visual + 1 - visible_height;
     }
-    if text_view_width > 0 && cursor_display_col >= state.desc_scroll_left + text_view_width {
-        state.desc_scroll_left = cursor_display_col + 1 - text_view_width;
-    }
-    state.desc_scroll_left = snap_to_char_boundary(current_line, state.desc_scroll_left);
-
-    // 省略記号を考慮した実効幅で Pass 2
-    let left_ellipsis_cursor = state.desc_scroll_left > 0 && cursor_line_width > state.desc_scroll_left;
-    let right_ellipsis_cursor = state.desc_scroll_left + text_view_width < cursor_line_width;
-    let content_width_cursor = text_view_width
-        .saturating_sub(if left_ellipsis_cursor { 1 } else { 0 })
-        .saturating_sub(if right_ellipsis_cursor { 1 } else { 0 });
-    if cursor_display_col < state.desc_scroll_left {
-        state.desc_scroll_left = cursor_display_col;
-    }
-    if content_width_cursor > 0 && cursor_display_col >= state.desc_scroll_left + content_width_cursor {
-        state.desc_scroll_left = cursor_display_col + 1 - content_width_cursor;
-    }
-    state.desc_scroll_left = snap_to_char_boundary(current_line, state.desc_scroll_left);
-
-    // クランプ（最大行幅基準）
-    let max_line_width = lines.iter().map(|l| unicode_width(l) as usize).max().unwrap_or(0);
-    let max_scroll = max_line_width.saturating_sub(text_view_width);
-    if state.desc_scroll_left > max_scroll {
-        state.desc_scroll_left = max_scroll;
+    // クランプ
+    if total_visual > 0 {
+        state.desc_scroll_top = state
+            .desc_scroll_top
+            .min(total_visual.saturating_sub(1));
+    } else {
+        state.desc_scroll_top = 0;
     }
 
     let is_empty = lines.iter().all(|l| l.is_empty());
@@ -371,63 +324,28 @@ fn draw_description_field(
         ));
         frame.render_widget(placeholder, inner);
     } else {
-        let scroll_left = state.desc_scroll_left;
-
-        let text_render_area = Rect {
-            x: inner.x,
-            y: inner.y,
-            width: text_render_width,
-            height: text_render_height,
-        };
-
-        let visible_lines: Vec<Line> = lines
+        // 可視範囲の視覚行を描画
+        let visible_lines: Vec<Line> = flat_visual
             .iter()
             .skip(state.desc_scroll_top)
             .take(visible_height)
-            .map(|line| render_scrolled_line(line, scroll_left, text_view_width))
+            .map(|&(row, start, end)| {
+                Line::from(Span::styled(
+                    lines[row][start..end].to_string(),
+                    Style::default().fg(Color::White),
+                ))
+            })
             .collect();
 
-        let paragraph = Paragraph::new(visible_lines);
-        frame.render_widget(paragraph, text_render_area);
-
-        // 縦スクロールバー（右端）
-        let mut v_scrollbar_state = ScrollbarState::new(lines.len())
-            .position(state.desc_scroll_top)
-            .viewport_content_length(visible_height);
-        frame.render_stateful_widget(
-            Scrollbar::new(ScrollbarOrientation::VerticalRight)
-                .begin_symbol(None)
-                .end_symbol(None)
-                .track_symbol(Some("│"))
-                .thumb_symbol("█"),
-            inner,
-            &mut v_scrollbar_state,
-        );
-
-        // 横スクロールバー（下端）
-        let h_content = max_line_width.max(1);
-        let mut h_scrollbar_state = ScrollbarState::new(h_content)
-            .position(scroll_left)
-            .viewport_content_length(text_view_width);
-        frame.render_stateful_widget(
-            Scrollbar::new(ScrollbarOrientation::HorizontalBottom)
-                .begin_symbol(None)
-                .end_symbol(None)
-                .track_symbol(Some("─"))
-                .thumb_symbol("█"),
-            inner,
-            &mut h_scrollbar_state,
-        );
+        let paragraph = Paragraph::new(visible_lines).wrap(Wrap { trim: true });
+        frame.render_widget(paragraph, inner);
     }
 
     if focused {
-        let scroll_left = state.desc_scroll_left;
-        let left_ellipsis = scroll_left > 0 && cursor_line_width > scroll_left;
-        let (_, actual_start_col) = slice_text_by_width(current_line, scroll_left, text_view_width);
-        let cursor_offset = cursor_display_col.saturating_sub(actual_start_col);
-        let cursor_x = inner.x + (if left_ellipsis { 1 } else { 0 }) + cursor_offset as u16;
-        let cursor_y = inner.y + (cursor_row.saturating_sub(state.desc_scroll_top)) as u16;
-        frame.set_cursor_position((cursor_x, cursor_y));
+        let cursor_screen_y =
+            inner.y + (cursor_visual.saturating_sub(state.desc_scroll_top)) as u16;
+        let cursor_screen_x = inner.x + cursor_vcol as u16;
+        frame.set_cursor_position((cursor_screen_x, cursor_screen_y));
     }
 }
 
@@ -711,6 +629,10 @@ fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
         .split(popup_layout[1])[1]
 }
 
+// ---------------------------------------------------------------------------
+// 文字幅・折り返しヘルパー
+// ---------------------------------------------------------------------------
+
 /// 1 文字の表示幅を返す（ASCII = 1、それ以外 = 2）。
 /// 幅計算ルールの唯一の定義箇所。`unicode_width` もこの関数に委譲する。
 fn char_display_width(c: char) -> usize {
@@ -724,139 +646,188 @@ fn unicode_width(s: &str) -> u16 {
         .sum()
 }
 
-/// 表示列 `col` 以下で最大の文字境界位置を返す。
-/// 横スクロールオフセットが全角文字の中間に落ちないようスナップする。
-fn snap_to_char_boundary(text: &str, col: usize) -> usize {
-    let mut acc = 0;
-    for c in text.chars() {
-        let w = char_display_width(c);
-        if acc + w > col {
-            return acc;
-        }
-        acc += w;
+/// 1 論理行を表示幅で折り返し、視覚行のバイトオフセット範囲 `(start, end)` を返す。
+/// ratatui の `Wrap { trim: true }` と同等の挙動（行頭の空白を除去）。
+pub fn wrap_line(line: &str, width: usize) -> Vec<(usize, usize)> {
+    if width == 0 {
+        return vec![(0, line.len())];
     }
-    acc
+    if line.is_empty() {
+        return vec![(0, 0)];
+    }
+
+    let mut result = Vec::new();
+    let mut line_start = 0;
+    let mut col = 0;
+    let mut byte_pos = 0;
+
+    while byte_pos < line.len() {
+        let c = line[byte_pos..].chars().next().unwrap();
+        let w = char_display_width(c);
+
+        if col + w > width && col > 0 {
+            // 折り返し
+            result.push((line_start, byte_pos));
+            // trim: 行頭の空白をスキップ
+            let mut trimmed = byte_pos;
+            while trimmed < line.len() && line.as_bytes()[trimmed] == b' ' {
+                trimmed += 1;
+            }
+            line_start = trimmed;
+            byte_pos = trimmed;
+            col = 0;
+            continue;
+        }
+
+        col += w;
+        byte_pos += c.len_utf8();
+    }
+
+    result.push((line_start, line.len()));
+    result
 }
 
-/// テキストを表示列で切り出す。`skip_cols` 分だけ左からスキップし、
-/// `take_cols` 分だけ取る。`(表示テキスト, 実際の開始表示列)` を返す。
-/// 全角文字が境界にまたがる場合はその文字をスキップする。
-fn slice_text_by_width(text: &str, skip_cols: usize, take_cols: usize) -> (String, usize) {
-    let mut col = 0;
-    let mut result = String::new();
-    let mut taken = 0;
-    let mut actual_start = 0;
-    let mut started = false;
+/// タイトル欄の枠の高さ（視覚行数 + ボーダー 2 行）を計算する。
+pub fn compute_title_height(title: &str, form_width: u16) -> u16 {
+    // 2 borders + 1 leading space
+    let text_width = form_width.saturating_sub(3) as usize;
+    if title.is_empty() || text_width == 0 {
+        return 3; // minimum: 1 line + 2 borders
+    }
+    let visual_lines = wrap_line(title, text_width);
+    (visual_lines.len() as u16 + 2).max(3)
+}
 
-    for c in text.chars() {
+/// バイトオフセットから視覚行インデックスと視覚列（表示幅）を計算する。
+pub fn cursor_to_visual_pos(line: &str, byte_offset: usize, width: usize) -> (usize, usize) {
+    let visual_lines = wrap_line(line, width);
+    for (i, &(start, end)) in visual_lines.iter().enumerate() {
+        // 次の視覚行の start が byte_offset と同じ場合（trim なしで連続している場合）、
+        // byte_offset == end でも次の視覚行に归属させる。
+        let next_start = visual_lines.get(i + 1).map(|&(s, _)| s);
+        if byte_offset < end || (byte_offset == end && next_start != Some(byte_offset)) {
+            let col = unicode_width(&line[start..byte_offset.min(end)]) as usize;
+            return (i, col);
+        }
+    }
+    // Fallback: 最終視覚行
+    let last_idx = visual_lines.len().saturating_sub(1);
+    let (start, _) = visual_lines[last_idx];
+    let col = unicode_width(&line[start..byte_offset.min(line.len())]) as usize;
+    (last_idx, col)
+}
+
+/// 視覚行インデックスと目標表示列からバイトオフセットを計算する。
+pub fn visual_pos_to_byte(line: &str, visual_line: usize, target_col: usize, width: usize) -> usize {
+    let visual_lines = wrap_line(line, width);
+    let Some(&(start, end)) = visual_lines.get(visual_line) else {
+        return line.len();
+    };
+    let mut col = 0;
+    for (byte_pos, c) in line[start..end].char_indices() {
         let w = char_display_width(c);
-        if !started {
-            if col >= skip_cols {
-                started = true;
-                actual_start = col;
-            } else {
-                col += w;
-                continue;
-            }
+        if col + w > target_col {
+            return start + byte_pos;
         }
-        if taken + w > take_cols {
-            break;
-        }
-        result.push(c);
-        taken += w;
         col += w;
     }
-
-    if !started {
-        actual_start = col;
-    }
-
-    (result, actual_start)
+    end
 }
 
-/// 1 行分を横スクロールオフセットと省略記号付きで描画用 `Line` に変換する。
-/// `scroll_left` は表示列単位のオフセット、`view_width` は表示領域の幅。
-fn render_scrolled_line(line: &str, scroll_left: usize, view_width: usize) -> Line<'static> {
-    let total_width = unicode_width(line) as usize;
-
-    if total_width == 0 || view_width == 0 {
-        return Line::from("");
-    }
-
-    let left_ellipsis = scroll_left > 0 && total_width > scroll_left;
-    let right_ellipsis = scroll_left + view_width < total_width;
-
-    let content_width = view_width
-        .saturating_sub(if left_ellipsis { 1 } else { 0 })
-        .saturating_sub(if right_ellipsis { 1 } else { 0 });
-
-    let (visible_text, _) = slice_text_by_width(line, scroll_left, content_width);
-
-    let mut spans: Vec<Span> = Vec::new();
-    if left_ellipsis {
-        spans.push(Span::styled("…", Style::default().fg(Color::DarkGray)));
-    }
-    spans.push(Span::styled(visible_text, Style::default().fg(Color::White)));
-    if right_ellipsis {
-        spans.push(Span::styled("…", Style::default().fg(Color::DarkGray)));
-    }
-
-    Line::from(spans)
-}
-
-pub fn title_click_to_cursor(click_x: u16, area: &Rect, title: &str, scroll_left: usize) -> usize {
-    let text_start = area.x + 2;
-    let mut click_col = click_x.saturating_sub(text_start) as usize;
-    // 左省略記号表示中はテキストが 1 列右にずれるため補正
-    if scroll_left > 0 {
-        click_col = click_col.saturating_sub(1);
-    }
-    click_col += scroll_left;
-    let mut acc_width: usize = 0;
-    for (byte_pos, c) in title.char_indices() {
-        let char_w = char_display_width(c);
-        if acc_width + char_w > click_col {
-            return byte_pos;
+/// 説明欄のカーソル位置 `(row, col_char)` からグローバル視覚行インデックスと視覚列を計算する。
+pub fn desc_cursor_to_visual(
+    lines: &[String],
+    row: usize,
+    col_char: usize,
+    width: usize,
+) -> (usize, usize) {
+    let mut global_visual = 0;
+    for (i, line) in lines.iter().enumerate() {
+        let vl = wrap_line(line, width);
+        if i == row {
+            let byte_offset = line
+                .char_indices()
+                .nth(col_char)
+                .map(|(b, _)| b)
+                .unwrap_or(line.len());
+            let (local_visual, col) = cursor_to_visual_pos(line, byte_offset, width);
+            return (global_visual + local_visual, col);
         }
-        acc_width += char_w;
+        global_visual += vl.len();
     }
-    title.len()
+    (global_visual, 0)
 }
 
+/// グローバル視覚行インデックスと目標視覚列から `(row, col_char)` を計算する。
+pub fn desc_visual_to_cursor(
+    lines: &[String],
+    target_visual: usize,
+    target_col: usize,
+    width: usize,
+) -> (usize, usize) {
+    let mut global_visual = 0;
+    for (i, line) in lines.iter().enumerate() {
+        let vl = wrap_line(line, width);
+        let count = vl.len();
+        if target_visual < global_visual + count {
+            let local_visual = target_visual - global_visual;
+            let byte_offset = visual_pos_to_byte(line, local_visual, target_col, width);
+            let col_char = line[..byte_offset].chars().count();
+            return (i, col_char);
+        }
+        global_visual += count;
+    }
+    // 最終行の末尾
+    let last_row = lines.len().saturating_sub(1);
+    let last_line = lines.get(last_row).map(|s| s.as_str()).unwrap_or("");
+    (last_row, last_line.chars().count())
+}
+
+/// 全論理行の視覚行の合計数を返す。
+pub fn total_visual_lines(lines: &[String], width: usize) -> usize {
+    lines.iter().map(|l| wrap_line(l, width).len()).sum()
+}
+
+// ---------------------------------------------------------------------------
+// クリック → カーソル位置変換
+// ---------------------------------------------------------------------------
+
+/// タイトル欄のクリック位置からバイトオフセットを計算する（折り返し対応）。
+pub fn title_click_to_cursor(
+    click_x: u16,
+    click_y: u16,
+    area: &Rect,
+    title: &str,
+    view_width: usize,
+) -> usize {
+    if title.is_empty() || view_width == 0 {
+        return 0;
+    }
+    let inner_y = area.y + 1;
+    let visual_line = click_y.saturating_sub(inner_y) as usize;
+    // 1 border + 1 leading space
+    let text_start_x = area.x + 2;
+    let click_col = click_x.saturating_sub(text_start_x) as usize;
+    visual_pos_to_byte(title, visual_line, click_col, view_width)
+}
+
+/// 説明欄のクリック位置から `(row, col_char)` を計算する（折り返し対応）。
 pub fn desc_click_to_row_col(
     click_x: u16,
     click_y: u16,
     area: &Rect,
     scroll_top: usize,
-    scroll_left: usize,
     lines: &[String],
+    view_width: usize,
 ) -> (usize, usize) {
     if lines.is_empty() {
         return (0, 0);
     }
-    let inner_x = area.x + 1;
     let inner_y = area.y + 1;
-    let row = (click_y.saturating_sub(inner_y) as usize + scroll_top).min(lines.len() - 1);
-    let line = &lines[row];
-    // 左省略記号表示中はテキストが 1 列右にずれるため補正
-    let line_width = unicode_width(line) as usize;
-    let left_ellipsis = scroll_left > 0 && line_width > scroll_left;
-    let mut click_col = click_x.saturating_sub(inner_x) as usize;
-    if left_ellipsis {
-        click_col = click_col.saturating_sub(1);
-    }
-    click_col += scroll_left;
-    let mut acc_width: usize = 0;
-    let mut col = 0usize;
-    for c in line.chars() {
-        let char_w = char_display_width(c);
-        if acc_width + char_w > click_col {
-            break;
-        }
-        acc_width += char_w;
-        col += 1;
-    }
-    (row, col)
+    let inner_x = area.x + 1;
+    let visual_line = click_y.saturating_sub(inner_y) as usize + scroll_top;
+    let click_col = click_x.saturating_sub(inner_x) as usize;
+    desc_visual_to_cursor(lines, visual_line, click_col, view_width)
 }
 
 #[cfg(test)]
@@ -867,10 +838,11 @@ mod tests {
         Rect::new(0, 0, 100, 40)
     }
 
+    // --- compute_layout ---
+
     #[test]
     fn compute_layout_splits_form_panel_and_help_bar() {
-        let areas = compute_layout(test_area());
-        // フォーム（左カラム）は上部から縦積み
+        let areas = compute_layout(test_area(), "");
         assert_eq!(areas.repo.height, 3);
         assert_eq!(areas.title.height, 3);
         assert_eq!(areas.desc_label.height, 3);
@@ -879,62 +851,63 @@ mod tests {
         assert_eq!(areas.title.y, 3);
         assert_eq!(areas.desc_label.y, 6);
         assert_eq!(areas.desc_text.y, 9);
-        // フォームは左カラム（x=0 起点）
         assert_eq!(areas.repo.x, 0);
-        // 「今回作成」「既存」は右カラム（フォームより右）
         assert!(areas.created.x > areas.repo.x);
         assert!(areas.existing.x > areas.repo.x);
         assert!(areas.existing.y >= areas.created.y + areas.created.height);
-        // ヘルプバーは最下部の全幅
         assert_eq!(areas.help_bar.height, 3);
         assert_eq!(areas.help_bar.y, 37);
     }
 
     #[test]
+    fn compute_layout_title_grows_with_long_text() {
+        // form_width = 58% of 100 = 58, text_width = 58 - 3 = 55
+        // 110 chars of 'a' → 110 cols → ceil(110/55) = 2 visual lines → height = 4
+        let long_title = "a".repeat(110);
+        let areas = compute_layout(test_area(), &long_title);
+        assert_eq!(areas.title.height, 4);
+        // desc_label shifts down
+        assert_eq!(areas.desc_label.y, 7);
+    }
+
+    // --- spinner ---
+
+    #[test]
     fn spinner_frame_cycles() {
         assert_eq!(spinner_frame(0), "⠋");
         assert_eq!(spinner_frame(1), "⠙");
-        // 周期は 10
         assert_eq!(spinner_frame(10), "⠋");
         assert_eq!(spinner_frame(11), "⠙");
     }
 
+    // --- hit_test ---
+
     #[test]
     fn hit_test_repo_field() {
-        let areas = compute_layout(test_area());
-        assert_eq!(
-            hit_test_form(5, 1, &areas),
-            Some(ClickTarget::Repo)
-        );
+        let areas = compute_layout(test_area(), "");
+        assert_eq!(hit_test_form(5, 1, &areas), Some(ClickTarget::Repo));
     }
 
     #[test]
     fn hit_test_title_field() {
-        let areas = compute_layout(test_area());
-        assert_eq!(
-            hit_test_form(5, 4, &areas),
-            Some(ClickTarget::Title)
-        );
+        let areas = compute_layout(test_area(), "");
+        assert_eq!(hit_test_form(5, 4, &areas), Some(ClickTarget::Title));
     }
 
     #[test]
     fn hit_test_description_field() {
-        let areas = compute_layout(test_area());
-        assert_eq!(
-            hit_test_form(5, 7, &areas),
-            Some(ClickTarget::Description)
-        );
-        assert_eq!(
-            hit_test_form(5, 15, &areas),
-            Some(ClickTarget::Description)
-        );
+        let areas = compute_layout(test_area(), "");
+        assert_eq!(hit_test_form(5, 7, &areas), Some(ClickTarget::Description));
+        assert_eq!(hit_test_form(5, 15, &areas), Some(ClickTarget::Description));
     }
 
     #[test]
     fn hit_test_outside_returns_none() {
-        let areas = compute_layout(test_area());
+        let areas = compute_layout(test_area(), "");
         assert_eq!(hit_test_form(0, 39, &areas), None);
     }
+
+    // --- popup_hit_test ---
 
     #[test]
     fn popup_hit_test_first_item() {
@@ -966,50 +939,267 @@ mod tests {
         assert_eq!(popup_hit_test(20, 6, popup_area, 10), None);
     }
 
+    // --- wrap_line ---
+
+    #[test]
+    fn wrap_line_no_wrap() {
+        assert_eq!(wrap_line("hello", 10), vec![(0, 5)]);
+    }
+
+    #[test]
+    fn wrap_line_exact_fit() {
+        assert_eq!(wrap_line("hello", 5), vec![(0, 5)]);
+    }
+
+    #[test]
+    fn wrap_line_wraps_ascii() {
+        // "hello world" width=5 → "hello" + "world" (space trimmed)
+        assert_eq!(wrap_line("hello world", 5), vec![(0, 5), (6, 11)]);
+    }
+
+    #[test]
+    fn wrap_line_cjk() {
+        // "日本語" width=4 → "日本" + "語"
+        assert_eq!(wrap_line("日本語", 4), vec![(0, 6), (6, 9)]);
+    }
+
+    #[test]
+    fn wrap_line_cjk_exact() {
+        // "日本語" width=6 → 1 line
+        assert_eq!(wrap_line("日本語", 6), vec![(0, 9)]);
+    }
+
+    #[test]
+    fn wrap_line_mixed() {
+        // "a日b" width=3 → "a日" (1+2=3) + "b"
+        assert_eq!(wrap_line("a日b", 3), vec![(0, 4), (4, 5)]);
+    }
+
+    #[test]
+    fn wrap_line_empty() {
+        assert_eq!(wrap_line("", 10), vec![(0, 0)]);
+    }
+
+    #[test]
+    fn wrap_line_zero_width() {
+        assert_eq!(wrap_line("hello", 0), vec![(0, 5)]);
+    }
+
+    #[test]
+    fn wrap_line_trims_leading_spaces() {
+        // "ab   cd" width=2 → "ab" + "cd" (3 spaces trimmed)
+        assert_eq!(wrap_line("ab   cd", 2), vec![(0, 2), (5, 7)]);
+    }
+
+    #[test]
+    fn wrap_line_single_wide_char_narrow() {
+        // "日" width=1 → char wider than width, still 1 line
+        assert_eq!(wrap_line("日", 1), vec![(0, 3)]);
+    }
+
+    // --- compute_title_height ---
+
+    #[test]
+    fn compute_title_height_empty() {
+        assert_eq!(compute_title_height("", 58), 3);
+    }
+
+    #[test]
+    fn compute_title_height_single_line() {
+        assert_eq!(compute_title_height("hello", 58), 3);
+    }
+
+    #[test]
+    fn compute_title_height_two_lines() {
+        // form_width=58, text_width=55, 110 chars → 2 lines → height=4
+        let title = "a".repeat(110);
+        assert_eq!(compute_title_height(&title, 58), 4);
+    }
+
+    // --- cursor_to_visual_pos ---
+
+    #[test]
+    fn cursor_to_visual_pos_first_line() {
+        // "hello world" width=5, cursor at byte 3 → visual line 0, col 3
+        assert_eq!(cursor_to_visual_pos("hello world", 3, 5), (0, 3));
+    }
+
+    #[test]
+    fn cursor_to_visual_pos_second_line() {
+        // "hello world" width=5, cursor at byte 6 ('w') → visual line 1, col 0
+        assert_eq!(cursor_to_visual_pos("hello world", 6, 5), (1, 0));
+    }
+
+    #[test]
+    fn cursor_to_visual_pos_end_of_first_line() {
+        // "hello world" width=5, cursor at byte 5 (end of "hello") → visual line 0, col 5
+        assert_eq!(cursor_to_visual_pos("hello world", 5, 5), (0, 5));
+    }
+
+    #[test]
+    fn cursor_to_visual_pos_cjk() {
+        // "日本語" width=4, cursor at byte 6 ('語') → visual line 1, col 0
+        assert_eq!(cursor_to_visual_pos("日本語", 6, 4), (1, 0));
+    }
+
+    #[test]
+    fn cursor_to_visual_pos_cjk_mid() {
+        // "日本語" width=4, cursor at byte 3 ('本') → visual line 0, col 2
+        assert_eq!(cursor_to_visual_pos("日本語", 3, 4), (0, 2));
+    }
+
+    // --- visual_pos_to_byte ---
+
+    #[test]
+    fn visual_pos_to_byte_first_line() {
+        // "hello world" width=5, visual line 0, col 3 → byte 3
+        assert_eq!(visual_pos_to_byte("hello world", 0, 3, 5), 3);
+    }
+
+    #[test]
+    fn visual_pos_to_byte_second_line() {
+        // "hello world" width=5, visual line 1, col 2 → byte 8 ('r')
+        assert_eq!(visual_pos_to_byte("hello world", 1, 2, 5), 8);
+    }
+
+    #[test]
+    fn visual_pos_to_byte_beyond_line() {
+        // "hello" width=10, visual line 0, col 100 → byte 5 (end)
+        assert_eq!(visual_pos_to_byte("hello", 0, 100, 10), 5);
+    }
+
+    #[test]
+    fn visual_pos_to_byte_out_of_range_visual() {
+        // "hello" width=10, visual line 5 → byte 5 (end)
+        assert_eq!(visual_pos_to_byte("hello", 5, 0, 10), 5);
+    }
+
+    #[test]
+    fn visual_pos_to_byte_cjk() {
+        // "日本語" width=4, visual line 1, col 0 → byte 6 ('語')
+        assert_eq!(visual_pos_to_byte("日本語", 1, 0, 4), 6);
+    }
+
+    #[test]
+    fn visual_pos_to_byte_cjk_mid_char() {
+        // "日本語" width=4, visual line 0, col 1 → byte 0 (col 1 is mid-char '日')
+        assert_eq!(visual_pos_to_byte("日本語", 0, 1, 4), 0);
+    }
+
+    // --- desc_cursor_to_visual / desc_visual_to_cursor ---
+
+    #[test]
+    fn desc_cursor_to_visual_basic() {
+        let lines = vec!["hello".to_string(), "world".to_string()];
+        // row=0, col=3 → visual 0, col 3
+        assert_eq!(desc_cursor_to_visual(&lines, 0, 3, 10), (0, 3));
+        // row=1, col=2 → visual 1, col 2
+        assert_eq!(desc_cursor_to_visual(&lines, 1, 2, 10), (1, 2));
+    }
+
+    #[test]
+    fn desc_cursor_to_visual_wrapped() {
+        let lines = vec!["hello world".to_string(), "foo".to_string()];
+        // width=5: "hello world" → 2 visual lines, "foo" → 1
+        // row=0, col=6 ('w') → visual 1, col 0
+        assert_eq!(desc_cursor_to_visual(&lines, 0, 6, 5), (1, 0));
+        // row=1, col=0 → visual 2, col 0
+        assert_eq!(desc_cursor_to_visual(&lines, 1, 0, 5), (2, 0));
+    }
+
+    #[test]
+    fn desc_visual_to_cursor_basic() {
+        let lines = vec!["hello".to_string(), "world".to_string()];
+        assert_eq!(desc_visual_to_cursor(&lines, 0, 3, 10), (0, 3));
+        assert_eq!(desc_visual_to_cursor(&lines, 1, 2, 10), (1, 2));
+    }
+
+    #[test]
+    fn desc_visual_to_cursor_wrapped() {
+        let lines = vec!["hello world".to_string(), "foo".to_string()];
+        // width=5: visual 0="hello", 1="world", 2="foo"
+        assert_eq!(desc_visual_to_cursor(&lines, 1, 2, 5), (0, 8)); // 'r' in "world"
+        assert_eq!(desc_visual_to_cursor(&lines, 2, 0, 5), (1, 0)); // 'f' in "foo"
+    }
+
+    #[test]
+    fn desc_visual_to_cursor_beyond_end() {
+        let lines = vec!["ab".to_string()];
+        assert_eq!(desc_visual_to_cursor(&lines, 5, 0, 10), (0, 2));
+    }
+
+    // --- total_visual_lines ---
+
+    #[test]
+    fn total_visual_lines_basic() {
+        let lines = vec!["hello".to_string(), "world".to_string()];
+        assert_eq!(total_visual_lines(&lines, 10), 2);
+    }
+
+    #[test]
+    fn total_visual_lines_wrapped() {
+        let lines = vec!["hello world".to_string(), "foo".to_string()];
+        assert_eq!(total_visual_lines(&lines, 5), 3);
+    }
+
+    // --- title_click_to_cursor ---
+
     #[test]
     fn title_click_ascii() {
         let area = Rect::new(0, 3, 100, 3);
-        assert_eq!(title_click_to_cursor(2, &area, "hello", 0), 0);
-        assert_eq!(title_click_to_cursor(3, &area, "hello", 0), 1);
-        assert_eq!(title_click_to_cursor(5, &area, "hello", 0), 3);
-        assert_eq!(title_click_to_cursor(7, &area, "hello", 0), 5);
-        assert_eq!(title_click_to_cursor(50, &area, "hello", 0), 5);
+        assert_eq!(title_click_to_cursor(2, 4, &area, "hello", 97), 0);
+        assert_eq!(title_click_to_cursor(3, 4, &area, "hello", 97), 1);
+        assert_eq!(title_click_to_cursor(5, 4, &area, "hello", 97), 3);
+        assert_eq!(title_click_to_cursor(7, 4, &area, "hello", 97), 5);
+        assert_eq!(title_click_to_cursor(50, 4, &area, "hello", 97), 5);
     }
 
     #[test]
     fn title_click_unicode() {
         let area = Rect::new(0, 3, 100, 3);
-        assert_eq!(title_click_to_cursor(2, &area, "日本語", 0), 0);
-        assert_eq!(title_click_to_cursor(3, &area, "日本語", 0), 0);
-        assert_eq!(title_click_to_cursor(4, &area, "日本語", 0), 3);
-        assert_eq!(title_click_to_cursor(5, &area, "日本語", 0), 3);
-        assert_eq!(title_click_to_cursor(6, &area, "日本語", 0), 6);
-        assert_eq!(title_click_to_cursor(7, &area, "日本語", 0), 6);
-        assert_eq!(title_click_to_cursor(8, &area, "日本語", 0), 9);
+        assert_eq!(title_click_to_cursor(2, 4, &area, "日本語", 97), 0);
+        assert_eq!(title_click_to_cursor(3, 4, &area, "日本語", 97), 0);
+        assert_eq!(title_click_to_cursor(4, 4, &area, "日本語", 97), 3);
+        assert_eq!(title_click_to_cursor(5, 4, &area, "日本語", 97), 3);
+        assert_eq!(title_click_to_cursor(6, 4, &area, "日本語", 97), 6);
+        assert_eq!(title_click_to_cursor(7, 4, &area, "日本語", 97), 6);
+        assert_eq!(title_click_to_cursor(8, 4, &area, "日本語", 97), 9);
     }
 
     #[test]
     fn title_click_mixed() {
         let area = Rect::new(0, 3, 100, 3);
-        assert_eq!(title_click_to_cursor(2, &area, "a日b", 0), 0);
-        assert_eq!(title_click_to_cursor(3, &area, "a日b", 0), 1);
-        assert_eq!(title_click_to_cursor(4, &area, "a日b", 0), 1);
-        assert_eq!(title_click_to_cursor(5, &area, "a日b", 0), 4);
-        assert_eq!(title_click_to_cursor(6, &area, "a日b", 0), 5);
+        assert_eq!(title_click_to_cursor(2, 4, &area, "a日b", 97), 0);
+        assert_eq!(title_click_to_cursor(3, 4, &area, "a日b", 97), 1);
+        assert_eq!(title_click_to_cursor(4, 4, &area, "a日b", 97), 1);
+        assert_eq!(title_click_to_cursor(5, 4, &area, "a日b", 97), 4);
+        assert_eq!(title_click_to_cursor(6, 4, &area, "a日b", 97), 5);
     }
 
     #[test]
     fn title_click_empty() {
         let area = Rect::new(0, 3, 100, 3);
-        assert_eq!(title_click_to_cursor(5, &area, "", 0), 0);
+        assert_eq!(title_click_to_cursor(5, 4, &area, "", 97), 0);
     }
 
     #[test]
     fn title_click_before_text_start() {
         let area = Rect::new(0, 3, 100, 3);
-        assert_eq!(title_click_to_cursor(0, &area, "hello", 0), 0);
-        assert_eq!(title_click_to_cursor(1, &area, "hello", 0), 0);
+        assert_eq!(title_click_to_cursor(0, 4, &area, "hello", 97), 0);
+        assert_eq!(title_click_to_cursor(1, 4, &area, "hello", 97), 0);
     }
+
+    #[test]
+    fn title_click_wrapped_second_line() {
+        // "hello world" width=5, area at y=3, height=4 (2 visual lines + 2 borders)
+        let area = Rect::new(0, 3, 100, 4);
+        // click on visual line 1 (y=5), col 0 → byte 6 ('w')
+        assert_eq!(title_click_to_cursor(2, 5, &area, "hello world", 5), 6);
+        // click on visual line 1, col 2 → byte 8 ('r')
+        assert_eq!(title_click_to_cursor(4, 5, &area, "hello world", 5), 8);
+    }
+
+    // --- desc_click_to_row_col ---
 
     #[test]
     fn desc_click_basic() {
@@ -1019,10 +1209,10 @@ mod tests {
             "world".to_string(),
             "foo".to_string(),
         ];
-        assert_eq!(desc_click_to_row_col(1, 7, &area, 0, 0, &lines), (0, 0));
-        assert_eq!(desc_click_to_row_col(3, 7, &area, 0, 0, &lines), (0, 2));
-        assert_eq!(desc_click_to_row_col(1, 8, &area, 0, 0, &lines), (1, 0));
-        assert_eq!(desc_click_to_row_col(4, 9, &area, 0, 0, &lines), (2, 3));
+        assert_eq!(desc_click_to_row_col(1, 7, &area, 0, &lines, 98), (0, 0));
+        assert_eq!(desc_click_to_row_col(3, 7, &area, 0, &lines, 98), (0, 2));
+        assert_eq!(desc_click_to_row_col(1, 8, &area, 0, &lines, 98), (1, 0));
+        assert_eq!(desc_click_to_row_col(4, 9, &area, 0, &lines, 98), (2, 3));
     }
 
     #[test]
@@ -1034,378 +1224,61 @@ mod tests {
             "line2".to_string(),
             "line3".to_string(),
         ];
-        assert_eq!(desc_click_to_row_col(1, 7, &area, 2, 0, &lines), (2, 0));
-        assert_eq!(desc_click_to_row_col(1, 8, &area, 2, 0, &lines), (3, 0));
+        assert_eq!(desc_click_to_row_col(1, 7, &area, 2, &lines, 98), (2, 0));
+        assert_eq!(desc_click_to_row_col(1, 8, &area, 2, &lines, 98), (3, 0));
     }
 
     #[test]
     fn desc_click_clamps_row() {
         let area = Rect::new(0, 6, 100, 10);
         let lines = vec!["only".to_string()];
-        assert_eq!(desc_click_to_row_col(50, 20, &area, 0, 0, &lines), (0, 4));
+        assert_eq!(desc_click_to_row_col(50, 20, &area, 0, &lines, 98), (0, 4));
     }
 
     #[test]
     fn desc_click_unicode() {
         let area = Rect::new(0, 6, 100, 10);
         let lines = vec!["日本語".to_string()];
-        assert_eq!(desc_click_to_row_col(1, 7, &area, 0, 0, &lines), (0, 0));
-        assert_eq!(desc_click_to_row_col(2, 7, &area, 0, 0, &lines), (0, 0));
-        assert_eq!(desc_click_to_row_col(3, 7, &area, 0, 0, &lines), (0, 1));
-        assert_eq!(desc_click_to_row_col(4, 7, &area, 0, 0, &lines), (0, 1));
-        assert_eq!(desc_click_to_row_col(5, 7, &area, 0, 0, &lines), (0, 2));
-        assert_eq!(desc_click_to_row_col(6, 7, &area, 0, 0, &lines), (0, 2));
-        assert_eq!(desc_click_to_row_col(7, 7, &area, 0, 0, &lines), (0, 3));
+        assert_eq!(desc_click_to_row_col(1, 7, &area, 0, &lines, 98), (0, 0));
+        assert_eq!(desc_click_to_row_col(2, 7, &area, 0, &lines, 98), (0, 0));
+        assert_eq!(desc_click_to_row_col(3, 7, &area, 0, &lines, 98), (0, 1));
+        assert_eq!(desc_click_to_row_col(4, 7, &area, 0, &lines, 98), (0, 1));
+        assert_eq!(desc_click_to_row_col(5, 7, &area, 0, &lines, 98), (0, 2));
+        assert_eq!(desc_click_to_row_col(6, 7, &area, 0, &lines, 98), (0, 2));
+        assert_eq!(desc_click_to_row_col(7, 7, &area, 0, &lines, 98), (0, 3));
     }
 
     #[test]
     fn desc_click_empty_lines() {
         let area = Rect::new(0, 6, 100, 10);
         let lines: Vec<String> = vec![];
-        assert_eq!(desc_click_to_row_col(5, 7, &area, 0, 0, &lines), (0, 0));
+        assert_eq!(desc_click_to_row_col(5, 7, &area, 0, &lines, 98), (0, 0));
     }
 
     #[test]
     fn desc_click_past_line_end() {
         let area = Rect::new(0, 6, 100, 10);
         let lines = vec!["ab".to_string()];
-        assert_eq!(desc_click_to_row_col(50, 7, &area, 0, 0, &lines), (0, 2));
-    }
-
-    // --- 横スクロールヘルパーのテスト ---
-
-    #[test]
-    fn snap_to_char_boundary_ascii() {
-        assert_eq!(snap_to_char_boundary("hello", 0), 0);
-        assert_eq!(snap_to_char_boundary("hello", 3), 3);
-        assert_eq!(snap_to_char_boundary("hello", 5), 5);
-        assert_eq!(snap_to_char_boundary("hello", 10), 5);
+        assert_eq!(desc_click_to_row_col(50, 7, &area, 0, &lines, 98), (0, 2));
     }
 
     #[test]
-    fn snap_to_char_boundary_cjk() {
-        // "日本語" → 各文字 2 列、境界は 0, 2, 4, 6
-        assert_eq!(snap_to_char_boundary("日本語", 0), 0);
-        assert_eq!(snap_to_char_boundary("日本語", 1), 0);
-        assert_eq!(snap_to_char_boundary("日本語", 2), 2);
-        assert_eq!(snap_to_char_boundary("日本語", 3), 2);
-        assert_eq!(snap_to_char_boundary("日本語", 4), 4);
-        assert_eq!(snap_to_char_boundary("日本語", 5), 4);
-        assert_eq!(snap_to_char_boundary("日本語", 6), 6);
-    }
-
-    #[test]
-    fn snap_to_char_boundary_mixed() {
-        // "a日b" → 境界は 0, 1, 3, 4
-        assert_eq!(snap_to_char_boundary("a日b", 0), 0);
-        assert_eq!(snap_to_char_boundary("a日b", 1), 1);
-        assert_eq!(snap_to_char_boundary("a日b", 2), 1);
-        assert_eq!(snap_to_char_boundary("a日b", 3), 3);
-        assert_eq!(snap_to_char_boundary("a日b", 4), 4);
-    }
-
-    #[test]
-    fn slice_text_no_scroll() {
-        let (text, start) = slice_text_by_width("hello", 0, 10);
-        assert_eq!(text, "hello");
-        assert_eq!(start, 0);
-    }
-
-    #[test]
-    fn slice_text_with_skip() {
-        let (text, start) = slice_text_by_width("hello world", 6, 5);
-        assert_eq!(text, "world");
-        assert_eq!(start, 6);
-    }
-
-    #[test]
-    fn slice_text_truncated() {
-        let (text, start) = slice_text_by_width("hello world", 0, 5);
-        assert_eq!(text, "hello");
-        assert_eq!(start, 0);
-    }
-
-    #[test]
-    fn slice_text_cjk_no_scroll() {
-        let (text, start) = slice_text_by_width("日本語", 0, 6);
-        assert_eq!(text, "日本語");
-        assert_eq!(start, 0);
-    }
-
-    #[test]
-    fn slice_text_cjk_with_skip() {
-        // "日本語" skip 2 → "本語"
-        let (text, start) = slice_text_by_width("日本語", 2, 4);
-        assert_eq!(text, "本語");
-        assert_eq!(start, 2);
-    }
-
-    #[test]
-    fn slice_text_cjk_truncated() {
-        // "日本語" take 4 → "日本"
-        let (text, start) = slice_text_by_width("日本語", 0, 4);
-        assert_eq!(text, "日本");
-        assert_eq!(start, 0);
-    }
-
-    #[test]
-    fn slice_text_cjk_skip_mid_char() {
-        // skip 1 は全角文字の中間 → 文字境界 2 にスナップされ "本語" になる
-        let (text, start) = slice_text_by_width("日本語", 1, 4);
-        assert_eq!(text, "本語");
-        assert_eq!(start, 2);
-    }
-
-    #[test]
-    fn slice_text_mixed() {
-        // "a日b" skip 1, take 3 → "日b" (日=2 + b=1 = 3)
-        let (text, start) = slice_text_by_width("a日b", 1, 3);
-        assert_eq!(text, "日b");
-        assert_eq!(start, 1);
-    }
-
-    #[test]
-    fn slice_text_empty() {
-        let (text, start) = slice_text_by_width("", 0, 10);
-        assert_eq!(text, "");
-        assert_eq!(start, 0);
-    }
-
-    #[test]
-    fn slice_text_skip_beyond_end() {
-        let (text, start) = slice_text_by_width("ab", 5, 10);
-        assert_eq!(text, "");
-        assert_eq!(start, 2);
-    }
-
-    #[test]
-    fn title_click_with_scroll() {
-        let area = Rect::new(0, 3, 100, 3);
-        // scroll_left = 3: 左省略記号 "…" が 1 列を占め、テキストは area.x+3 から
-        // click_x=2 → "…" 上 → 補正後 表示列 0 → 実際の列 3 → 'l' (byte 3)
-        assert_eq!(title_click_to_cursor(2, &area, "hello", 3), 3);
-        // click_x=3 → テキスト先頭 → 補正後 表示列 0 → 実際の列 3 → 'l' (byte 3)
-        assert_eq!(title_click_to_cursor(3, &area, "hello", 3), 3);
-        // click_x=4 → テキスト 2 列目 → 補正後 表示列 1 → 実際の列 4 → 'o' (byte 4)
-        assert_eq!(title_click_to_cursor(4, &area, "hello", 3), 4);
-    }
-
-    #[test]
-    fn title_click_with_scroll_cjk() {
-        let area = Rect::new(0, 3, 100, 3);
-        // "日本語" scroll_left=2: 左省略記号 "…" が 1 列を占め、テキストは area.x+3 から
-        // click_x=2 → "…" 上 → 補正後 表示列 0 → 実際の列 2 → '本' (byte 3)
-        assert_eq!(title_click_to_cursor(2, &area, "日本語", 2), 3);
-        // click_x=3 → テキスト先頭 → 補正後 表示列 0 → 実際の列 2 → '本' (byte 3)
-        assert_eq!(title_click_to_cursor(3, &area, "日本語", 2), 3);
-        // click_x=4 → 補正後 表示列 1 → 実際の列 3 → '本' の 2 列目 (byte 3)
-        assert_eq!(title_click_to_cursor(4, &area, "日本語", 2), 3);
-        // click_x=5 → 補正後 表示列 2 → 実際の列 4 → '語' (byte 6)
-        assert_eq!(title_click_to_cursor(5, &area, "日本語", 2), 6);
-    }
-
-    // --- 説明欄横スクロール: desc_click_to_row_col with scroll_left ---
-
-    #[test]
-    fn desc_click_with_horizontal_scroll() {
+    fn desc_click_wrapped_line() {
         let area = Rect::new(0, 6, 100, 10);
-        let lines = vec!["hello world".to_string()];
-        // scroll_left=6: 左省略記号 "…" が 1 列を占め、テキストは inner.x+1 から
-        // click_x=1 → "…" 上 → 補正後 表示列 0 → 実際の列 6 → 'w' (col 6)
-        assert_eq!(desc_click_to_row_col(1, 7, &area, 0, 6, &lines), (0, 6));
-        // click_x=2 → テキスト先頭 → 補正後 表示列 0 → 実際の列 6 → 'w' (col 6)
-        assert_eq!(desc_click_to_row_col(2, 7, &area, 0, 6, &lines), (0, 6));
-        // click_x=3 → 補正後 表示列 1 → 実際の列 7 → 'o' (col 7)
-        assert_eq!(desc_click_to_row_col(3, 7, &area, 0, 6, &lines), (0, 7));
-        // click_x=4 → 補正後 表示列 2 → 実際の列 8 → 'r' (col 8)
-        assert_eq!(desc_click_to_row_col(4, 7, &area, 0, 6, &lines), (0, 8));
+        let lines = vec!["hello world".to_string(), "foo".to_string()];
+        // width=5: "hello world" → "hello" (visual 0) + "world" (visual 1), "foo" (visual 2)
+        // click on visual line 1 (y=8), col 0 → row=0, col=6 ('w')
+        assert_eq!(desc_click_to_row_col(1, 8, &area, 0, &lines, 5), (0, 6));
+        // click on visual line 2 (y=9), col 0 → row=1, col=0 ('f')
+        assert_eq!(desc_click_to_row_col(1, 9, &area, 0, &lines, 5), (1, 0));
     }
 
     #[test]
-    fn desc_click_with_horizontal_scroll_cjk() {
+    fn desc_click_wrapped_with_scroll() {
         let area = Rect::new(0, 6, 100, 10);
-        let lines = vec!["日本語テスト".to_string()];
-        // scroll_left=4: 左省略記号 "…" が 1 列を占め、テキストは inner.x+1 から
-        // click_x=1 → "…" 上 → 補正後 表示列 0 → 実際の列 4 → '語' (col 2)
-        assert_eq!(desc_click_to_row_col(1, 7, &area, 0, 4, &lines), (0, 2));
-        // click_x=2 → テキスト先頭 → 補正後 表示列 0 → 実際の列 4 → '語' (col 2)
-        assert_eq!(desc_click_to_row_col(2, 7, &area, 0, 4, &lines), (0, 2));
-        // click_x=3 → 補正後 表示列 1 → 実際の列 5 → '語' の 2 列目 (col 2)
-        assert_eq!(desc_click_to_row_col(3, 7, &area, 0, 4, &lines), (0, 2));
-        // click_x=4 → 補正後 表示列 2 → 実際の列 6 → 'テ' (col 3)
-        assert_eq!(desc_click_to_row_col(4, 7, &area, 0, 4, &lines), (0, 3));
+        let lines = vec!["hello world".to_string(), "foo".to_string()];
+        // width=5, scroll_top=1: visual line 1 is at y=7
+        // click at y=7 → visual line 1 → row=0, col=6 ('w')
+        assert_eq!(desc_click_to_row_col(1, 7, &area, 1, &lines, 5), (0, 6));
     }
-
-    // --- render_scrolled_line テスト ---
-
-    /// 行のテキスト内容を抽出するヘルパー
-    fn line_to_string(line: &Line) -> String {
-        line.spans.iter().map(|s| s.content.as_ref()).collect()
-    }
-
-    #[test]
-    fn render_scrolled_line_no_scroll() {
-        let line = render_scrolled_line("hello", 0, 10);
-        assert_eq!(line_to_string(&line), "hello");
-    }
-
-    #[test]
-    fn render_scrolled_line_right_ellipsis() {
-        // "hello world" (11 cols), view_width=5, scroll_left=0
-        // right_ellipsis = true (0+5 < 11)
-        // content_width = 5-1 = 4
-        let line = render_scrolled_line("hello world", 0, 5);
-        assert_eq!(line_to_string(&line), "hell…");
-    }
-
-    #[test]
-    fn render_scrolled_line_left_ellipsis() {
-        // "hello world" (11 cols), view_width=5, scroll_left=6
-        // left_ellipsis = true (6 > 0 && 11 > 6)
-        // right_ellipsis = false (6+5 = 11, not < 11)
-        // content_width = 5-1 = 4
-        let line = render_scrolled_line("hello world", 6, 5);
-        assert_eq!(line_to_string(&line), "…worl");
-    }
-
-    #[test]
-    fn render_scrolled_line_both_ellipsis() {
-        // "hello world" (11 cols), view_width=5, scroll_left=3
-        // left_ellipsis = true, right_ellipsis = true (3+5=8 < 11)
-        // content_width = 5-1-1 = 3
-        let line = render_scrolled_line("hello world", 3, 5);
-        assert_eq!(line_to_string(&line), "…lo …");
-    }
-
-    #[test]
-    fn render_scrolled_line_empty() {
-        let line = render_scrolled_line("", 0, 10);
-        assert_eq!(line_to_string(&line), "");
-    }
-
-    #[test]
-    fn render_scrolled_line_cjk_no_scroll() {
-        // "日本語" (6 cols), view_width=6
-        let line = render_scrolled_line("日本語", 0, 6);
-        assert_eq!(line_to_string(&line), "日本語");
-    }
-
-    #[test]
-    fn render_scrolled_line_cjk_right_ellipsis() {
-        // "日本語" (6 cols), view_width=4, scroll_left=0
-        // right_ellipsis = true (0+4 < 6)
-        // content_width = 4-1 = 3 → "日" (2 cols) fits, "本" (2 cols) doesn't
-        let line = render_scrolled_line("日本語", 0, 4);
-        assert_eq!(line_to_string(&line), "日…");
-    }
-
-    #[test]
-    fn render_scrolled_line_cjk_with_scroll() {
-        // "日本語" (6 cols), view_width=4, scroll_left=2
-        // left_ellipsis = true (2 > 0 && 6 > 2)
-        // right_ellipsis = false (2+4 = 6, not < 6)
-        // content_width = 4-1 = 3 → "本" (2 cols) fits, "語" (2 cols) doesn't
-        let line = render_scrolled_line("日本語", 2, 4);
-        assert_eq!(line_to_string(&line), "…本");
-    }
-
-    #[test]
-    fn render_scrolled_line_short_line_no_ellipsis() {
-        // 短い行: 省略記号なし
-        let line = render_scrolled_line("ab", 0, 10);
-        assert_eq!(line_to_string(&line), "ab");
-    }
-
-    #[test]
-    fn render_scrolled_line_scroll_beyond_line() {
-        // scroll_left が行幅を超える場合: 空表示
-        let line = render_scrolled_line("ab", 5, 10);
-        assert_eq!(line_to_string(&line), "");
-    }
-
-    // --- 左省略記号表示中のクリック精度テスト ---
-
-    #[test]
-    fn title_click_left_ellipsis_narrow_area() {
-        // 狭い area (幅 10) で scroll_left > 0 の状態をシミュレート
-        // draw_title_field: inner.width = 10-2 = 8, text_view_width = 7
-        // "hello world" (11 cols), scroll_left=4 → left_ellipsis=true
-        // spans: [" "(1), "…"(1), visible_text] → テキストは area.x+3 から
-        let area = Rect::new(5, 3, 10, 3);
-        // click_x=7 (area.x+2 = "…" 上) → 補正後 0 + 4 = 4 → 'o' (byte 4)
-        assert_eq!(title_click_to_cursor(7, &area, "hello world", 4), 4);
-        // click_x=8 (area.x+3 = テキスト先頭) → 補正後 0 + 4 = 4 → 'o' (byte 4)
-        assert_eq!(title_click_to_cursor(8, &area, "hello world", 4), 4);
-        // click_x=9 → 補正後 1 + 4 = 5 → ' ' (byte 5)
-        assert_eq!(title_click_to_cursor(9, &area, "hello world", 4), 5);
-        // click_x=10 → 補正後 2 + 4 = 6 → 'w' (byte 6)
-        assert_eq!(title_click_to_cursor(10, &area, "hello world", 4), 6);
-    }
-
-    #[test]
-    fn title_click_left_ellipsis_cjk_narrow_area() {
-        // 狭い area で CJK テキストの左省略記号クリック
-        // "日本語テスト" (12 cols), scroll_left=6 → left_ellipsis=true
-        // テキストは area.x+3 から
-        let area = Rect::new(2, 3, 10, 3);
-        // click_x=4 (area.x+2 = "…" 上) → 補正後 0 + 6 = 6 → 'テ' (byte 9)
-        assert_eq!(title_click_to_cursor(4, &area, "日本語テスト", 6), 9);
-        // click_x=5 (area.x+3 = テキスト先頭) → 補正後 0 + 6 = 6 → 'テ' (byte 9)
-        assert_eq!(title_click_to_cursor(5, &area, "日本語テスト", 6), 9);
-        // click_x=6 → 補正後 1 + 6 = 7 → 'テ' の 2 列目 (byte 9)
-        assert_eq!(title_click_to_cursor(6, &area, "日本語テスト", 6), 9);
-        // click_x=7 → 補正後 2 + 6 = 8 → 'ス' (byte 12)
-        assert_eq!(title_click_to_cursor(7, &area, "日本語テスト", 6), 12);
-    }
-
-    #[test]
-    fn title_click_no_ellipsis_scroll_zero() {
-        // scroll_left=0 のときは補正なし（既存動作の回帰確認）
-        let area = Rect::new(0, 3, 10, 3);
-        assert_eq!(title_click_to_cursor(2, &area, "hello", 0), 0);
-        assert_eq!(title_click_to_cursor(3, &area, "hello", 1), 1);
-    }
-
-    #[test]
-    fn desc_click_left_ellipsis_narrow_area() {
-        // 狭い area で scroll_left > 0 の説明欄クリック
-        // "hello world" (11 cols), scroll_left=4 → left_ellipsis=true
-        // render_scrolled_line: "…" + visible → テキストは inner.x+1 から
-        let area = Rect::new(3, 6, 10, 8);
-        // inner_x = 4, click_x=4 → "…" 上 → 補正後 0 + 4 = 4 → 'o' (col 4)
-        assert_eq!(desc_click_to_row_col(4, 7, &area, 0, 4, &["hello world".to_string()]), (0, 4));
-        // click_x=5 → テキスト先頭 → 補正後 0 + 4 = 4 → 'o' (col 4)
-        assert_eq!(desc_click_to_row_col(5, 7, &area, 0, 4, &["hello world".to_string()]), (0, 4));
-        // click_x=6 → 補正後 1 + 4 = 5 → ' ' (col 5)
-        assert_eq!(desc_click_to_row_col(6, 7, &area, 0, 4, &["hello world".to_string()]), (0, 5));
-        // click_x=7 → 補正後 2 + 4 = 6 → 'w' (col 6)
-        assert_eq!(desc_click_to_row_col(7, 7, &area, 0, 4, &["hello world".to_string()]), (0, 6));
-    }
-
-    #[test]
-    fn desc_click_left_ellipsis_cjk_narrow_area() {
-        // 狭い area で CJK テキストの左省略記号クリック
-        // "日本語テスト" (12 cols), scroll_left=6 → left_ellipsis=true
-        let area = Rect::new(1, 6, 10, 8);
-        // inner_x = 2, click_x=2 → "…" 上 → 補正後 0 + 6 = 6 → 'テ' (col 3)
-        assert_eq!(desc_click_to_row_col(2, 7, &area, 0, 6, &["日本語テスト".to_string()]), (0, 3));
-        // click_x=3 → テキスト先頭 → 補正後 0 + 6 = 6 → 'テ' (col 3)
-        assert_eq!(desc_click_to_row_col(3, 7, &area, 0, 6, &["日本語テスト".to_string()]), (0, 3));
-        // click_x=4 → 補正後 1 + 6 = 7 → 'テ' の 2 列目 (col 3)
-        assert_eq!(desc_click_to_row_col(4, 7, &area, 0, 6, &["日本語テスト".to_string()]), (0, 3));
-        // click_x=5 → 補正後 2 + 6 = 8 → 'ス' (col 4)
-        assert_eq!(desc_click_to_row_col(5, 7, &area, 0, 6, &["日本語テスト".to_string()]), (0, 4));
-    }
-
-    #[test]
-    fn desc_click_no_ellipsis_short_line_with_scroll() {
-        // scroll_left > 0 だが行が短い（line_width <= scroll_left）場合:
-        // left_ellipsis = false → 補正なし
-        let area = Rect::new(0, 6, 100, 10);
-        let lines = vec!["ab".to_string()];
-        // scroll_left=5 > line_width=2 → left_ellipsis=false
-        // click_x=1 → 補正なし 0 + 5 = 5 → 行末 (col 2)
-        assert_eq!(desc_click_to_row_col(1, 7, &area, 0, 5, &lines), (0, 2));
-    }
-
 }
