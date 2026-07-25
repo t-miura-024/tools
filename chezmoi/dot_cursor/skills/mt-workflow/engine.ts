@@ -31,6 +31,9 @@ export class EngineError extends Error {
   }
 }
 
+export const ARTIFACT_PRESENT_INSTRUCTION =
+  'このゲートをユーザーに提示する際、上記「確認する成果物」のファイルパスを必ず表示すること（ユーザーがファイルを開いて内容を確認できるように）。';
+
 function generateSessionId(): string {
   const now = new Date();
   const YYYY = now.getFullYear().toString();
@@ -317,11 +320,10 @@ export async function next(
       .filter(Boolean) as ArtifactRecord[];
 
     const choicesText = hg.choices.map((c) => `- **${c.value}**: ${c.label}${c.desc ? ` (${c.desc})` : ''}`).join('\n');
-    const prompt = `## Human Gate: ${stepDef.phase}\n\n### 確認する成果物\n${
-      artifactList.length > 0
-        ? artifactList.map((a) => `- ${a.artifactKey}: ${a.filePath}`).join('\n')
-        : '(成果物なし)'
-    }\n\n### 選択肢\n${choicesText}\n\n回答は選択肢の value を入力してください。`;
+    const artifactsSection = artifactList.length > 0
+      ? `${artifactList.map((a) => `- ${a.artifactKey}: ${a.filePath}`).join('\n')}\n\n${ARTIFACT_PRESENT_INSTRUCTION}`
+      : '(成果物なし)';
+    const prompt = `## Human Gate: ${stepDef.phase}\n\n### 確認する成果物\n${artifactsSection}\n\n### 選択肢\n${choicesText}\n\n回答は選択肢の value を入力してください。`;
 
     nextResult = {
       sessionId,
