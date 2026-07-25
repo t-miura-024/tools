@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { Database } from 'bun:sqlite';
-import { init, next, report, status, EngineError } from './engine';
+import { init, next, report, status, EngineError, ARTIFACT_PRESENT_INSTRUCTION } from './engine';
 import type { WorkflowDef, CheckCtx, PromptCtx, CheckResult } from './types';
 
 const TEST_BASE_DIR = path.join(path.dirname(__filename), '__test_sessions__');
@@ -1496,6 +1496,88 @@ describe('engine', () => {
       }, TEST_BASE_DIR);
       expect(r4.nextAction).toBe('continue');
       expect(r4.message).toContain('followup');
+    });
+  });
+
+  describe('human gate artifact presentation instruction', () => {
+    it('should include artifact paths and presentation instruction when artifacts are registered', async () => {
+      const tmpDir = path.join(TEST_BASE_DIR, 'gate-present-test');
+      fs.mkdirSync(tmpDir, { recursive: true });
+      const workflowPath = path.join(tmpDir, 'gate-present-workflow.ts');
+      fs.writeFileSync(workflowPath, `
+        const def = {
+          id: 'gate-present-test',
+          steps: [
+            {
+              key: 'prepare',
+              phase: 'Prepare',
+              type: 'task',
+              maxRetries: 0,
+              onFail: { action: 'abort' },
+              task: {
+                action: 'run_subagent',
+                subagentType: 'test',
+                buildPrompt: (ctx) => 'prepare artifacts',
+              },
+              check: (ctx) => ({ status: 'pass', reasons: [] }),
+            },
+            {
+              key: 'decompose_gate',
+              phase: 'Decompose',
+              type: 'human_gate',
+              maxRetries: 1,
+              onFail: { action: 'escalate' },
+              humanGate: {
+                presentArtifacts: ['issue-body.md'],
+                choices: [
+                  { value: 'approve', label: 'OK' },
+                  { value: 'revise', label: 'Revise' },
+                  { value: 'abort', label: 'Abort' },
+                ],
+                reviseTargetStep: 'prepare',
+              },
+              check: (ctx) => ({ status: 'pass', reasons: [] }),
+            },
+          ],
+        };
+        export default def;
+      `);
+
+      const { sessionId } = await init(workflowPath, TEST_BASE_DIR);
+
+      // prepare step registers the issue-body.md artifact
+      await next(sessionId, TEST_BASE_DIR);
+      await report(sessionId, {
+        stepKey: 'prepare',
+        status: 'completed',
+        subagentOutput: 'done',
+        artifacts: [{ key: 'issue-body.md', path: '/tmp/plan/issue-body.md' }],
+      }, TEST_BASE_DIR);
+
+      // human gate prompt should present the artifact path AND the instruction
+      const result = await next(sessionId, TEST_BASE_DIR);
+      expect(result.stepKey).toBe('decompose_gate');
+      expect(result.stepType).toBe('human_gate');
+      expect(result.prompt).toContain('- issue-body.md: /tmp/plan/issue-body.md');
+      expect(result.prompt).toContain(ARTIFACT_PRESENT_INSTRUCTION);
+    });
+
+    it('should not include presentation instruction when no artifacts are registered', async () => {
+      const { sessionId } = await init(FIXTURE_WORKFLOW, TEST_BASE_DIR);
+
+      await next(sessionId, TEST_BASE_DIR);
+      await report(sessionId, {
+        stepKey: 'step1_task',
+        status: 'completed',
+        subagentOutput: 'success task done',
+      }, TEST_BASE_DIR);
+
+      // step2_human_gate has presentArtifacts: [] → no artifacts presented
+      const result = await next(sessionId, TEST_BASE_DIR);
+      expect(result.stepKey).toBe('step2_human_gate');
+      expect(result.stepType).toBe('human_gate');
+      expect(result.prompt).toContain('(成果物なし)');
+      expect(result.prompt).not.toContain(ARTIFACT_PRESENT_INSTRUCTION);
     });
   });
 });
