@@ -213,31 +213,26 @@ fn draw_title_field(frame: &mut Frame, state: &mut FormState, area: Rect, hovere
 
     if state.title.is_empty() && !focused {
         let placeholder = Paragraph::new(Span::styled(
-            " タイトルを入力...",
+            "タイトルを入力...",
             Style::default().fg(Color::DarkGray),
         ));
         frame.render_widget(placeholder, inner);
         return;
     }
 
-    // 先頭スペース 1 列分を差し引いたテキスト表示幅
-    let text_view_width = inner.width.saturating_sub(1) as usize;
+    let text_view_width = inner.width as usize;
     state.title_view_width = text_view_width;
 
     // 折り返し視覚行を計算
     let visual_lines = wrap_line(&state.title, text_view_width);
 
-    // 各視覚行を Line に変換（先頭スペース付き）
     let lines: Vec<Line> = visual_lines
         .iter()
         .map(|&(start, end)| {
-            Line::from(vec![
-                Span::styled(" ", Style::default()),
-                Span::styled(
-                    state.title[start..end].to_string(),
-                    Style::default().fg(Color::White),
-                ),
-            ])
+            Line::from(Span::styled(
+                state.title[start..end].to_string(),
+                Style::default().fg(Color::White),
+            ))
         })
         .collect();
 
@@ -247,7 +242,7 @@ fn draw_title_field(frame: &mut Frame, state: &mut FormState, area: Rect, hovere
     if focused {
         let (cursor_visual_line, cursor_vcol) =
             cursor_to_visual_pos(&state.title, state.title_cursor, text_view_width);
-        let cursor_x = inner.x + 1 + cursor_vcol as u16; // +1 for leading space
+        let cursor_x = inner.x + cursor_vcol as u16;
         let cursor_y = inner.y + cursor_visual_line as u16;
         frame.set_cursor_position((cursor_x, cursor_y));
     }
@@ -805,8 +800,8 @@ pub fn title_click_to_cursor(
     }
     let inner_y = area.y + 1;
     let visual_line = click_y.saturating_sub(inner_y) as usize;
-    // 1 border + 1 leading space
-    let text_start_x = area.x + 2;
+    // 1 border
+    let text_start_x = area.x + 1;
     let click_col = click_x.saturating_sub(text_start_x) as usize;
     visual_pos_to_byte(title, visual_line, click_col, view_width)
 }
@@ -1147,46 +1142,45 @@ mod tests {
     #[test]
     fn title_click_ascii() {
         let area = Rect::new(0, 3, 100, 3);
-        assert_eq!(title_click_to_cursor(2, 4, &area, "hello", 97), 0);
-        assert_eq!(title_click_to_cursor(3, 4, &area, "hello", 97), 1);
-        assert_eq!(title_click_to_cursor(5, 4, &area, "hello", 97), 3);
-        assert_eq!(title_click_to_cursor(7, 4, &area, "hello", 97), 5);
-        assert_eq!(title_click_to_cursor(50, 4, &area, "hello", 97), 5);
+        assert_eq!(title_click_to_cursor(1, 4, &area, "hello", 98), 0);
+        assert_eq!(title_click_to_cursor(2, 4, &area, "hello", 98), 1);
+        assert_eq!(title_click_to_cursor(4, 4, &area, "hello", 98), 3);
+        assert_eq!(title_click_to_cursor(6, 4, &area, "hello", 98), 5);
+        assert_eq!(title_click_to_cursor(49, 4, &area, "hello", 98), 5);
     }
 
     #[test]
     fn title_click_unicode() {
         let area = Rect::new(0, 3, 100, 3);
-        assert_eq!(title_click_to_cursor(2, 4, &area, "日本語", 97), 0);
-        assert_eq!(title_click_to_cursor(3, 4, &area, "日本語", 97), 0);
-        assert_eq!(title_click_to_cursor(4, 4, &area, "日本語", 97), 3);
-        assert_eq!(title_click_to_cursor(5, 4, &area, "日本語", 97), 3);
-        assert_eq!(title_click_to_cursor(6, 4, &area, "日本語", 97), 6);
-        assert_eq!(title_click_to_cursor(7, 4, &area, "日本語", 97), 6);
-        assert_eq!(title_click_to_cursor(8, 4, &area, "日本語", 97), 9);
+        assert_eq!(title_click_to_cursor(1, 4, &area, "日本語", 98), 0);
+        assert_eq!(title_click_to_cursor(2, 4, &area, "日本語", 98), 0);
+        assert_eq!(title_click_to_cursor(3, 4, &area, "日本語", 98), 3);
+        assert_eq!(title_click_to_cursor(4, 4, &area, "日本語", 98), 3);
+        assert_eq!(title_click_to_cursor(5, 4, &area, "日本語", 98), 6);
+        assert_eq!(title_click_to_cursor(6, 4, &area, "日本語", 98), 6);
+        assert_eq!(title_click_to_cursor(7, 4, &area, "日本語", 98), 9);
     }
 
     #[test]
     fn title_click_mixed() {
         let area = Rect::new(0, 3, 100, 3);
-        assert_eq!(title_click_to_cursor(2, 4, &area, "a日b", 97), 0);
-        assert_eq!(title_click_to_cursor(3, 4, &area, "a日b", 97), 1);
-        assert_eq!(title_click_to_cursor(4, 4, &area, "a日b", 97), 1);
-        assert_eq!(title_click_to_cursor(5, 4, &area, "a日b", 97), 4);
-        assert_eq!(title_click_to_cursor(6, 4, &area, "a日b", 97), 5);
+        assert_eq!(title_click_to_cursor(1, 4, &area, "a日b", 98), 0);
+        assert_eq!(title_click_to_cursor(2, 4, &area, "a日b", 98), 1);
+        assert_eq!(title_click_to_cursor(3, 4, &area, "a日b", 98), 1);
+        assert_eq!(title_click_to_cursor(4, 4, &area, "a日b", 98), 4);
+        assert_eq!(title_click_to_cursor(5, 4, &area, "a日b", 98), 5);
     }
 
     #[test]
     fn title_click_empty() {
         let area = Rect::new(0, 3, 100, 3);
-        assert_eq!(title_click_to_cursor(5, 4, &area, "", 97), 0);
+        assert_eq!(title_click_to_cursor(4, 4, &area, "", 98), 0);
     }
 
     #[test]
     fn title_click_before_text_start() {
         let area = Rect::new(0, 3, 100, 3);
-        assert_eq!(title_click_to_cursor(0, 4, &area, "hello", 97), 0);
-        assert_eq!(title_click_to_cursor(1, 4, &area, "hello", 97), 0);
+        assert_eq!(title_click_to_cursor(0, 4, &area, "hello", 98), 0);
     }
 
     #[test]
@@ -1194,9 +1188,9 @@ mod tests {
         // "hello world" width=5, area at y=3, height=4 (2 visual lines + 2 borders)
         let area = Rect::new(0, 3, 100, 4);
         // click on visual line 1 (y=5), col 0 → byte 6 ('w')
-        assert_eq!(title_click_to_cursor(2, 5, &area, "hello world", 5), 6);
+        assert_eq!(title_click_to_cursor(1, 5, &area, "hello world", 5), 6);
         // click on visual line 1, col 2 → byte 8 ('r')
-        assert_eq!(title_click_to_cursor(4, 5, &area, "hello world", 5), 8);
+        assert_eq!(title_click_to_cursor(3, 5, &area, "hello world", 5), 8);
     }
 
     // --- desc_click_to_row_col ---
