@@ -7,7 +7,7 @@ description: 対象 repo のコード品質を SubAgent オーケストレーシ
 
 対象 repo のコード品質を SubAgent オーケストレーションで走査・分析し、Quality 軸（既存の質の向上）の企画候補を発掘する。ユーザーが選択した候補を最小構成の draft Issue として起票する。
 
-企画の具体化（完了条件・方針・実行単位の策定）は `mt-create-plan` の from-Issue フローに委譲する。
+企画の具体化（完了条件・方針・ミッションの策定）は `mt-create-plan` の from-Issue フローに委譲する。
 
 ## エンジン起動
 
@@ -58,7 +58,7 @@ bun run ~/.config/opencode/skills/mt-workflow/cli.ts init \
 
 ## ⚠️ 注意事項
 
-- 企画の具体化（完了条件・方針・実行単位の策定）はこのスキルの責務ではない。`mt-create-plan` に委譲する
+- 企画の具体化（完了条件・方針・ミッションの策定）はこのスキルの責務ではない。`mt-create-plan` に委譲する
 - 走査は読み取り専用で行い、repo のファイルを変更しない
 - ユーザーの選択前に Issue を起票しない（Human Gate 必須）
 - 重複チェックは毎回実施する。定期実行でノイズが増えないようにする

@@ -5,7 +5,7 @@ description: 対象 repo を軽量走査して Capability 軸（新しい能力�
 
 # mt-propose-capabilities
 
-対象 repo の軽量走査から Capability 軸（新しい能力の獲得）の企画候補を SubAgent オーケストレーションで発掘し、ユーザーの選択を経て draft Issue として起票する。企画の発掘に終始し、起票後の具体化（完了条件・方針・実行単位の策定）は `mt-create-plan` の from-Issue フローに委譲する。
+対象 repo の軽量走査から Capability 軸（新しい能力の獲得）の企画候補を SubAgent オーケストレーションで発掘し、ユーザーの選択を経て draft Issue として起票する。企画の発掘に終始し、起票後の具体化（完了条件・方針・ミッションの策定）は `mt-create-plan` の from-Issue フローに委譲する。
 
 ## エンジン起動
 
@@ -56,7 +56,7 @@ bun run ~/.config/opencode/skills/mt-workflow/cli.ts init \
 
 ## ⚠️ 注意事項
 
-- 企画の具体化（完了条件・方針・実行単位の策定）はこの Skill の責務ではない。`mt-create-plan` に委譲する
+- 企画の具体化（完了条件・方針・ミッションの策定）はこの Skill の責務ではない。`mt-create-plan` に委譲する
 - 走査は読み取り専用で行い、repo のファイルを変更しない
 - ユーザーの選択前に Issue を起票しない（Human Gate 必須）
 - 重複チェックは毎回実行する。定期実行でノイズが増えないようにする
