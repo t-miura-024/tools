@@ -390,7 +390,7 @@ fn update_hover(
 ) {
     let Some(popup) = state.popup.as_ref() else {
         *popup_hover = None;
-        let areas = ui::compute_layout(frame_area);
+        let areas = ui::compute_layout(frame_area, &state.title);
         *hover = ui::hit_test_form(x, y, &areas);
         return;
     };
@@ -410,7 +410,7 @@ fn scroll_panel_at(
     frame_area: ratatui::layout::Rect,
     delta: i32,
 ) {
-    let areas = ui::compute_layout(frame_area);
+    let areas = ui::compute_layout(frame_area, &state.title);
     let pos: ratatui::layout::Position = (x, y).into();
 
     if areas.created.contains(pos) {
@@ -426,50 +426,8 @@ fn scroll_panel_at(
     }
 }
 
-/// マウスカーソル位置がタイトル欄上にある場合、Shift+ホイールで横スクロールする。
-/// `delta` は表示列単位のスクロール量（負 = 左、正 = 右）。
-fn scroll_title_horizontal(
-    state: &mut FormState,
-    x: u16,
-    y: u16,
-    frame_area: ratatui::layout::Rect,
-    delta: i32,
-) {
-    let areas = ui::compute_layout(frame_area);
-    let pos: ratatui::layout::Position = (x, y).into();
-    if !areas.title.contains(pos) {
-        return;
-    }
-    let new_scroll = (state.title_scroll_left as i32 + delta).max(0) as usize;
-    state.title_scroll_left = new_scroll;
-}
-
-/// マウスカーソル位置が説明欄上にある場合、Shift+ホイールで横スクロールする。
-/// `delta` は表示列単位のスクロール量（負 = 左、正 = 右）。
-fn scroll_desc_horizontal(
-    state: &mut FormState,
-    x: u16,
-    y: u16,
-    frame_area: ratatui::layout::Rect,
-    delta: i32,
-) {
-    let areas = ui::compute_layout(frame_area);
-    let desc_full = ratatui::layout::Rect {
-        x: areas.desc_label.x,
-        y: areas.desc_label.y,
-        width: areas.desc_label.width,
-        height: areas.desc_label.height + areas.desc_text.height,
-    };
-    let pos: ratatui::layout::Position = (x, y).into();
-    if !desc_full.contains(pos) {
-        return;
-    }
-    let new_scroll = (state.desc_scroll_left as i32 + delta).max(0) as usize;
-    state.desc_scroll_left = new_scroll;
-}
-
-/// マウスカーソル位置が説明欄上にある場合、ホイールで縦スクロールする。
-/// `delta` は行単位のスクロール量（負 = 上、正 = 下）。
+/// マウスカーソル位置が説明欄上にある場合、ホイールで縦スクロールする（視覚行単位）。
+/// `delta` は視覚行単位のスクロール量（負 = 上、正 = 下）。
 fn scroll_desc_vertical(
     state: &mut FormState,
     desc_area: &TextArea,
@@ -478,7 +436,7 @@ fn scroll_desc_vertical(
     frame_area: ratatui::layout::Rect,
     delta: i32,
 ) {
-    let areas = ui::compute_layout(frame_area);
+    let areas = ui::compute_layout(frame_area, &state.title);
     let desc_full = ratatui::layout::Rect {
         x: areas.desc_label.x,
         y: areas.desc_label.y,
@@ -489,9 +447,11 @@ fn scroll_desc_vertical(
     if !desc_full.contains(pos) {
         return;
     }
-    let total_lines = desc_area.lines().len();
+    let width = state.desc_view_width;
+    let lines: Vec<String> = desc_area.lines().iter().map(|s| s.to_string()).collect();
+    let total = ui::total_visual_lines(&lines, width);
     let new_scroll = (state.desc_scroll_top as i32 + delta).max(0) as usize;
-    state.desc_scroll_top = new_scroll.min(total_lines.saturating_sub(1));
+    state.desc_scroll_top = new_scroll.min(total.saturating_sub(1));
 }
 
 fn handle_mouse_event(
@@ -515,23 +475,13 @@ fn handle_mouse_event(
             return None;
         }
         MouseEventKind::ScrollUp => {
-            if mouse.modifiers.contains(KeyModifiers::SHIFT) {
-                scroll_title_horizontal(state, x, y, frame_area, -3);
-                scroll_desc_horizontal(state, x, y, frame_area, -3);
-            } else {
-                scroll_panel_at(state, x, y, frame_area, -1);
-                scroll_desc_vertical(state, desc_area, x, y, frame_area, -1);
-            }
+            scroll_panel_at(state, x, y, frame_area, -1);
+            scroll_desc_vertical(state, desc_area, x, y, frame_area, -1);
             return None;
         }
         MouseEventKind::ScrollDown => {
-            if mouse.modifiers.contains(KeyModifiers::SHIFT) {
-                scroll_title_horizontal(state, x, y, frame_area, 3);
-                scroll_desc_horizontal(state, x, y, frame_area, 3);
-            } else {
-                scroll_panel_at(state, x, y, frame_area, 1);
-                scroll_desc_vertical(state, desc_area, x, y, frame_area, 1);
-            }
+            scroll_panel_at(state, x, y, frame_area, 1);
+            scroll_desc_vertical(state, desc_area, x, y, frame_area, 1);
             return None;
         }
         MouseEventKind::Down(crossterm::event::MouseButton::Left) => {
@@ -542,7 +492,7 @@ fn handle_mouse_event(
 
     let Some(popup) = state.popup.as_mut() else {
         if let Some(target) = *hover {
-            let areas = ui::compute_layout(frame_area);
+            let areas = ui::compute_layout(frame_area, &state.title);
             match target {
                 ClickTarget::Repo => {
                     state.focus = Field::Repo;
@@ -551,7 +501,13 @@ fn handle_mouse_event(
                 }
                 ClickTarget::Title => {
                     state.focus = Field::Title;
-                    state.title_cursor = ui::title_click_to_cursor(x, &areas.title, &state.title, state.title_scroll_left);
+                    state.title_cursor = ui::title_click_to_cursor(
+                        x,
+                        y,
+                        &areas.title,
+                        &state.title,
+                        state.title_view_width,
+                    );
                 }
                 ClickTarget::Description => {
                     state.focus = Field::Description;
@@ -568,8 +524,8 @@ fn handle_mouse_event(
                         y,
                         &desc_full,
                         state.desc_scroll_top,
-                        state.desc_scroll_left,
                         &lines,
+                        state.desc_view_width,
                     );
                     let (cur_row, _cur_col) = desc_area.cursor();
                     if target_row > cur_row {
@@ -640,9 +596,7 @@ fn handle_form_key(key: KeyEvent, state: &mut FormState, desc_area: &mut TextAre
         },
         _ => match state.focus {
             Field::Title => handle_title_key(key, state),
-            Field::Description => {
-                desc_area.input(key);
-            }
+            Field::Description => handle_desc_key(key, state, desc_area),
             Field::Repo => {}
         },
     }
@@ -657,9 +611,98 @@ fn handle_title_key(key: KeyEvent, state: &mut FormState) {
         KeyCode::Delete => state.title_delete(),
         KeyCode::Left => state.title_move_left(),
         KeyCode::Right => state.title_move_right(),
+        KeyCode::Up => title_visual_move(state, -1),
+        KeyCode::Down => title_visual_move(state, 1),
         KeyCode::Home => state.title_cursor = 0,
         KeyCode::End => state.title_cursor = state.title.len(),
         _ => {}
+    }
+}
+
+/// 説明欄のキー入力。↑/↓は視覚行単位で移動し、それ以外は TextArea に委譲する。
+fn handle_desc_key(key: KeyEvent, state: &mut FormState, desc_area: &mut TextArea) {
+    match key.code {
+        KeyCode::Up => desc_visual_move(state, desc_area, -1),
+        KeyCode::Down => desc_visual_move(state, desc_area, 1),
+        _ => {
+            desc_area.input(key);
+        }
+    }
+}
+
+/// タイトル欄のカーソルを視覚行単位で上下移動する。
+/// 最上/最下行では何もしない（フォーカス移動は Tab のみ）。
+fn title_visual_move(state: &mut FormState, delta: i32) {
+    let width = state.title_view_width;
+    if width == 0 || state.title.is_empty() {
+        return;
+    }
+    let visual_lines = ui::wrap_line(&state.title, width);
+    let (cur_visual, cur_col) =
+        ui::cursor_to_visual_pos(&state.title, state.title_cursor, width);
+
+    let target_visual = if delta < 0 {
+        if cur_visual == 0 {
+            return;
+        }
+        cur_visual - 1
+    } else {
+        if cur_visual + 1 >= visual_lines.len() {
+            return;
+        }
+        cur_visual + 1
+    };
+
+    state.title_cursor = ui::visual_pos_to_byte(&state.title, target_visual, cur_col, width);
+}
+
+/// 説明欄のカーソルを視覚行単位で上下移動する。
+/// 最上/最下行では何もしない。
+fn desc_visual_move(state: &mut FormState, desc_area: &mut TextArea, delta: i32) {
+    let width = state.desc_view_width;
+    if width == 0 {
+        // 初回描画前は TextArea のデフォルト動作にフォールバック
+        if delta < 0 {
+            desc_area.move_cursor(CursorMove::Up);
+        } else {
+            desc_area.move_cursor(CursorMove::Down);
+        }
+        return;
+    }
+
+    let lines: Vec<String> = desc_area.lines().iter().map(|s| s.to_string()).collect();
+    let (cur_row, cur_col) = desc_area.cursor();
+    let (cur_visual, cur_vcol) = ui::desc_cursor_to_visual(&lines, cur_row, cur_col, width);
+    let total = ui::total_visual_lines(&lines, width);
+
+    let target_visual = if delta < 0 {
+        if cur_visual == 0 {
+            return;
+        }
+        cur_visual - 1
+    } else {
+        if cur_visual + 1 >= total {
+            return;
+        }
+        cur_visual + 1
+    };
+
+    let (target_row, target_col) = ui::desc_visual_to_cursor(&lines, target_visual, cur_vcol, width);
+
+    // TextArea のカーソルを目標位置に移動
+    let (row_now, _) = desc_area.cursor();
+    if target_row > row_now {
+        for _ in 0..(target_row - row_now) {
+            desc_area.move_cursor(CursorMove::Down);
+        }
+    } else if target_row < row_now {
+        for _ in 0..(row_now - target_row) {
+            desc_area.move_cursor(CursorMove::Up);
+        }
+    }
+    desc_area.move_cursor(CursorMove::Head);
+    for _ in 0..target_col {
+        desc_area.move_cursor(CursorMove::Forward);
     }
 }
 
