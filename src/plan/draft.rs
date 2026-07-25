@@ -452,7 +452,7 @@ fn add_to_project_and_set_status(config: &PlanConfig, issue_url: &str) -> anyhow
     let item: ItemAddOutput = serde_json::from_slice(&item_output.stdout)
         .context("Project item-add の出力を解析できませんでした")?;
 
-    let status = Command::new("gh")
+    let output = Command::new("gh")
         .args([
             "project",
             "item-edit",
@@ -465,11 +465,12 @@ fn add_to_project_and_set_status(config: &PlanConfig, issue_url: &str) -> anyhow
             "--single-select-option-id",
             &config.status_options.draft,
         ])
-        .status()
+        .output()
         .context("gh project item-edit の実行に失敗しました")?;
 
-    if !status.success() {
-        bail!("Status の設定に失敗しました");
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        bail!("Status の設定に失敗しました: {}", stderr.trim());
     }
 
     Ok(())
