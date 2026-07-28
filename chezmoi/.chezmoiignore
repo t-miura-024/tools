@@ -2,3 +2,14 @@ README.md
 dot_Raycast.rayconfig
 dot_raycast_passphrase.age
 dot_takt/README.md
+
+# chezmoi 管理対象は mt-* と _shared のみ（他は tado install / bun add 等で配置）
+.cursor/skills/*
+!.cursor/skills/_shared
+!.cursor/skills/mt-*
+.claude/skills/*
+!.claude/skills/_shared
+!.claude/skills/mt-*
+.config/opencode/skills/*
+!.config/opencode/skills/_shared
+!.config/opencode/skills/mt-*

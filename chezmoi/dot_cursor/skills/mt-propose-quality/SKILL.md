@@ -9,4 +9,4 @@ description: 対象 repo のコード品質を SubAgent オーケストレーシ
 
 ## 実行
 
-`mt-run-workflow` を `--workflow ~/.config/opencode/skills/mt-propose-quality/workflow.ts` で起動する。
+`tado-run` を `--workflow ~/.config/opencode/skills/mt-propose-quality/workflow.ts` で起動する。

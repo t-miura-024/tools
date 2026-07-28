@@ -11,4 +11,4 @@ GitHub Issue ベースの計画を選び、方針に基づき実行し履歴を�
 
 ## 実行
 
-`mt-run-workflow` を `--workflow ~/.config/opencode/skills/mt-plan/workflow.ts` で起動する。
+`tado-run` を `--workflow ~/.config/opencode/skills/mt-plan/workflow.ts` で起動する。

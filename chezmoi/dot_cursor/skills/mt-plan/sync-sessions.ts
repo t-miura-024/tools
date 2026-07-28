@@ -10,7 +10,7 @@ export interface PlanSessionInfo {
   updatedAt: string;
 }
 
-const DEFAULT_BASE_DIR = resolve('tmp', 'mt-workflow');
+const DEFAULT_BASE_DIR = resolve('tmp', 'tado');
 
 export function listPlanSessions(
   planNumber: number,

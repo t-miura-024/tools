@@ -9,4 +9,4 @@ description: ローカル SearXNG、curl、pandoc、jq を使い、Planner / Res
 
 ## 実行
 
-`mt-run-workflow` を `--workflow ~/.config/opencode/skills/mt-deep-research/workflow.ts` で起動する。
+`tado-run` を `--workflow ~/.config/opencode/skills/mt-deep-research/workflow.ts` で起動する。

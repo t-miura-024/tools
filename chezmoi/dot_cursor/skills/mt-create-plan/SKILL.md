@@ -9,4 +9,4 @@ Cursor Plan モードに依存せず、GitHub Issue として計画ファイル�
 
 ## 実行
 
-`mt-run-workflow` を `--workflow ~/.config/opencode/skills/mt-create-plan/workflow.ts` で起動する。
+`tado-run` を `--workflow ~/.config/opencode/skills/mt-create-plan/workflow.ts` で起動する。

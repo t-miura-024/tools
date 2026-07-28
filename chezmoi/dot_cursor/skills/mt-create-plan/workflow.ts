@@ -6,7 +6,7 @@ import type {
   InitCtx,
   ConditionCtx,
   ArtifactRecord,
-} from '../mt-workflow/types';
+} from 'tado';
 import { join } from 'node:path';
 import { readFileSync } from 'node:fs';
 import { loadConfig } from '../mt-plan/init-config';
