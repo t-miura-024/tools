@@ -5,7 +5,7 @@ import type {
   CheckResult,
   InitCtx,
   ArtifactRecord,
-} from '../mt-workflow/types';
+} from 'tado';
 import { join } from 'node:path';
 import { loadConfig } from './init-config';
 

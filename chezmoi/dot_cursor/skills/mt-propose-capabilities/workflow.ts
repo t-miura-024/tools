@@ -3,7 +3,7 @@ import type {
   CheckCtx,
   PromptCtx,
   CheckResult,
-} from '../mt-workflow/types';
+} from 'tado';
 import { join } from 'node:path';
 
 const def: WorkflowDef = {

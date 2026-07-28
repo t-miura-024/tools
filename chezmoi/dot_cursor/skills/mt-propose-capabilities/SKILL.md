@@ -9,4 +9,4 @@ description: 対象 repo を軽量走査して Capability 軸（新しい能力�
 
 ## 実行
 
-`mt-run-workflow` を `--workflow ~/.config/opencode/skills/mt-propose-capabilities/workflow.ts` で起動する。
+`tado-run` を `--workflow ~/.config/opencode/skills/mt-propose-capabilities/workflow.ts` で起動する。

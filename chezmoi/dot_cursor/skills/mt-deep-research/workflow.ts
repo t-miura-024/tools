@@ -5,7 +5,7 @@ import type {
   CheckResult,
   InitCtx,
   AfterInitResult,
-} from '../mt-workflow/types';
+} from 'tado';
 import { Database } from 'bun:sqlite';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';

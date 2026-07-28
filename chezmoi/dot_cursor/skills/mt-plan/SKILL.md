@@ -9,7 +9,7 @@ GitHub Issue ベースの計画作成から実行までを扱う統合スキル�
 
 ## ワークフローエンジン
 
-mt-run-plan は `mt-workflow` エンジンで手順が管理されています。ワークフロー定義は `mt-plan/workflow.ts` を参照。
+mt-run-plan は `tado` エンジンで手順が管理されています。ワークフロー定義は `mt-plan/workflow.ts` を参照。
 
 ## 🚦 Plan First ルール
 
@@ -33,8 +33,7 @@ mt-run-plan は `mt-workflow` エンジンで手順が管理されています�
 ## エンジン起動（mt-run-plan 委譲時）
 
 ```bash
-bun run ~/.config/opencode/skills/mt-workflow/cli.ts init \
-  --workflow ~/.config/opencode/skills/mt-plan/workflow.ts
+tado init --workflow ~/.config/opencode/skills/mt-plan/workflow.ts
 ```
 
 ## ✅ 完了条件
