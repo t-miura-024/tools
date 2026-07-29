@@ -1,0 +1,13 @@
+git:
+  paging:
+    pager: delta --dark --paging=never
+
+gui:
+  nerdFontsVersion: "3"
+  showFileIcons: true
+  language: en
+  border: rounded
+  theme:
+    activeBorderColor: ["#89b4fa", "bold"]
+  showFileTree: true
+  expandFocusedSidePanel: true
