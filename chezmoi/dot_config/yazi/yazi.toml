@@ -1,5 +1,6 @@
 [mgr]
 show_hidden = true
+ratio = [0, 3, 7]
 
 [preview]
 max_width = 1000
