@@ -7,7 +7,7 @@ max_height = 1000
 
 [[plugin.prepend_previewers]]
 url = "*.md"
-run = 'piper -- mdcat --no-pager --columns=$w --theme catppuccin-mocha "$1"'
+run = 'piper -- mdcat --ansi --no-pager --columns=$w --theme catppuccin-mocha "$1"'
 
 [[plugin.prepend_fetchers]]
 url   = "*"
