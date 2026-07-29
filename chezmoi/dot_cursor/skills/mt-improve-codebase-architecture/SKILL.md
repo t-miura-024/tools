@@ -46,7 +46,7 @@ Explore でコードを歩き、次をメモする:
 
 ### 4. 選ばれた候補を詰める
 
-- `mt-grill-me` または `mt-grill-with-docs` で制約・依存・seam・残すテストを詰める
+- `mt-grill-me` または `mt-grill-with-docs`（`mt-domain-modeling` 併用）で制約・依存・seam・残すテストを詰める
 - 新しい概念名が要るなら `CONTEXT.md` 更新を提案する
 - 却下理由が将来の再提案を防ぐなら ADR を提案する
 
