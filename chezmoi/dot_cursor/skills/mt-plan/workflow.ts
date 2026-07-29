@@ -4,6 +4,7 @@ import type {
   PromptCtx,
   CheckResult,
   InitCtx,
+  ConditionCtx,
   ArtifactRecord,
 } from 'tado';
 import { join } from 'node:path';
@@ -165,19 +166,70 @@ const def: WorkflowDef = {
             'gh issue view <number> --json body',
             '```',
             '',
+            `読み込んだ body を ${ctx.sessionDir}/issue-body.md にも保存する。`,
+            '',
             '7. 読み込んだ内容の要点を報告する:',
             '   - 完了条件の数と概要',
             '   - 主要な方針',
             '   - 未解決の `🤔 論点`（あれば着手前に方針へ取り込む）',
             '',
-            '8. 計画番号を workflow.db に保存する: report 時の `artifacts` フィールドに以下を含めること:',
+            '8. 計画番号と Issue body を保存する: report 時の `artifacts` に以下を含めること:',
             '```json',
-            '{"key": "plan_number", "path": "<number>"}',
+            `[{"key": "plan_number", "path": "<number>"}, {"key": "issue-body.md", "path": "${ctx.sessionDir}/issue-body.md"}]`,
             '```',
             '',
             '## セッション情報',
             '',
             `- セッションディレクトリ: ${ctx.sessionDir}`,
+          ].join('\n');
+        },
+      },
+      check: (_ctx: CheckCtx): CheckResult => ({ status: 'pass', reasons: [] }),
+    },
+
+    // -------------------------------------------------------------------
+    // Step 2.5: ドキュメント転記
+    // -------------------------------------------------------------------
+    {
+      key: 'transcribe_docs',
+      phase: 'ドキュメント転記',
+      type: 'task',
+      maxRetries: 1,
+      onFail: { action: 'escalate' },
+      condition: (ctx: ConditionCtx): boolean => {
+        const body = findArtifactText(ctx.artifacts, 'issue-body.md');
+        return body?.includes('## 📄 ドキュメント') ?? false;
+      },
+      task: {
+        action: 'orchestrate',
+        buildPrompt: (ctx: PromptCtx) => {
+          return [
+            '## 目的',
+            '',
+            '計画 Issue の `## 📄 ドキュメント` セクションをリポジトリの実ファイルへ転記する。',
+            '',
+            '## 手順',
+            '',
+            '### 1. ドキュメントセクションの抽出',
+            '',
+            `セッションディレクトリの issue-body.md から \`## 📄 ドキュメント\` セクションを抽出する。`,
+            '',
+            '### 2. 各ブロックの書き出し',
+            '',
+            '各 `### <リポジトリ相対パス>` 見出しと直下のコードフェンス（ファイル全文）を、指定パスへ書き出す。',
+            '',
+            '- ADR 連番が既存ファイルと衝突する場合は、次の空き番号へリネームして書き出す',
+            '- 既存ファイル（主に `CONTEXT.md`）がある場合は既存内容を読み、計画側の内容を正としてマージする（`_Avoid_` ルールに従う）',
+            '- 書き出しは未コミット差分として残す（コミットは行わない）',
+            '',
+            '### 3. 書き出し結果の報告',
+            '',
+            '書き出したファイル一覧（パス・新規/更新・マージの有無）を報告する。',
+            '',
+            '## セッション情報',
+            '',
+            `- セッションディレクトリ: ${ctx.sessionDir}`,
+            `- 試行: ${ctx.attemptNumber}/${ctx.maxRetries}`,
           ].join('\n');
         },
       },

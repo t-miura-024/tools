@@ -48,7 +48,10 @@ function readPrepareDecision(artifacts: ArtifactRecord[]): PrepareDecision | und
 
 const PREPARE_DECISION_KEY = 'prepare-decision.json';
 const ISSUE_BODY_KEY = 'issue-body.md';
+const GRILL_NOTES_KEY = 'grill-notes.md';
 const mtPlanDir = join(import.meta.dir, '..', 'mt-plan');
+const mtGrillMeDir = join(import.meta.dir, '..', 'mt-grill-me');
+const mtGrillWithDocsDir = join(import.meta.dir, '..', 'mt-grill-with-docs');
 
 // ---------------------------------------------------------------------------
 // Workflow Definition
@@ -83,23 +86,74 @@ const def: WorkflowDef = {
           return [
             '## 目的',
             '',
-            '計画の全側面についてユーザーと共通認識に達するまで質問を繰り返す（Grill Phase）。',
+            '計画の全側面についてユーザーと共通認識に達するまでヒアリングを行う（Grill Phase）。',
             '',
             '## 手順',
             '',
             '### 1. from-Issue フローの確認',
             '',
             'ユーザーに「既存 Issue を取り込みますか？」と確認する。',
-            '- Yes の場合: `gh issue view <number> --json title,body,labels,state` で Issue メタデータを取得し、Grill Phase の素材として使う',
-            '- No の場合: 新規計画として Grill Phase を開始する',
+            '- Yes の場合: `gh issue view <number> --json title,body,labels,state` で Issue メタデータを取得し、ヒアリングの素材として使う',
+            '- No の場合: 新規計画としてヒアリングを開始する',
             '',
-            '### 2. Grill Phase 本体',
+            '### 2. 徹底ヒアリング',
             '',
-            '質問は一度に 1 つ。ユーザーが「十分」と宣言するまで継続する。',
+            `mt-grill-me スキル（${join(mtGrillMeDir, 'SKILL.md')}）をロードし、その指示に従ってヒアリングを行う。`,
+            'ユーザーが「十分」と宣言するまで継続する。',
             '',
-            '- **ユーザー決定領域:** 背景、why、意図、制約 — 推測で埋めず質問で確認',
-            '- **AI 提案領域:** 完了条件、アウトプット、方針、解決策、ミッションの分割 — 選択肢・推奨度・理由を添えて提案',
-            '- 文書を残しながら詰める場合は `mt-grill-with-docs` を使う（用語は `CONTEXT.md`、覆しにくい判断は ADR）',
+            '### 3. ヒアリング結果の記録',
+            '',
+            `ヒアリングで確定した内容・未決事項を自由形式でセッションディレクトリの \`${GRILL_NOTES_KEY}\` に書き出す。`,
+            '',
+            '## 成果物',
+            '',
+            'report 時の `artifacts` に以下を含める:',
+            '```json',
+            `{"key": "${GRILL_NOTES_KEY}", "path": "${join(ctx.sessionDir, GRILL_NOTES_KEY)}"}`,
+            '```',
+            '',
+            '## セッション情報',
+            '',
+            `- セッションディレクトリ: ${ctx.sessionDir}`,
+            `- 試行: ${ctx.attemptNumber}/${ctx.maxRetries}`,
+          ].join('\n');
+        },
+      },
+      check: (_ctx: CheckCtx): CheckResult => ({ status: 'pass', reasons: [] }),
+    },
+
+    // -----------------------------------------------------------------
+    // Step 2: 本文マッピング
+    // -----------------------------------------------------------------
+    {
+      key: 'draft_body',
+      phase: '本文マッピング',
+      type: 'task',
+      maxRetries: 3,
+      onFail: { action: 'escalate' },
+      task: {
+        action: 'orchestrate',
+        buildPrompt: (ctx: PromptCtx) => {
+          return [
+            '## 目的',
+            '',
+            'ヒアリングで集まった情報を plan-format.md のテンプレートにマッピングし、Issue body の最終本文を確定する。',
+            '',
+            '## 手順',
+            '',
+            '### 1. ヒアリング結果の読み込み',
+            '',
+            `セッションディレクトリの \`${GRILL_NOTES_KEY}\` を読み込む。`,
+            'from-Issue フローの場合は既存 Issue の内容も合わせて参照する。',
+            '',
+            '### 2. ドキュメント要否の判断',
+            '',
+            `ADR-FORMAT.md（${join(mtGrillWithDocsDir, 'ADR-FORMAT.md')}）の作成 3 条件に照らし、ADR / CONTEXT を計画に残すか判断し、ユーザーに確認する。`,
+            '',
+            '残す場合:',
+            `- ADR は ${join(mtGrillWithDocsDir, 'ADR-FORMAT.md')}、CONTEXT は ${join(mtGrillWithDocsDir, 'CONTEXT-FORMAT.md')} に従い内容を作成する`,
+            '- ADR 連番は対象 repo の `docs/adr/` を確認して次番号を確定する',
+            '- plan-format.md の `## 📄 ドキュメント` セクション形式（`### <リポジトリ相対パス>` + コードフェンス全文）で埋め込む',
             '',
             '### 3. 縦切り分解の検討',
             '',
@@ -131,7 +185,7 @@ const def: WorkflowDef = {
     },
 
     // -----------------------------------------------------------------
-    // Step 2: 起票準備
+    // Step 3: 起票準備
     // -----------------------------------------------------------------
     {
       key: 'prepare',
@@ -213,7 +267,7 @@ const def: WorkflowDef = {
     },
 
     // -----------------------------------------------------------------
-    // Step 3: 分解判定ゲート
+    // Step 4: 分解判定ゲート
     // -----------------------------------------------------------------
     {
       key: 'decompose_gate',
@@ -234,7 +288,7 @@ const def: WorkflowDef = {
     },
 
     // -----------------------------------------------------------------
-    // Step 4: Issue 更新（分解しない場合）
+    // Step 5: Issue 更新（分解しない場合）
     // -----------------------------------------------------------------
     {
       key: 'update_issue',
@@ -310,7 +364,7 @@ const def: WorkflowDef = {
     },
 
     // -----------------------------------------------------------------
-    // Step 5: Sub Issue 作成（分解する場合）
+    // Step 6: Sub Issue 作成（分解する場合）
     // -----------------------------------------------------------------
     {
       key: 'create_sub_issues',
@@ -364,6 +418,7 @@ const def: WorkflowDef = {
             '',
             '- 子計画は 1 階層までとし、再分解しない',
             '- 子の目的・対応スコープの和集合が親計画を過不足なく満たすこと',
+            '- ドキュメントセクション（`## 📄 ドキュメント`）は対応する子計画の body に配置し、親には残さない',
             '',
             '### 4. Sub Issue 関係の設定',
             '',
@@ -402,7 +457,7 @@ const def: WorkflowDef = {
     },
 
     // -----------------------------------------------------------------
-    // Step 6: refined 昇格確認ゲート
+    // Step 7: refined 昇格確認ゲート
     // -----------------------------------------------------------------
     {
       key: 'refined_gate',
@@ -423,7 +478,7 @@ const def: WorkflowDef = {
     },
 
     // -----------------------------------------------------------------
-    // Step 7: 完了処理
+    // Step 8: 完了処理
     // -----------------------------------------------------------------
     {
       key: 'finalize',
