@@ -139,6 +139,74 @@ fn test_mt_plan_draft_help() {
 }
 
 #[test]
+fn test_mt_plan_draft_help_non_interactive_args() {
+    let mut cmd = Command::cargo_bin("mt").unwrap();
+    cmd.args(["plan", "draft", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("--title"))
+        .stdout(predicate::str::contains("--body-file"))
+        .stdout(predicate::str::contains("--repo"));
+}
+
+#[test]
+fn test_mt_plan_draft_partial_args_title_only() {
+    let mut cmd = Command::cargo_bin("mt").unwrap();
+    cmd.args(["plan", "draft", "--title", "some title"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "--title, --body-file, --repo を同時に指定",
+        ))
+        .stderr(predicate::str::contains("--body-file"))
+        .stderr(predicate::str::contains("--repo"));
+}
+
+#[test]
+fn test_mt_plan_draft_partial_args_missing_repo() {
+    let mut cmd = Command::cargo_bin("mt").unwrap();
+    cmd.args([
+        "plan",
+        "draft",
+        "--title",
+        "t",
+        "--body-file",
+        "/tmp/body.md",
+    ])
+    .assert()
+    .failure()
+    .stderr(predicate::str::contains("--repo"));
+}
+
+#[test]
+fn test_mt_plan_draft_partial_args_missing_title_and_body_file() {
+    let mut cmd = Command::cargo_bin("mt").unwrap();
+    cmd.args(["plan", "draft", "--repo", "/tmp"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("--title"))
+        .stderr(predicate::str::contains("--body-file"));
+}
+
+#[test]
+fn test_mt_plan_draft_missing_body_file() {
+    let mut cmd = Command::cargo_bin("mt").unwrap();
+    cmd.args([
+        "plan",
+        "draft",
+        "--title",
+        "t",
+        "--body-file",
+        "/nonexistent/mt-plan-draft-body.md",
+        "--repo",
+        "/tmp",
+    ])
+    .assert()
+    .failure()
+    .stderr(predicate::str::contains("body ファイルが見つかりません"));
+}
+
+#[test]
 fn test_mt_doctor_help() {
     let mut cmd = Command::cargo_bin("mt").unwrap();
     cmd.arg("doctor")
