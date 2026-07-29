@@ -89,6 +89,26 @@ fn test_parse_issue_number_from_url() {
 }
 
 #[test]
+fn test_draft_output_json_format() {
+    let output = DraftOutput {
+        number: 42,
+        title: "test plan".to_string(),
+        url: "https://github.com/owner/repo/issues/42".to_string(),
+        repo: "owner/repo".to_string(),
+    };
+
+    let json = serde_json::to_string_pretty(&output).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+
+    assert_eq!(parsed["number"], 42);
+    assert_eq!(parsed["title"], "test plan");
+    assert_eq!(parsed["url"], "https://github.com/owner/repo/issues/42");
+    assert_eq!(parsed["repo"], "owner/repo");
+    // 出力フィールドは URL・番号・タイトル・リポジトリの 4 つのみ
+    assert_eq!(parsed.as_object().unwrap().len(), 4);
+}
+
+#[test]
 fn test_parse_config_from_str() {
     let json = r#"{
         "owner": "testuser",

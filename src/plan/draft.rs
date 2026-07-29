@@ -5,7 +5,7 @@ use std::process::{Command, Stdio};
 use std::sync::mpsc;
 
 use anyhow::{Context, bail};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use crate::cli::style;
 
@@ -43,9 +43,62 @@ pub struct ExistingIssue {
     pub url: String,
 }
 
-pub fn run() -> anyhow::Result<()> {
+/// 非対話モードで成功時に stdout へ JSON 出力する、作成済み Issue の情報。
+#[derive(Serialize, Debug, Clone, PartialEq, Eq)]
+struct DraftOutput {
+    number: u64,
+    title: String,
+    url: String,
+    repo: String,
+}
+
+pub fn run(
+    title: Option<String>,
+    body_file: Option<PathBuf>,
+    repo: Option<PathBuf>,
+) -> anyhow::Result<()> {
+    let specified_count = [title.is_some(), body_file.is_some(), repo.is_some()]
+        .iter()
+        .filter(|&&present| present)
+        .count();
+
+    match specified_count {
+        // 引数ゼロ: 従来通りの対話的 TUI（後方互換）
+        0 => run_interactive(),
+        // 3 引数すべて揃う: 非対話モード（TTY 不要）
+        3 => run_non_interactive(
+            title.as_deref().expect("title は Some が保証されている"),
+            body_file
+                .as_deref()
+                .expect("body_file は Some が保証されている"),
+            repo.as_deref().expect("repo は Some が保証されている"),
+        ),
+        // 一部だけの指定はエラー（TUI フォールバックなし）
+        _ => {
+            let mut missing = Vec::new();
+            if title.is_none() {
+                missing.push("--title");
+            }
+            if body_file.is_none() {
+                missing.push("--body-file");
+            }
+            if repo.is_none() {
+                missing.push("--repo");
+            }
+            bail!(
+                "非対話モードでは --title, --body-file, --repo を同時に指定してください。不足: {}",
+                missing.join(", ")
+            );
+        }
+    }
+}
+
+/// 対話モード: TTY ガードのうえで TUI を起動する（従来挙動）。
+fn run_interactive() -> anyhow::Result<()> {
     if !std::io::stdin().is_terminal() || !std::io::stdout().is_terminal() {
-        bail!("mt plan draft は TTY 環境でのみ実行できます（パイプやリダイレクト経由では実行できません）");
+        bail!(
+            "mt plan draft は TTY 環境でのみ実行できます（パイプやリダイレクト経由では実行できません）"
+        );
     }
 
     let config = load_config()?;
@@ -68,6 +121,49 @@ pub fn run() -> anyhow::Result<()> {
         }
         println!();
     }
+
+    Ok(())
+}
+
+/// 非対話モード: TUI を起動せず、CLI 引数から直接 Issue を作成する。
+///
+/// `submit_draft()` を再利用して起票パイプラインを実行し、成功時は作成した
+/// Issue の情報（番号・タイトル・URL・リポジトリ）を JSON で stdout に出力する。
+/// エラー時は `Err` を返し、main 側が stderr 出力 + 非ゼロ exit code で終了する。
+fn run_non_interactive(
+    title: &str,
+    body_file: &std::path::Path,
+    repo_path: &std::path::Path,
+) -> anyhow::Result<()> {
+    if !body_file.exists() {
+        bail!("body ファイルが見つかりません: {}", body_file.display());
+    }
+    let description = fs::read_to_string(body_file).with_context(|| {
+        format!(
+            "body ファイルの読み込みに失敗しました: {}",
+            body_file.display()
+        )
+    })?;
+
+    let config = load_config()?;
+
+    let issue_url = submit_draft(&config, repo_path, title, &description)?;
+    let number = parse_issue_number_from_url(&issue_url)
+        .with_context(|| format!("Issue URL から番号を解析できませんでした: {issue_url}"))?;
+
+    let (selected_owner, selected_name) = get_repo_owner_and_name(repo_path)?;
+    let (target_repo, _) = determine_target(&selected_owner, &selected_name, &config.owner);
+
+    let output = DraftOutput {
+        number,
+        title: title.to_string(),
+        url: issue_url,
+        repo: target_repo,
+    };
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&output).context("出力の JSON シリアライズに失敗しました")?
+    );
 
     Ok(())
 }
