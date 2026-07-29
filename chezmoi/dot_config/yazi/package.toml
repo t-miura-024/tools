@@ -1,0 +1,34 @@
+[[plugin.deps]]
+use = "yazi-rs/plugins:piper"
+rev = "4c63ed3"
+hash = "e0d59bd47866a6a574c74574097e5070"
+
+[[plugin.deps]]
+use = "yazi-rs/plugins:git"
+rev = "4c63ed3"
+hash = "88e56a64b7ce7c4314427452343fef17"
+
+[[plugin.deps]]
+use = "yazi-rs/plugins:chmod"
+rev = "4c63ed3"
+hash = "5b1c276b75cae91cbbdbe7863f39a540"
+
+[[plugin.deps]]
+use = "yazi-rs/plugins:full-border"
+rev = "4c63ed3"
+hash = "7b625412411be411153886894d9acaf"
+
+[[plugin.deps]]
+use = "yazi-rs/plugins:toggle-pane"
+rev = "4c63ed3"
+hash = "15e5b67a241172cbb86b8fbf9e63692"
+
+[[plugin.deps]]
+use = "yazi-rs/plugins:jump-to-char"
+rev = "4c63ed3"
+hash = "7a4b4237223aaa94e589d1c01a23542a"
+
+[[flavor.deps]]
+use = "yazi-rs/flavors:catppuccin-mocha"
+rev = "1a5f787"
+hash = "7dfe41c9c3d9be76da8a844263d0bbed"
