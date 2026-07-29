@@ -196,8 +196,8 @@ mt-run-plan 実行時に各ブロックがリポジトリの実ファイルへ�
 
 各ドキュメントは `### <リポジトリ相対パス>` の見出しと、直下のコードフェンス（ファイル全文）で記載します。
 
-- ADR の内容は `mt-grill-with-docs/ADR-FORMAT.md` の形式に従う
-- CONTEXT の内容は `mt-grill-with-docs/CONTEXT-FORMAT.md` の形式に従う
+- ADR の内容は `mt-domain-modeling/ADR-FORMAT.md` の形式に従う
+- CONTEXT の内容は `mt-domain-modeling/CONTEXT-FORMAT.md` の形式に従う
 - ADR 連番は計画作成時に対象 repo の `docs/adr/` を確認して確定する
 - 分解計画ではドキュメントを対応する子計画に配置し、親には残さない
 

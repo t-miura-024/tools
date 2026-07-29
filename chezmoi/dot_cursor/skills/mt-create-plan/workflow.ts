@@ -51,7 +51,7 @@ const ISSUE_BODY_KEY = 'issue-body.md';
 const GRILL_NOTES_KEY = 'grill-notes.md';
 const mtPlanDir = join(import.meta.dir, '..', 'mt-plan');
 const mtGrillMeDir = join(import.meta.dir, '..', 'mt-grill-me');
-const mtGrillWithDocsDir = join(import.meta.dir, '..', 'mt-grill-with-docs');
+const mtDomainModelingDir = join(import.meta.dir, '..', 'mt-domain-modeling');
 
 // ---------------------------------------------------------------------------
 // Workflow Definition
@@ -148,10 +148,10 @@ const def: WorkflowDef = {
             '',
             '### 2. ドキュメント要否の判断',
             '',
-            `ADR-FORMAT.md（${join(mtGrillWithDocsDir, 'ADR-FORMAT.md')}）の作成 3 条件に照らし、ADR / CONTEXT を計画に残すか判断し、ユーザーに確認する。`,
+            `ADR-FORMAT.md（${join(mtDomainModelingDir, 'ADR-FORMAT.md')}）の作成 3 条件に照らし、ADR / CONTEXT を計画に残すか判断し、ユーザーに確認する。`,
             '',
             '残す場合:',
-            `- ADR は ${join(mtGrillWithDocsDir, 'ADR-FORMAT.md')}、CONTEXT は ${join(mtGrillWithDocsDir, 'CONTEXT-FORMAT.md')} に従い内容を作成する`,
+            `- ADR は ${join(mtDomainModelingDir, 'ADR-FORMAT.md')}、CONTEXT は ${join(mtDomainModelingDir, 'CONTEXT-FORMAT.md')} に従い内容を作成する`,
             '- ADR 連番は対象 repo の `docs/adr/` を確認して次番号を確定する',
             '- plan-format.md の `## 📄 ドキュメント` セクション形式（`### <リポジトリ相対パス>` + コードフェンス全文）で埋め込む',
             '',
