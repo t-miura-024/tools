@@ -1,6 +1,6 @@
 git:
   paging:
-    pager: delta --dark --paging=never --line-numbers
+    pager: delta --dark --paging=never
 
 gui:
   nerdFontsVersion: "3"
