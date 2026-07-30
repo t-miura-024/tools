@@ -5,14 +5,11 @@
     "./plugins/cursor-hook-bridge.ts"
   ],
   "permission": {
-    "edit": {
+    "external_directory": {
       "*": "allow",
       "~/.config/opencode/**": "deny",
       "~/.cursor/**": "deny",
-      "~/.claude/**": "deny"
-    },
-    "external_directory": {
-      "*": "allow",
+      "~/.claude/**": "deny",
       "~/Documents/**": "deny",
       "~/Desktop/**": "deny",
       "~/Downloads/**": "deny",
