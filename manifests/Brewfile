@@ -53,6 +53,8 @@ cask "cmux"
 cask "zed"
 cask "displaylink"
 cask "font-symbols-only-nerd-font"
+cask "font-udev-gothic-hs"
+cask "ghostty"
 
 mas "Kindle", id: 302584613
 mas "LINE", id: 539883307
