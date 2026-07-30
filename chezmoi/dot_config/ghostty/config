@@ -1,6 +1,6 @@
 font-family = UDEVGothic35HSLG
 font-size = 13
-theme = catppuccin-mocha
+theme = Catppuccin Mocha
 cursor-style = block
 scrollback-limit = 10000
 window-padding-x = 4
