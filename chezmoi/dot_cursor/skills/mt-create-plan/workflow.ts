@@ -7,38 +7,33 @@ import type {
   ArtifactRecord,
 } from 'tado';
 import { join } from 'node:path';
-import { readFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
+import { execSync } from 'node:child_process';
 import { loadConfig } from '../mt-plan/init-config';
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-function findArtifactText(artifacts: ArtifactRecord[], key: string): string | undefined {
+function findArtifactText(artifacts: ArtifactRecord[], key: string): string {
   const match = artifacts.find((a) => a.artifactKey === key);
-  if (!match) return undefined;
-  try {
-    return readFileSync(match.filePath, 'utf-8');
-  } catch {
-    return undefined;
-  }
+  if (!match) throw new Error(`Artifact not found: ${key}`);
+  return readFileSync(match.filePath, 'utf-8');
 }
 
-interface PrepareDecision {
-  mode: 'update' | 'decompose';
-  fromIssue: boolean;
-  issueNumber?: number;
-  repo?: string;
+interface RepoInfo {
+  owner: string;
+  repo: string;
+  nameWithOwner: string;
 }
 
-function readPrepareDecision(artifacts: ArtifactRecord[]): PrepareDecision | undefined {
-  const raw = findArtifactText(artifacts, PREPARE_DECISION_KEY);
-  if (!raw) return undefined;
-  try {
-    return JSON.parse(raw) as PrepareDecision;
-  } catch {
-    return undefined;
-  }
+function readRepoInfo(artifacts: ArtifactRecord[]): RepoInfo {
+  const raw = findArtifactText(artifacts, REPO_INFO_KEY);
+  return JSON.parse(raw) as RepoInfo;
+}
+
+function isTMiura024(artifacts: ArtifactRecord[]): boolean {
+  return readRepoInfo(artifacts).owner === 't-miura-024';
 }
 
 // ---------------------------------------------------------------------------
@@ -48,6 +43,7 @@ function readPrepareDecision(artifacts: ArtifactRecord[]): PrepareDecision | und
 const PREPARE_DECISION_KEY = 'prepare-decision.json';
 const ISSUE_BODY_KEY = 'issue-body.md';
 const GRILL_NOTES_KEY = 'grill-notes.md';
+const REPO_INFO_KEY = 'repo-info.json';
 const mtPlanDir = join(import.meta.dir, '..', 'mt-plan');
 const mtGrillMeDir = join(import.meta.dir, '..', 'mt-grill-me');
 const mtDomainModelingDir = join(import.meta.dir, '..', 'mt-domain-modeling');
@@ -69,6 +65,17 @@ const def: WorkflowDef = {
     }
   },
 
+  afterInit: async (ctx: InitCtx) => {
+    const stdout = execSync('gh repo view --json nameWithOwner --jq .nameWithOwner', {
+      encoding: 'utf-8',
+    }).trim();
+    const [owner, repo] = stdout.split('/');
+    const repoInfo: RepoInfo = { owner, repo, nameWithOwner: stdout };
+    const repoInfoPath = join(ctx.sessionDir, REPO_INFO_KEY);
+    writeFileSync(repoInfoPath, JSON.stringify(repoInfo, null, 2), 'utf-8');
+    return { artifacts: [{ key: REPO_INFO_KEY, path: repoInfoPath }] };
+  },
+
   steps: [
     // -----------------------------------------------------------------
     // Step 1: Grill Phase
@@ -82,6 +89,26 @@ const def: WorkflowDef = {
       task: {
         action: 'orchestrate',
         buildPrompt: (ctx: PromptCtx) => {
+          const withDocs = isTMiura024(ctx.artifacts);
+
+          const hearingSection = withDocs
+            ? [
+                '### 2. 徹底ヒアリング + ドメインモデリング',
+                '',
+                `mt-grill-me スキル（${join(mtGrillMeDir, 'SKILL.md')}）をロードし、その指示に従ってヒアリングを行う。`,
+                '',
+                `加えて mt-domain-modeling スキル（${join(mtDomainModelingDir, 'SKILL.md')}）を参照し、その規律をすべて適用する。`,
+                '',
+                '**重要:** repo へのファイル書き込み（CONTEXT.md の更新、ADR ファイルの作成）は禁止。',
+                `確定した用語・ADR 案はすべて \`${GRILL_NOTES_KEY}\` に記録すること。`,
+                `フォーマットは ${join(mtDomainModelingDir, 'CONTEXT-FORMAT.md')} / ${join(mtDomainModelingDir, 'ADR-FORMAT.md')} に従う。`,
+              ]
+            : [
+                '### 2. 徹底ヒアリング',
+                '',
+                `mt-grill-me スキル（${join(mtGrillMeDir, 'SKILL.md')}）をロードし、その指示に従ってヒアリングを行う。`,
+              ];
+
           return [
             '## 目的',
             '',
@@ -95,14 +122,15 @@ const def: WorkflowDef = {
             '- Yes の場合: `gh issue view <number> --json title,body,labels,state` で Issue メタデータを取得し、ヒアリングの素材として使う',
             '- No の場合: 新規計画としてヒアリングを開始する',
             '',
-            '### 2. 徹底ヒアリング',
-            '',
-            `mt-grill-me スキル（${join(mtGrillMeDir, 'SKILL.md')}）をロードし、その指示に従ってヒアリングを行う。`,
+            ...hearingSection,
             'ユーザーが「十分」と宣言するまで継続する。',
             '',
             '### 3. ヒアリング結果の記録',
             '',
             `ヒアリングで確定した内容・未決事項を自由形式でセッションディレクトリの \`${GRILL_NOTES_KEY}\` に書き出す。`,
+            ...(withDocs
+              ? [`ドメインモデリングで確定した用語・ADR 案も \`${GRILL_NOTES_KEY}\` の専用セクション（## 確定用語 / ## ADR 案）に記録する。`]
+              : []),
             '',
             '## 成果物',
             '',
@@ -133,10 +161,13 @@ const def: WorkflowDef = {
       task: {
         action: 'orchestrate',
         buildPrompt: (ctx: PromptCtx) => {
+          const withDocs = isTMiura024(ctx.artifacts);
+
           return [
             '## 目的',
             '',
             'ヒアリングで集まった情報を plan-format.md のテンプレートにマッピングし、Issue body の最終本文を確定する。',
+            '分解モードの場合は子 Issue の body もすべてこのステップで生成する。',
             '',
             '## 手順',
             '',
@@ -145,26 +176,39 @@ const def: WorkflowDef = {
             `セッションディレクトリの \`${GRILL_NOTES_KEY}\` を読み込む。`,
             'from-Issue フローの場合は既存 Issue の内容も合わせて参照する。',
             '',
-            '### 2. ドキュメント要否の判断',
+            ...(withDocs
+              ? [
+                  '### 2. ドキュメントの整形・埋め込み',
+                  '',
+                  `Grill Phase で \`${GRILL_NOTES_KEY}\` に記録された確定用語・ADR 案は確定済みとして扱う。要否の再判断はしない。`,
+                  '',
+                  '以下を行い、plan-format.md の `## 📄 ドキュメント` セクションに埋め込む:',
+                  `- CONTEXT は ${join(mtDomainModelingDir, 'CONTEXT-FORMAT.md')} に従い本文を整形する`,
+                  `- ADR は ${join(mtDomainModelingDir, 'ADR-FORMAT.md')} に従い本文を整形する`,
+                  '- ADR 連番は対象 repo の `docs/adr/` を確認して次番号を確定する',
+                  '- セクション形式: `### <リポジトリ相対パス>` + コードフェンス全文',
+                  '',
+                ]
+              : []),
             '',
-            `ADR-FORMAT.md（${join(mtDomainModelingDir, 'ADR-FORMAT.md')}）の作成 3 条件に照らし、ADR / CONTEXT を計画に残すか判断し、ユーザーに確認する。`,
-            '',
-            '残す場合:',
-            `- ADR は ${join(mtDomainModelingDir, 'ADR-FORMAT.md')}、CONTEXT は ${join(mtDomainModelingDir, 'CONTEXT-FORMAT.md')} に従い内容を作成する`,
-            '- ADR 連番は対象 repo の `docs/adr/` を確認して次番号を確定する',
-            '- plan-format.md の `## 📄 ドキュメント` セクション形式（`### <リポジトリ相対パス>` + コードフェンス全文）で埋め込む',
-            '',
-            '### 3. 縦切り分解の検討',
+            `### ${withDocs ? '3' : '2'}. 縦切り分解の検討`,
             '',
             '大きな計画を実行可能なミッションへ割る場合は、次を守る:',
             '- 各ミッションは 1 層だけ切らず、必要な層を縦に貫く tracer bullet にする',
             '- 単独で確認できる振る舞いを持つ',
             '- 依存関係は実行順の Wave 配置で表現する（plan-format.md の `### 実行順` 参照）',
             '',
-            '### 4. 最終本文の確定',
+            `### ${withDocs ? '4' : '3'}. 最終本文の確定`,
             '',
             `plan-format.md（${join(mtPlanDir, 'plan-format.md')}）に従い、Issue body の最終本文を確定する。`,
             `確定した本文をセッションディレクトリに \`${ISSUE_BODY_KEY}\` として書き出す。`,
+            '',
+            '分解モードの場合:',
+            '- 親 Issue の body を `issue-body.md` として書き出す',
+            '- 各子計画の body を `issue-body-<n>.md`（n = 1, 2, 3...）として書き出す',
+            '- ドキュメントセクション（`## 📄 ドキュメント`）は対応する子計画の body に配置し、親には残さない',
+            '- 子計画は 1 階層までとし、再分解しない',
+            '- 子の目的・対応スコープの和集合が親計画を過不足なく満たすこと',
             '',
             '## 成果物',
             '',
@@ -195,18 +239,18 @@ const def: WorkflowDef = {
       task: {
         action: 'orchestrate',
         buildPrompt: (ctx: PromptCtx) => {
+          const repoInfo = readRepoInfo(ctx.artifacts);
+
           return [
             '## 目的',
             '',
-            '起票に必要な環境整備（repo 決定、label 確認）を行い、分解要否の判定材料を artifact に書き出す。',
+            '起票に必要な環境整備（label 確認）を行い、分解要否の判定材料を artifact に書き出す。',
             '',
             '## 手順',
             '',
-            '### 1. 対象 repo の決定',
+            '### 1. 対象 repo の確認',
             '',
-            '```bash',
-            'gh repo view --json nameWithOwner',
-            '```',
+            `対象 repo: \`${repoInfo.nameWithOwner}\`（afterInit で取得済み）`,
             '',
             '- owner が `t-miura-024` → そのまま',
             '- それ以外 → `t-miura-024/note` + `external/<repo>` label',
@@ -266,7 +310,7 @@ const def: WorkflowDef = {
     },
 
     // -----------------------------------------------------------------
-    // Step 3: Draft Issue 作成・更新
+    // Step 4: Draft Issue 作成・更新
     // -----------------------------------------------------------------
     {
       key: 'create_draft',
@@ -280,42 +324,23 @@ const def: WorkflowDef = {
           return [
             '## 目的',
             '',
-            'ヒアリング結果を plan-format.md のテンプレートにマッピングして Issue body を生成し、Draft Issue を作成（または更新）する。',
+            'draft_body で生成した Issue body を使って Draft Issue を作成（または更新）する。',
+            'コンテンツ生成は行わず、GitHub 操作のみに専念する。',
             '',
             '## 手順',
             '',
             '### 1. 入力情報の読み込み',
             '',
-            `セッションディレクトリの \`${GRILL_NOTES_KEY}\` と \`${PREPARE_DECISION_KEY}\` を読み込む。`,
+            `セッションディレクトリの \`${ISSUE_BODY_KEY}\` と \`${PREPARE_DECISION_KEY}\` を読み込む。`,
+            '分解モードの場合は `issue-body-<n>.md` も読み込む。',
             'prepare-decision.json から mode / fromIssue / issueNumber / repo を確認する。',
             '',
-            '### 2. ドキュメント要否の判断',
-            '',
-            `ADR-FORMAT.md（${join(mtGrillWithDocsDir, 'ADR-FORMAT.md')}）の作成 3 条件に照らし、ADR / CONTEXT を計画に残すか判断し、ユーザーに確認する。`,
-            '',
-            '残す場合:',
-            `- ADR は ${join(mtGrillWithDocsDir, 'ADR-FORMAT.md')}、CONTEXT は ${join(mtGrillWithDocsDir, 'CONTEXT-FORMAT.md')} に従い内容を作成する`,
-            '- ADR 連番は対象 repo の `docs/adr/` を確認して次番号を確定する',
-            '- plan-format.md の `## 📄 ドキュメント` セクション形式（`### <リポジトリ相対パス>` + コードフェンス全文）で埋め込む',
-            '',
-            '### 3. 縦切り分解の検討（分解モードの場合）',
-            '',
-            '大きな計画を実行可能なミッションへ割る場合は、次を守る:',
-            '- 各ミッションは 1 層だけ切らず、必要な層を縦に貫く tracer bullet にする',
-            '- 単独で確認できる振る舞いを持つ',
-            '- 依存関係は実行順の Wave 配置で表現する（plan-format.md の `### 実行順` 参照）',
-            '',
-            '### 4. Issue body の確定',
-            '',
-            `plan-format.md（${join(mtPlanDir, 'plan-format.md')}）に従い、Issue body の最終本文を確定する。`,
-            `確定した本文をセッションディレクトリに \`${ISSUE_BODY_KEY}\` として書き出す。`,
-            '',
-            '### 5. Draft Issue の作成または更新',
+            '### 2. Draft Issue の作成または更新',
             '',
             `セッションディレクトリに issue-number.txt が存在する場合（リトライ時）は、既存 Issue を \`gh issue edit\` で更新する。`,
             '存在しない場合は新規作成する。',
             '',
-            '#### 5a. from-Issue フロー（既存 Issue を更新）',
+            '#### 2a. from-Issue フロー（既存 Issue を更新）',
             '',
             '```bash',
             `gh issue edit <number> --body-file ${ctx.sessionDir}/issue-body.md`,
@@ -323,23 +348,19 @@ const def: WorkflowDef = {
             '',
             '**重要:** 新規作成せず、必ず既存 Issue を更新すること。',
             '',
-            '#### 5b. 新規作成フロー（mode: update）',
+            '#### 2b. 新規作成フロー（mode: update）',
             '',
             '```bash',
             `gh issue create --title "<title>" --body-file ${ctx.sessionDir}/issue-body.md --label "kind/plan"`,
             '```',
             '',
-            '#### 5c. 分解モード（mode: decompose）',
+            '#### 2c. 分解モード（mode: decompose）',
             '',
             '親 Issue を作成（または from-Issue の場合は更新）した後、各子計画について Issue を作成する（すべて `kind/plan` label + draft）:',
             '',
             '```bash',
-            'gh issue create --title "<子タイトル>" --body-file <child-body-file> --label "kind/plan"',
+            `gh issue create --title "<子タイトル>" --body-file ${ctx.sessionDir}/issue-body-<n>.md --label "kind/plan"`,
             '```',
-            '',
-            '- 子計画は 1 階層までとし、再分解しない',
-            '- 子の目的・対応スコープの和集合が親計画を過不足なく満たすこと',
-            '- ドキュメントセクション（`## 📄 ドキュメント`）は対応する子計画の body に配置し、親には残さない',
             '',
             'GitHub REST API で親子関係を設定する:',
             '',
@@ -348,7 +369,7 @@ const def: WorkflowDef = {
             '  -f sub_issue_id=<child-issue-id>',
             '```',
             '',
-            '### 6. Project への追加',
+            '### 3. Project への追加',
             '',
             'Issue（分解モードの場合は親子すべて）を GitHub Project に追加する（Status は `draft` に設定）:',
             '',
@@ -356,7 +377,7 @@ const def: WorkflowDef = {
             'gh project item-add <project-number> --owner <owner> --url <issue-url>',
             '```',
             '',
-            '### 7. Issue 番号の記録',
+            '### 4. Issue 番号の記録',
             '',
             '作成・更新した Issue 番号（分解モードの場合は親番号）を issue-number.txt に記録する。',
             '',
@@ -364,7 +385,6 @@ const def: WorkflowDef = {
             '',
             'report 時の `artifacts` に以下を含める:',
             '```json',
-            `{"key": "${ISSUE_BODY_KEY}", "path": "${join(ctx.sessionDir, ISSUE_BODY_KEY)}"}`,
             `{"key": "issue-number.txt", "path": "${ctx.sessionDir}/issue-number.txt"}`,
             '```',
             '',
@@ -379,7 +399,7 @@ const def: WorkflowDef = {
     },
 
     // -----------------------------------------------------------------
-    // Step 4: レビューゲート
+    // Step 5: レビューゲート
     // -----------------------------------------------------------------
     {
       key: 'review_gate',
@@ -400,7 +420,7 @@ const def: WorkflowDef = {
     },
 
     // -----------------------------------------------------------------
-    // Step 5: 完了処理
+    // Step 6: 完了処理
     // -----------------------------------------------------------------
     {
       key: 'finalize',
