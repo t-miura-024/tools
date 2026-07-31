@@ -40,35 +40,61 @@ pub fn check() -> anyhow::Result<()> {
 
     // --- コメント取得 & ゲート判定 ---
     let response = shared::fetch_comments(port)?;
+    let out = output_for_response(&response);
 
-    if shared::gate_passes(&response.threads) {
+    if out.passes {
         shared::kill_server(current_pid);
         shared::delete_review_state(&repo_root);
-        let out = CheckOutput {
-            passes: true,
-            blocking_threads: Vec::new(),
-        };
         println!("{}", serde_json::to_string(&out)?);
         Ok(())
     } else {
-        let blocking_threads = response
-            .threads
-            .iter()
-            .filter_map(|t| BlockingThread::from_thread(t))
-            .collect();
-        let out = CheckOutput {
-            passes: false,
-            blocking_threads,
-        };
         println!("{}", serde_json::to_string(&out)?);
         std::process::exit(1);
     }
 }
 
 #[derive(Serialize)]
-struct CheckOutput {
+pub(crate) struct CheckOutput {
     passes: bool,
     blocking_threads: Vec<BlockingThread>,
+}
+
+/// コメント取得結果から、`check` / `done` 共通のゲート出力を作る。
+pub(crate) fn output_for_response(response: &shared::CommentGetResponse) -> CheckOutput {
+    let passes = shared::gate_passes(&response.threads);
+    let blocking_threads = if passes {
+        Vec::new()
+    } else {
+        response
+            .threads
+            .iter()
+            .filter_map(|t| BlockingThread::from_thread(t))
+            .collect()
+    };
+
+    CheckOutput {
+        passes,
+        blocking_threads,
+    }
+}
+
+/// レビュー状態がない場合の冪等な終了結果。
+pub(crate) fn empty_output() -> CheckOutput {
+    CheckOutput {
+        passes: true,
+        blocking_threads: Vec::new(),
+    }
+}
+
+/// コメントを取得できず、ゲート結果を判定できない場合の終了結果。
+///
+/// `done` は終了処理そのものを失敗させないため、エラーを JSON の
+/// スキーマ外へ持ち出さず、通過とは判定しない結果を返す。
+pub(crate) fn error_output() -> CheckOutput {
+    CheckOutput {
+        passes: false,
+        blocking_threads: Vec::new(),
+    }
 }
 
 #[derive(Serialize)]
@@ -94,7 +120,10 @@ impl BlockingThread {
             line: thread.position.get("line").cloned(),
             taxonomy: taxonomy_label(taxonomy),
             body: parent.body.clone(),
-            replies: thread.messages[1..].iter().map(|m| m.body.clone()).collect(),
+            replies: thread.messages[1..]
+                .iter()
+                .map(|m| m.body.clone())
+                .collect(),
         })
     }
 }

@@ -10,10 +10,206 @@ import type {
 import { join } from 'node:path';
 import { loadConfig } from './init-config';
 
-interface ReviewResult {
-  round: number;
-  axes: Record<string, Array<{ severity: string; detail: string }>>;
-  counts: { must: number; should: number; want: number };
+type JsonRecord = Record<string, unknown>;
+
+interface DifitBlockingThread {
+  id?: string;
+  file?: string;
+  line?: number | { start: number; end: number } | null;
+  taxonomy?: string;
+  body: string;
+  replies?: string[];
+}
+
+interface DifitCheckOutput {
+  passes: boolean;
+  blocking_threads: DifitBlockingThread[];
+}
+
+const REVIEW_AXES = ['essentiality', 'acceptance', 'scope', 'alignment', 'quality'];
+const DIFIT_START_KEY = 'difit-start.json';
+const DIFIT_COMMENTS_KEY = 'difit-comments.json';
+const DIFIT_CHECK_KEY = 'difit-check.json';
+const CONTEXT_NOTES_KEY = 'context-notes.json';
+
+function isRecord(value: unknown): value is JsonRecord {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function parseJson(raw: string | undefined): unknown {
+  if (!raw) return undefined;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return undefined;
+  }
+}
+
+function readSessionFile(sessionDir: string, fileName: string): string | undefined {
+  const fs = require('node:fs');
+  try {
+    return fs.readFileSync(join(sessionDir, fileName), 'utf-8') as string;
+  } catch {
+    return undefined;
+  }
+}
+
+function findJsonObject(raw: string | undefined): JsonRecord | undefined {
+  const parsed = parseJson(raw);
+  if (isRecord(parsed)) return parsed;
+
+  // Agents sometimes include the command output in a fenced block or around
+  // a short explanation. Keep the task contract forgiving without accepting
+  // an arbitrary value as a successful difit result.
+  if (!raw) return undefined;
+  const start = raw.indexOf('{');
+  const end = raw.lastIndexOf('}');
+  if (start < 0 || end <= start) return undefined;
+  if (start === 0 && end === raw.length - 1) return undefined;
+  return findJsonObject(raw.slice(start, end + 1));
+}
+
+function optionalLocation(item: JsonRecord): { filePath?: string; position?: unknown } {
+  const location = isRecord(item.location) ? item.location : undefined;
+  const filePathCandidate = item.filePath ?? item.file_path ?? location?.filePath ?? location?.file_path;
+  const positionCandidate = item.position ?? location?.position;
+  return {
+    ...(typeof filePathCandidate === 'string' && filePathCandidate.trim()
+      ? { filePath: filePathCandidate }
+      : {}),
+    ...(isRecord(positionCandidate) ? { position: positionCandidate } : {}),
+  };
+}
+
+function commentImport(body: string, item: JsonRecord): JsonRecord {
+  const location = optionalLocation(item);
+  return {
+    type: 'thread',
+    ...location,
+    body,
+  };
+}
+
+function buildDifitComments(reviewRaw: string | undefined, contextRaw: string | undefined): JsonRecord[] {
+  const comments: JsonRecord[] = [];
+  const review = findJsonObject(reviewRaw);
+  const axes = isRecord(review?.axes) ? review.axes : undefined;
+
+  if (axes) {
+    for (const axis of REVIEW_AXES) {
+      const items = axes[axis];
+      if (!Array.isArray(items)) continue;
+      for (const value of items) {
+        if (!isRecord(value)) continue;
+        const severity = value.severity;
+        const detail = value.detail;
+        if (severity !== 'must' && severity !== 'should' && severity !== 'want') continue;
+        if (typeof detail !== 'string' || !detail.trim()) continue;
+
+        // must is an AI-found blocking issue. should/want are questions for
+        // the human gate; they must not be downgraded to explanatory context.
+        const taxonomy = severity === 'must' ? '[issue]' : '[question]';
+        comments.push(commentImport(`${taxonomy} (${severity}) [${axis}] ${detail.trim()}`, value));
+      }
+    }
+  }
+
+  const contextValue = parseJson(contextRaw);
+  const contextNotes = Array.isArray(contextValue)
+    ? contextValue
+    : isRecord(contextValue) && Array.isArray(contextValue.contextNotes)
+      ? contextValue.contextNotes
+      : [];
+  for (const value of contextNotes) {
+    if (!isRecord(value) || typeof value.body !== 'string' || !value.body.trim()) continue;
+    const body = value.body.trim().startsWith('[context]')
+      ? value.body.trim()
+      : `[context] ${value.body.trim()}`;
+    comments.push(commentImport(body, value));
+  }
+
+  return comments;
+}
+
+function parseDifitCheck(raw: string | undefined): DifitCheckOutput | undefined {
+  const parsed = findJsonObject(raw);
+  if (!parsed || typeof parsed.passes !== 'boolean' || !Array.isArray(parsed.blocking_threads)) {
+    return undefined;
+  }
+
+  const blockingThreads: DifitBlockingThread[] = [];
+  for (const value of parsed.blocking_threads) {
+    if (!isRecord(value) || typeof value.body !== 'string') return undefined;
+    const replies = Array.isArray(value.replies)
+      ? value.replies.filter((reply): reply is string => typeof reply === 'string')
+      : [];
+    blockingThreads.push({
+      ...(typeof value.id === 'string' ? { id: value.id } : {}),
+      ...(typeof value.file === 'string' ? { file: value.file } : {}),
+      ...(typeof value.line === 'number' || isRecord(value.line) ? { line: value.line as DifitBlockingThread['line'] } : {}),
+      ...(typeof value.taxonomy === 'string' ? { taxonomy: value.taxonomy } : {}),
+      body: value.body,
+      replies,
+    });
+  }
+
+  return { passes: parsed.passes, blocking_threads: blockingThreads };
+}
+
+function formatDifitFeedback(ctx: PromptCtx): string | undefined {
+  const raw = findArtifactText(ctx.artifacts, DIFIT_CHECK_KEY) ?? readSessionFile(ctx.sessionDir, DIFIT_CHECK_KEY);
+  const result = parseDifitCheck(raw);
+  if (!result || result.passes || result.blocking_threads.length === 0) return undefined;
+
+  const lines = [
+    '## difit の人間フィードバック（前回 check_difit の blocking_threads）',
+    '',
+    '以下はブラウザ上の未解決スレッドと、そのスレッドに対する人間の reply です。担当スコープに該当するものを修正し、reply の意図を勝手に `[context]` に変換せず、指摘の taxonomy（`[question]` / `[issue]`）を保って扱ってください。',
+    '',
+  ];
+
+  for (const [index, thread] of result.blocking_threads.entries()) {
+    const location = thread.file
+      ? `${thread.file}${thread.line === undefined || thread.line === null ? '' : `:${typeof thread.line === 'number' ? thread.line : `${thread.line.start}-${thread.line.end}`}`}`
+      : '(file-level)';
+    lines.push(`### ${index + 1}. ${location} (${thread.taxonomy ?? 'unknown'})`);
+    lines.push(`指摘: ${thread.body}`);
+    if (thread.replies && thread.replies.length > 0) {
+      for (const reply of thread.replies) {
+        lines.push(`人間 reply（プレフィックスなしの原文）: ${reply}`);
+      }
+    } else {
+      lines.push('人間 reply: (なし。未解決の指摘として確認する)');
+    }
+    lines.push('');
+  }
+
+  return lines.join('\n').trim();
+}
+
+/**
+ * tado の task goto は失敗元だけを再キューするため、最後の
+ * check_difit から execute_work に戻る際は、間にある review steps も
+ * pending に戻しておく。これがないと、修正後に check_difit だけが再実行
+ * され、execute_work → review_work → difit のサイクルにならない。
+ */
+function resetReviewCycle(sessionDir: string): void {
+  const fs = require('node:fs');
+  const dbPath = join(sessionDir, 'workflow.db');
+  if (!fs.existsSync(dbPath)) return;
+
+  const { Database } = require('bun:sqlite') as { Database: new (path: string) => { query: (sql: string) => { get: () => JsonRecord | undefined }; run: (sql: string, params?: unknown[]) => void; close: () => void } };
+  const db = new Database(dbPath);
+  try {
+    const executeStep = db.query("SELECT step_index FROM steps WHERE step_key = 'execute_work'").get();
+    if (!executeStep || typeof executeStep.step_index !== 'number') return;
+    db.run(
+      "UPDATE steps SET status = 'pending', retry_count = 0 WHERE step_index > ?",
+      [executeStep.step_index],
+    );
+  } finally {
+    db.close();
+  }
 }
 
 function validateReviewJson(raw: string | undefined): { valid: boolean; mustCount: number; error?: string } {
@@ -46,6 +242,27 @@ function validateReviewJson(raw: string | undefined): { valid: boolean; mustCoun
   if (totalMust !== c.must) return { valid: false, mustCount: c.must, error: `must count mismatch: counts.must=${c.must}, actual=${totalMust}` };
 
   return { valid: true, mustCount: c.must };
+}
+
+function validateContextNotes(raw: string | undefined): { valid: boolean; error?: string } {
+  const parsed = parseJson(raw);
+  if (!Array.isArray(parsed)) {
+    return { valid: false, error: `${CONTEXT_NOTES_KEY} must be a JSON array` };
+  }
+
+  for (const [index, value] of parsed.entries()) {
+    if (!isRecord(value) || typeof value.filePath !== 'string' || !value.filePath.trim()) {
+      return { valid: false, error: `${CONTEXT_NOTES_KEY}[${index}] is missing filePath` };
+    }
+    if (typeof value.body !== 'string' || !value.body.trim()) {
+      return { valid: false, error: `${CONTEXT_NOTES_KEY}[${index}] is missing body` };
+    }
+    if (value.position !== undefined && !isRecord(value.position)) {
+      return { valid: false, error: `${CONTEXT_NOTES_KEY}[${index}].position must be an object` };
+    }
+  }
+
+  return { valid: true };
 }
 
 function findReviewRound(
@@ -248,29 +465,34 @@ const def: WorkflowDef = {
       task: {
         action: 'orchestrate',
         buildPrompt: (ctx: PromptCtx) => {
+          const difitFeedback = formatDifitFeedback(ctx);
           return [
             '## 目的',
             '',
             '計画 Issue の `## ✅ 完了条件`、`## 📦 アウトプット`、`## 🧭 方針` に従って作業を実行する。',
-            '作業の実施は必ず `mt-plan-work-executor` SubAgent に委譲する。オーケストレーター自身はファイル編集を行わず、ミッションの割り振り・進行管理・Issue body 更新に専念する。',
+            '作業の実施は必ず `mt-plan-work-executor` SubAgent に委譲する。オーケストレーター自身はリポジトリのファイル編集を行わず、ミッションの割り振り・進行管理・Issue body 更新に専念する（ただし、完了報告からセッション成果物の `context-notes.json` を作成・報告する処理は行う）。',
             '',
             '## 修正ソース（再実行時に適用）',
             '',
-            'execute_work に戻ってきた場合、以下の 3 ソースから修正指示を統合して executor SubAgent に渡す:',
+            'execute_work に戻ってきた場合、以下のソースから修正指示を統合して executor SubAgent に渡す:',
             '',
             '1. **agent-review.json の must 指摘**（review_work の SubAgent レビューで検出された必須修正）',
-            '2. **agent-review.json の should / want 指摘**（review_followups_gate で人間が「対応する」を選んだ場合）',
-            '3. **human-feedback.json の items**（confirm_done または review_followups_gate で人間が revise を選んだ場合の指摘）',
+            '2. **agent-review.json の should / want 指摘**（start_difit_review で `[question]` として提示されたもの）',
+            '3. **difit の blocking_threads**（人間がブラウザで追加した reply を含む `difit-check.json`）',
+            '4. **human-feedback.json の items**（旧セッションや互換入力に残っている場合のみ）',
             '',
             '各ソースの存在確認:',
-            '- セッションディレクトリの `agent-review.json` を読み、must（および should/want 対応時はそれらも含む）指摘を抽出する',
+            '- セッションディレクトリの `agent-review.json` を読み、must / should / want の全指摘を抽出する',
+            '- セッションディレクトリの `difit-check.json` を読み、`blocking_threads[].body` と `blocking_threads[].replies[]` を抽出する',
             '- セッションディレクトリの `human-feedback.json` を読み、`items` 配列の指摘を抽出する',
-            '- 存在しないファイルは無視する（初回実行時は両方なし）',
+            '- 存在しないファイルは無視する（初回実行時は修正ソースなし）',
             '',
             '修正指示の仕分け:',
             '- 指摘を該当ミッションのスコープで仕分けし、担当の executor SubAgent に修正指示として渡す',
-            '- 3 ソースの指摘は優先度なく統一的に扱う（すべて対応対象）',
+            '- 4 ソースの指摘は優先度なく統一的に扱う（すべて対応対象）',
+            '- difit の人間 reply はテキスト原文として executor に渡し、要約・省略・taxonomy の変更をしない',
             '',
+            ...(difitFeedback ? [difitFeedback, ''] : []),
             '## 手順',
             '',
             '### 1. ミッションの読み取り',
@@ -289,7 +511,32 @@ const def: WorkflowDef = {
             '- 各 SubAgent に渡す情報:',
             '  - 計画 Issue body 全文（完了条件・方針・アウトプットの判断に必要）',
             '  - 担当ミッション定義（ID・名前・スコープ・完了条件番号・Wave 所属）',
-            '  - 修正指示（再実行時のみ: agent-review.json の該当指摘 + human-feedback.json の items）',
+            '  - 修正指示（再実行時のみ: agent-review.json、difit-check.json の human reply、human-feedback.json の該当指摘）',
+            '',
+            '### executor の完了報告契約',
+            '',
+            '各 executor は、作業結果を次の構造化 JSON オブジェクトとして必ず返す。`contextNotes` は省略・null 禁止であり、補足がない場合も必ず空配列 `[]` を返すこと:',
+            '```json',
+            '{',
+            '  "changedFiles": ["<repository-relative-path>"],',
+            '  "checks": [{"command": "<command>", "result": "<result>"}],',
+            '  "unresolvedIssues": [],',
+            '  "contextNotes": [',
+            '    {"filePath": "<repository-relative-path>", "position": {"side": "new", "line": 42}, "body": "<implementation context>"}',
+            '  ]',
+            '}',
+            '```',
+            '- `contextNotes` の各要素は `{filePath, position?, body}` とする。`filePath` と `body` は必須、`position` は特定行に紐づく場合だけ含め、ファイルレベル補足では省略する。',
+            '- 補足がない場合の該当フィールドは正確に `"contextNotes": []` とする（フィールド自体を省略しない）。',
+            '- `position` が指定された場合はその値を保持する。`body` は実装判断やレビュー補足の解説だけにし、指摘を `[context]` に偽装しない。既存の taxonomy プレフィックスは保持する。',
+            '',
+            '### contextNotes の集約と report',
+            '',
+            '全 executor の完了報告から `contextNotes` 配列を集約し、executor が返した順序を保った 1 つの JSON 配列として保存する。',
+            `contextNotes が全件空でも、必ず ${ctx.sessionDir}/${CONTEXT_NOTES_KEY} を作成し、内容を正確に [] とする。`,
+            `保存後、report の artifacts に必ず以下を含める（contextNotes の有無に関係なく必須）:`,
+            `{"key":"${CONTEXT_NOTES_KEY}","path":"${ctx.sessionDir}/${CONTEXT_NOTES_KEY}"}`,
+            'report 前にファイルが存在し、JSON 配列として読み戻せることを確認する。',
             '',
             '### 3. 完了報告の集約',
             '',
@@ -324,14 +571,28 @@ const def: WorkflowDef = {
             '',
             '## 禁止事項',
             '',
-            '- オーケストレーター自身がファイルを編集しない（作業は必ず executor SubAgent へ委譲）',
+            '- オーケストレーター自身がリポジトリのファイルを編集しない（作業は必ず executor SubAgent へ委譲。ただしセッション成果物の `context-notes.json` は集約して作成・報告する）',
             '- 計画外のファイル編集や状態遷移が必要になった場合は実行を止め、計画修正を提案する',
             '- ユーザー承認前に `done` 化しない',
             '- 全ミッションの完了前に次のステップへ進まない',
           ].join('\n');
         },
       },
-      check: (_ctx: CheckCtx): CheckResult => ({ status: 'pass', reasons: [] }),
+      check: (ctx: CheckCtx): CheckResult => {
+        const expectedPath = join(ctx.sessionDir, CONTEXT_NOTES_KEY);
+        const artifact = ctx.artifacts.find(
+          (item) => item.artifactKey === CONTEXT_NOTES_KEY && item.filePath === expectedPath,
+        );
+        if (!artifact) {
+          return { status: 'error', reasons: [`missing required ${CONTEXT_NOTES_KEY} artifact`] };
+        }
+
+        const validation = validateContextNotes(readSessionFile(ctx.sessionDir, CONTEXT_NOTES_KEY));
+        if (!validation.valid) {
+          return { status: 'error', reasons: [validation.error ?? `${CONTEXT_NOTES_KEY} validation failed`] };
+        }
+        return { status: 'pass', reasons: [`${CONTEXT_NOTES_KEY} persisted`] };
+      },
     },
 
     // -------------------------------------------------------------------
@@ -429,49 +690,170 @@ const def: WorkflowDef = {
     },
 
     // -------------------------------------------------------------------
-    // Step 5: should/want 確認
+    // Step 5: difit レビュー起動
     // -------------------------------------------------------------------
     {
-      key: 'review_followups_gate',
-      phase: 'should/want 確認',
+      key: 'start_difit_review',
+      phase: 'difit レビュー起動',
+      type: 'task',
+      maxRetries: 1,
+      onFail: { action: 'escalate' },
+      task: {
+        action: 'orchestrate',
+        buildPrompt: (ctx: PromptCtx) => {
+          const reviewRaw = findArtifactText(ctx.artifacts, REVIEW_JSON_KEY) ?? readSessionFile(ctx.sessionDir, REVIEW_JSON_KEY);
+          const contextRaw = findArtifactText(ctx.artifacts, CONTEXT_NOTES_KEY) ?? readSessionFile(ctx.sessionDir, CONTEXT_NOTES_KEY);
+          const comments = buildDifitComments(reviewRaw, contextRaw);
+          const commentsPath = join(ctx.sessionDir, DIFIT_COMMENTS_KEY);
+          const startPath = join(ctx.sessionDir, DIFIT_START_KEY);
+
+          return [
+            '## 目的',
+            '',
+            'レビュー結果を difit comment import スキーマへ変換し、ブラウザで確認できるレビューセッションを起動する。',
+            'このステップは起動とコメント注入だけを担当し、レビューの待機・ゲート判定・修正は行わない。',
+            '',
+            '## 入力からコメントへの変換',
+            '',
+            `agent-review.json（${join(ctx.sessionDir, REVIEW_JSON_KEY)}）の axes を読み、各項目を thread として次の taxonomy で変換する:`,
+            '- must: `[issue] (must) [<axis>] <detail>`（AI が発見したブロッキング指摘）',
+            '- should: `[question] (should) [<axis>] <detail>`（人間に判断を仰ぐ指摘）',
+            '- want: `[question] (want) [<axis>] <detail>`（人間に判断を仰ぐ指摘）',
+            '',
+            `executor の ${CONTEXT_NOTES_KEY}（各要素は {filePath, position?, body}）も thread として注入する。`,
+            '- contextNotes の body は必ず `[context]` で始める（既に付いていれば二重付与しない）',
+            '- contextNotes は解説であり、指摘を `[context]` に偽装しない',
+            '- `filePath` / `position` は入力に存在する場合だけ含める。`position` は optional とし、ファイルレベル指摘では省略する',
+            '- `type` は全件 `thread`、reply は生成しない',
+            '',
+            '今回生成する import 配列（変換後の正確な JSON）:',
+            '```json',
+            JSON.stringify(comments, null, 2),
+            '```',
+            '',
+            '## 手順',
+            '',
+            `1. 上記の配列を ${commentsPath} に JSON として保存する（空配列でも保存する）。`,
+            '2. ベースブランチを検出する。`origin/HEAD` があればその参照名から `origin/` を除き、取得できなければ `main` を使う:',
+            '```bash',
+            `BASE_BRANCH="$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's#^origin/##')"`,
+            'BASE_BRANCH="${BASE_BRANCH:-main}"',
+            '```',
+            '3. stdin からコメント JSON を渡し、必ず `mt difit start <base-branch>` の形式で起動する:',
+            '```bash',
+            `cat "${commentsPath}" | mt difit start "$BASE_BRANCH" | tee "${startPath}"`,
+            '```',
+            '4. start の stdout（`port` と `url`）を確認し、ブラウザで開く URL として報告する。',
+            '',
+            '## report',
+            '',
+            '成功時は `status: "completed"` とし、artifacts に以下を含める:',
+            '```json',
+            `[{"key":"${DIFIT_COMMENTS_KEY}","path":"${commentsPath}"},{"key":"${DIFIT_START_KEY}","path":"${startPath}"}]`,
+            '```',
+            '',
+            'レビューセッションの終了処理や standalone レビューの実行はこのステップの責務外とする。',
+            '',
+            '## セッション情報',
+            '',
+            `- セッションディレクトリ: ${ctx.sessionDir}`,
+          ].join('\n');
+        },
+      },
+      check: (ctx: CheckCtx): CheckResult => {
+        if (ctx.attemptResult.status !== 'completed') {
+          return { status: 'error', reasons: [ctx.attemptResult.errors ?? 'difit start failed'] };
+        }
+        return { status: 'pass', reasons: ['difit review started'] };
+      },
+    },
+
+    // -------------------------------------------------------------------
+    // Step 6: ブラウザレビュー待機
+    // -------------------------------------------------------------------
+    {
+      key: 'await_review',
+      phase: 'ブラウザレビュー待機',
       type: 'human_gate',
       maxRetries: 1,
       onFail: { action: 'escalate' },
       humanGate: {
-        presentArtifacts: [REVIEW_JSON_KEY],
+        presentArtifacts: [DIFIT_START_KEY, DIFIT_COMMENTS_KEY, REVIEW_JSON_KEY],
         choices: [
-          { value: 'approve', label: '対応不要で進む', desc: 'should/want は対応不要と判断。Done 確認へ' },
-          { value: 'revise', label: '対応する', desc: 'should/want に対応するため execute_work に戻る' },
+          { value: 'approve', label: 'レビュー完了', desc: 'ブラウザで difit の確認・reply・resolve を終え、ゲート判定へ進む' },
           { value: 'abort', label: '中断' },
         ],
-        reviseTargetStep: 'execute_work',
       },
       check: (_ctx: CheckCtx): CheckResult => ({ status: 'pass', reasons: [] }),
     },
 
     // -------------------------------------------------------------------
-    // Step 6: Done 確認
+    // Step 7: difit ゲート判定
     // -------------------------------------------------------------------
     {
-      key: 'confirm_done',
-      phase: 'Done 確認',
-      type: 'human_gate',
-      maxRetries: 1,
-      onFail: { action: 'escalate' },
-      humanGate: {
-        presentArtifacts: [],
-        choices: [
-          { value: 'approve', label: 'Done にする', desc: '計画を完了としてマークする' },
-          { value: 'revise', label: '修正する', desc: '成果物に問題がある。execute_work に戻って修正する' },
-          { value: 'abort', label: '中断' },
-        ],
-        reviseTargetStep: 'execute_work',
+      key: 'check_difit',
+      phase: 'difit ゲート判定',
+      type: 'task',
+      maxRetries: 0,
+      onFail: { action: 'goto', target: 'execute_work', requeueSource: true },
+      task: {
+        action: 'orchestrate',
+        buildPrompt: (ctx: PromptCtx) => {
+          const checkPath = join(ctx.sessionDir, DIFIT_CHECK_KEY);
+          return [
+            '## 目的',
+            '',
+            'ブラウザ上の difit レビューを機械的に判定し、未解決の指摘があれば execute_work に修正ソースとして渡す。',
+            'このステップではゲート判定コマンドだけを呼び、standalone レビューや終了処理は行わない。',
+            '',
+            '## 手順',
+            '',
+            '1. `mt difit check` を実行する。exit 1 は未解決スレッドによる通常のブロックなので、コマンド失敗として握り潰さず stdout JSON を取得する。',
+            '2. stdout の passes / blocking_threads JSON（例: {"passes":..., "blocking_threads":[...]}）をそのまま保存する。blocking thread の `body` は `[issue]` / `[question]` の taxonomy を保持し、`replies` の人間テキストも一字一句保持する。',
+            `3. JSON を ${checkPath} に保存し、同じ JSON を report の subagentOutput として返す。`,
+            '',
+            '```json',
+            '{"passes":false,"blocking_threads":[{"id":"...","file":"...","line":1,"taxonomy":"question","body":"[question] ...","replies":["人間の reply"]}]}',
+            '```',
+            '',
+            'passes が false の場合も task 自体は実行成功として report する。workflow の check 関数が blocking_threads を確認して execute_work → review_work → start_difit_review → await_review → check_difit の修正ループへ戻す。passes が true の場合だけ finalize_done へ進む。',
+            '',
+            '## セッション情報',
+            '',
+            `- セッションディレクトリ: ${ctx.sessionDir}`,
+          ].join('\n');
+        },
       },
-      check: (_ctx: CheckCtx): CheckResult => ({ status: 'pass', reasons: [] }),
+      check: (ctx: CheckCtx): CheckResult => {
+        const raw = ctx.attemptResult.subagentOutput;
+        const result = parseDifitCheck(raw);
+        if (!result) {
+          return { status: 'error', reasons: ['mt difit check output is not valid gate JSON'] };
+        }
+
+        const fs = require('node:fs');
+        try {
+          fs.writeFileSync(join(ctx.sessionDir, DIFIT_CHECK_KEY), `${JSON.stringify(result, null, 2)}\n`, 'utf-8');
+        } catch (error) {
+          return { status: 'error', reasons: [`failed to persist difit check output: ${String(error)}`] };
+        }
+
+        if (result.passes) return { status: 'pass', reasons: ['difit gate passes'] };
+        try {
+          resetReviewCycle(ctx.sessionDir);
+        } catch (error) {
+          return { status: 'error', reasons: [`failed to reset difit review cycle: ${String(error)}`] };
+        }
+        const reasons = result.blocking_threads.map((thread) => {
+          const replies = thread.replies && thread.replies.length > 0 ? `; replies: ${thread.replies.join(' | ')}` : '';
+          return `${thread.taxonomy ?? 'blocking'} ${thread.file ?? '(file-level)'}: ${thread.body}${replies}`;
+        });
+        return { status: 'fail', reasons: reasons.length > 0 ? reasons : ['difit gate is blocked'] };
+      },
     },
 
     // -------------------------------------------------------------------
-    // Step 7: 完了処理（in-progress → done）
+    // Step 8: 完了処理（in-progress → done）
     // -------------------------------------------------------------------
     {
       key: 'finalize_done',

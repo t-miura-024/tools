@@ -5,7 +5,7 @@
 ## Language
 
 **review session**:
-`mt difit start` で始まり `mt difit check` exit 0 で終わる、1 つの difit サーバライフサイクル。
+`mt difit start` で始まり `mt difit check` または `mt difit done` で終わる、1 つの difit サーバライフサイクル。
 _Avoid_: review, difit session
 
 **gate**:
@@ -23,3 +23,7 @@ _Avoid_: comment, conversation
 **stale state**:
 `difit-review.json` が存在するがサーバプロセスが死んでいる状態。`start` / `check` が自己修復する。
 _Avoid_: orphan, zombie
+
+**contextNotes**:
+executor SubAgent が実装判断根拠やレビュー補足を `[context]` として残す構造化データ。difit import スキーマ準拠（`{filePath, position?, body}`）。
+_Avoid_: notes, remarks, annotations
