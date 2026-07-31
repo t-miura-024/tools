@@ -287,3 +287,62 @@ fn test_git_repo_root_in() {
     let root = git_repo_root_in(&sub).unwrap();
     assert_eq!(root, path.canonicalize().unwrap());
 }
+
+#[cfg(unix)]
+#[test]
+fn test_spawn_kills_child_on_startup_output_errors() {
+    let _guard = DIFIT_TEST_LOCK.lock().unwrap();
+    let (_repo_tmp, repo) = make_temp_git_repo();
+    let fake_bin_dir = tempfile::tempdir().unwrap();
+    let fake_difit = fake_bin_dir.path().join("difit");
+    let pid_file = fake_bin_dir.path().join("child.pid");
+    let original_path = std::env::var_os("PATH");
+    let fake_path = match original_path.as_ref() {
+        Some(path) => format!(
+            "{}:{}",
+            fake_bin_dir.path().display(),
+            path.to_string_lossy()
+        ),
+        None => fake_bin_dir.path().display().to_string(),
+    };
+
+    unsafe {
+        std::env::set_var("PATH", &fake_path);
+        std::env::set_var("DIFIT_PID_FILE", &pid_file);
+    }
+
+    for output in [
+        // 10 行読んでも JSON がない経路。子プロセスはその後も生存させる。
+        "printf '%s\\n' \"$$\" > \"$DIFIT_PID_FILE\"\nfor i in 1 2 3 4 5 6 7 8 9 10; do printf 'not-json\\n'; done\nexec sleep 30\n",
+        // JSON らしい行はあるが、パースに失敗する経路。
+        "printf '%s\\n' \"$$\" > \"$DIFIT_PID_FILE\"\nprintf '{invalid-json}\\n'\nexec sleep 30\n",
+    ] {
+        std::fs::write(&fake_difit, format!("#!/bin/sh\n{output}")).unwrap();
+        let mut permissions = std::fs::metadata(&fake_difit).unwrap().permissions();
+        use std::os::unix::fs::PermissionsExt;
+        permissions.set_mode(0o755);
+        std::fs::set_permissions(&fake_difit, permissions).unwrap();
+        let _ = std::fs::remove_file(&pid_file);
+
+        let result = spawn_difit_server(&repo, &[], &[]);
+        assert!(result.is_err(), "不正な起動出力はエラーになること");
+        let child_pid: i32 = std::fs::read_to_string(&pid_file)
+            .unwrap()
+            .trim()
+            .parse()
+            .unwrap();
+        assert!(
+            !is_process_alive(child_pid),
+            "起動後エラー時は子プロセスを停止すること"
+        );
+    }
+
+    unsafe {
+        if let Some(path) = original_path {
+            std::env::set_var("PATH", path);
+        } else {
+            std::env::remove_var("PATH");
+        }
+        std::env::remove_var("DIFIT_PID_FILE");
+    }
+}

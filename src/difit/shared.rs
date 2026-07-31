@@ -5,7 +5,7 @@
 
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::{Child, Command, Stdio};
 
 use anyhow::{Context, bail};
 use nix::sys::signal::{Signal, kill};
@@ -176,15 +176,25 @@ pub fn spawn_difit_server(
     // stdout から JSON 行を読み取る。
     // ポート競合時に "Port X is busy, trying Y..." が先行する場合があるため、
     // `{` で始まる行が見つかるまで読み飛ばす。
-    let stdout = child.stdout.take().context("difit の stdout を開けませんでした")?;
+    let stdout = match child.stdout.take() {
+        Some(stdout) => stdout,
+        None => {
+            stop_child(&mut child);
+            bail!("difit の stdout を開けませんでした");
+        }
+    };
     let mut reader = std::io::BufReader::new(stdout);
     let mut json_line = String::new();
 
     for _ in 0..10 {
         let mut line = String::new();
-        let n = reader
-            .read_line(&mut line)
-            .context("difit の出力読み取りに失敗しました")?;
+        let n = match reader.read_line(&mut line) {
+            Ok(n) => n,
+            Err(error) => {
+                stop_child(&mut child);
+                return Err(error).context("difit の出力読み取りに失敗しました");
+            }
+        };
         if n == 0 {
             break; // EOF
         }
@@ -197,11 +207,7 @@ pub fn spawn_difit_server(
     }
 
     if json_line.is_empty() {
-        let mut stderr_buf = String::new();
-        if let Some(mut stderr) = child.stderr.take() {
-            use std::io::Read;
-            let _ = stderr.read_to_string(&mut stderr_buf);
-        }
+        let stderr_buf = stop_child(&mut child);
         bail!(
             "difit の起動に失敗しました（JSON 出力なし）{}",
             if stderr_buf.is_empty() {
@@ -212,14 +218,37 @@ pub fn spawn_difit_server(
         );
     }
 
-    let parsed: DifitBackgroundOutput =
-        serde_json::from_str(&json_line).context("difit の出力をパースできませんでした")?;
+    let parsed: DifitBackgroundOutput = match serde_json::from_str(&json_line) {
+        Ok(parsed) => parsed,
+        Err(error) => {
+            stop_child(&mut child);
+            return Err(error).context("difit の出力をパースできませんでした");
+        }
+    };
 
     // Child を drop してもプロセスは kill されない（Rust の仕様）。
     // difit サーバはバックグラウンドで生存し続ける。
     drop(child);
 
     Ok(parsed)
+}
+
+/// 起動後のエラー時に子プロセスを停止し、stderr を回収する。
+///
+/// `Child` の Drop はプロセスを停止しないため、stdout の読み取りや JSON の
+/// パースに失敗してもサーバが残らないよう、kill と wait を明示的に行う。
+/// kill 後に stderr を読み切ってから wait することで、stderr のパイプが詰まった
+/// 子プロセスにも対応する。
+fn stop_child(child: &mut Child) -> String {
+    use std::io::Read;
+
+    let _ = child.kill();
+    let mut stderr_buf = String::new();
+    if let Some(mut stderr) = child.stderr.take() {
+        let _ = stderr.read_to_string(&mut stderr_buf);
+    }
+    let _ = child.wait();
+    stderr_buf
 }
 
 // ---------------------------------------------------------------------------
