@@ -4,6 +4,7 @@ mod agent;
 mod chezmoi;
 mod cli;
 mod config;
+mod difit;
 mod doctor;
 mod git;
 mod opencode;
@@ -48,6 +49,9 @@ enum Commands {
     /// agents / skills のマルチプラットフォーム同期
     #[command(subcommand)]
     Agent(agent::AgentCommands),
+    /// difit レビューセッション管理（start / check）
+    #[command(subcommand)]
+    Difit(difit::DifitCommands),
     /// システム全体の健全性チェック（chezmoi / Docker / ツール / drift）
     Doctor,
 }
@@ -66,6 +70,7 @@ fn main() -> anyhow::Result<()> {
         Some(Commands::Plan(cmd)) => plan::run(cmd),
         Some(Commands::Raycast(cmd)) => raycast::run(cmd),
         Some(Commands::Agent(cmd)) => agent::run(cmd),
+        Some(Commands::Difit(cmd)) => difit::run(cmd),
         Some(Commands::Doctor) => doctor::run(),
     }
 }
