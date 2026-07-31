@@ -6,6 +6,9 @@ tmp
 target
 .takt
 
+# difit レビューセッションのランタイム状態（port, pid, コメント JSON）
+.difit/
+
 # Added by cargo
 
 /target
