@@ -69,6 +69,14 @@ pub fn ensure_difit_dir(repo_root: &Path) -> anyhow::Result<()> {
         fs::create_dir_all(&dir)
             .with_context(|| format!("{} の作成に失敗しました", dir.display()))?;
     }
+
+    // `.difit/` 配下を git 管理対象外にするための自己 .gitignore を生成する。
+    // 外部リポジトリの .gitignore 設定に依存せず、ディレクトリ内で完結させる。
+    let gitignore = dir.join(".gitignore");
+    if !gitignore.exists() {
+        fs::write(&gitignore, "*\n")
+            .with_context(|| format!("{} の作成に失敗しました", gitignore.display()))?;
+    }
     Ok(())
 }
 
