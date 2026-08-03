@@ -106,6 +106,37 @@ fn test_translate_multi_args_without_dot() {
 }
 
 // ---------------------------------------------------------------------------
+// 統合テスト: untracked ファイルの intent-to-add マーク（ADR-0009）
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_mark_untracked_intent_to_add_includes_files_in_diff() {
+    let (_tmp, path) = shared::make_temp_git_repo();
+    std::fs::write(path.join("new-file.txt"), "untracked content\n").unwrap();
+    std::fs::write(path.join("ignored.txt"), "ignored content\n").unwrap();
+    std::fs::write(path.join(".gitignore"), "ignored.txt\n").unwrap();
+
+    mark_untracked_intent_to_add(&path);
+
+    let output = Command::new("git")
+        .args(["diff"])
+        .current_dir(&path)
+        .output()
+        .expect("git diff");
+    let diff = String::from_utf8_lossy(&output.stdout);
+    assert!(diff.contains("new-file.txt"), "untracked ファイルが diff に含まれる");
+    assert!(diff.contains("untracked content"), "untracked ファイルの内容が diff に含まれる");
+    assert!(!diff.contains("diff --git a/ignored.txt"), "gitignore 対象はマークされない");
+}
+
+#[test]
+fn test_mark_untracked_intent_to_add_no_untracked_files() {
+    let (_tmp, path) = shared::make_temp_git_repo();
+    // untracked なしでもエラーにならない
+    mark_untracked_intent_to_add(&path);
+}
+
+// ---------------------------------------------------------------------------
 // 統合テスト: 実 difit サーバ起動（完了条件 1, 3）
 // ---------------------------------------------------------------------------
 
@@ -410,10 +441,15 @@ fn test_merge_base_args_delivers_comments_end_to_end() {
     git_cmd(&path, &["commit", "-aqm", "feature commit"]);
     // ワーキングディレクトリ変更（未コミット）→ "." ターゲットの diff 対象
     std::fs::write(path.join("README.md"), "hello\nworld\nextra\n").unwrap();
+    // untracked ファイル（ADR-0009）→ intent-to-add により diff 対象になる
+    std::fs::write(path.join("new-file.txt"), "untracked content\n").unwrap();
 
     // 引数変換（ADR-0008）: ["main"] → [".", "main", "--merge-base", "--clean"]
     let difit_args = translate_difit_args(args(&["main"]));
     assert_eq!(difit_args, args(&[".", "main", "--merge-base", "--clean"]));
+
+    // ADR-0009: mt difit start の untracked マークを再現（difit 起動前に実行）
+    mark_untracked_intent_to_add(&path);
 
     // コメント位置はワーキングディレクトリ変更で追加した行（diff の new 側 3 行目）を指す
     let comment = serde_json::json!({
@@ -443,6 +479,18 @@ fn test_merge_base_args_delivers_comments_end_to_end() {
     assert_eq!(diff["requestedBaseMode"], "merge-base");
     assert_eq!(diff["clearComments"], true, "--clean がサーバに反映される");
     assert_eq!(diff["files"][0]["path"], "README.md");
+
+    // ADR-0009: untracked ファイルが intent-to-add され diff に含まれる
+    let file_paths: Vec<&str> = diff["files"]
+        .as_array()
+        .expect("files が配列")
+        .iter()
+        .map(|f| f["path"].as_str().expect("path"))
+        .collect();
+    assert!(
+        file_paths.contains(&"new-file.txt"),
+        "untracked ファイルが diff に含まれる: {file_paths:?}"
+    );
 
     // 2. ブラウザのコメントブートストラップを再現: /api/diff レスポンスの解決済み選択キーで
     //    /api/comments-json を取得し、コメントが届くことを検証する。
