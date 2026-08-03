@@ -16,6 +16,9 @@ pub fn start(difit_args: Vec<String>) -> anyhow::Result<()> {
     let repo_root = shared::git_repo_root()?;
     shared::ensure_difit_dir(&repo_root)?;
 
+    // --- 引数変換: ワーキングディレクトリ vs ベースブランチのセマンティクス ---
+    let difit_args = translate_difit_args(difit_args);
+
     // --- 旧サーバの処理（ゾンビ防止 & stale 自己修復）---
     let old_state = shared::read_review_state(&repo_root);
 
@@ -64,6 +67,90 @@ pub fn start(difit_args: Vec<String>) -> anyhow::Result<()> {
     println!("{}", out);
 
     Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// 引数変換（ADR-0008）
+// ---------------------------------------------------------------------------
+
+/// difit の特殊ターゲット。これらは `--merge-base` を必要としない。
+const SPECIAL_TARGETS: &[&str] = &["working", "staged"];
+
+/// `mt difit start` の引数を difit CLI の引数に変換する。
+///
+/// セマンティクス: 「ワーキングディレクトリ vs ベースブランチのレビューセッション開始」。
+///
+/// | 入力 | 変換後 | 説明 |
+/// |---|---|---|
+/// | `["main"]` | `[".", "main", "--merge-base", "--clean"]` | ブランチ名 → `.` 挿入 |
+/// | `[".", "main"]` | `[".", "main", "--merge-base", "--clean"]` | 既に `.` 付き |
+/// | `["working"]` | `["working", "--clean"]` | 特殊ターゲット |
+/// | `["staged"]` | `["staged", "--clean"]` | 特殊ターゲット |
+/// | `[]` | `[]` | 空 → 透過 |
+/// | `["HEAD~3"]` | `["HEAD~3", "--clean"]` | コミット参照 |
+pub fn translate_difit_args(args: Vec<String>) -> Vec<String> {
+    if args.is_empty() {
+        return args;
+    }
+
+    // 既に `.` で始まる 2 ターゲット形式 → --merge-base + --clean を付与
+    if args[0] == "." {
+        let mut result = args;
+        result.push("--merge-base".to_string());
+        result.push("--clean".to_string());
+        return result;
+    }
+
+    // 単一引数の場合
+    if args.len() == 1 {
+        let target = &args[0];
+
+        // 特殊ターゲット → --clean のみ
+        if SPECIAL_TARGETS.contains(&target.as_str()) {
+            let mut result = args;
+            result.push("--clean".to_string());
+            return result;
+        }
+
+        // コミット参照 → --clean のみ（--merge-base 不要）
+        if is_commit_ref(target) {
+            let mut result = args;
+            result.push("--clean".to_string());
+            return result;
+        }
+
+        // ブランチ名 → "." を先頭に挿入 + --merge-base + --clean
+        let mut result = Vec::with_capacity(args.len() + 3);
+        result.push(".".to_string());
+        result.extend(args);
+        result.push("--merge-base".to_string());
+        result.push("--clean".to_string());
+        return result;
+    }
+
+    // 複数引数（`.` なし）→ --clean のみ付与（保守的フォールバック）
+    let mut result = args;
+    result.push("--clean".to_string());
+    result
+}
+
+/// 引数がコミット参照かどうかを判定する。
+///
+/// - `HEAD` で始まる（HEAD, HEAD~3, HEAD^2 等）
+/// - `~`, `^`, `:` を含む（branch~3, tag^{} 等）
+/// - 16 進数のみで 7 文字以上（SHA ハッシュ）
+fn is_commit_ref(s: &str) -> bool {
+    if s.starts_with("HEAD") {
+        return true;
+    }
+    if s.contains('~') || s.contains('^') || s.contains(':') {
+        return true;
+    }
+    // SHA ハッシュ: 7〜40 文字の 16 進数
+    if s.len() >= 7 && s.len() <= 40 && s.chars().all(|c| c.is_ascii_hexdigit()) {
+        return true;
+    }
+    false
 }
 
 /// stdin からコメント JSON を読み込む。

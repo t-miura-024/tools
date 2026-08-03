@@ -27,3 +27,15 @@ _Avoid_: orphan, zombie
 **contextNotes**:
 executor SubAgent が実装判断根拠やレビュー補足を `[context]` として残す構造化データ。difit import スキーマ準拠（`{filePath, position?, body}`）。
 _Avoid_: notes, remarks, annotations
+
+**選択キー**:
+difit がコメントセッションを識別するためのキー。baseCommitish + targetCommitish + baseMode の組み合わせ。
+_Avoid_: session key, diff key
+
+**commentImports**:
+difit サーバーが /api/diff レスポンスに含める起動時コメント。選択キーが一致する場合のみ配信される。
+_Avoid_: imported comments, initial comments
+
+**merge-base 解決**:
+git merge-base <base> HEAD でベースコミットを解決し、3-way diff を行うモード。
+_Avoid_: merge base mode, three-way mode

@@ -7,6 +7,105 @@ use super::*;
 use std::process::Command;
 
 // ---------------------------------------------------------------------------
+// ユニットテスト: 引数変換ロジック（ADR-0008, 完了条件 7）
+// ---------------------------------------------------------------------------
+
+/// ヘルパー: Vec<&str> → Vec<String>
+fn args(v: &[&str]) -> Vec<String> {
+    v.iter().map(|s| s.to_string()).collect()
+}
+
+#[test]
+fn test_translate_single_branch_name() {
+    // 単一ブランチ名 → "." を先頭に挿入 + --merge-base + --clean
+    let result = translate_difit_args(args(&["main"]));
+    assert_eq!(result, args(&[".", "main", "--merge-base", "--clean"]));
+}
+
+#[test]
+fn test_translate_single_branch_name_develop() {
+    let result = translate_difit_args(args(&["develop"]));
+    assert_eq!(result, args(&[".", "develop", "--merge-base", "--clean"]));
+}
+
+#[test]
+fn test_translate_dot_prefixed() {
+    // 既に "." 付き → そのまま + フラグ追加（完了条件 4: "." を二重に付けない）
+    let result = translate_difit_args(args(&[".", "main"]));
+    assert_eq!(result, args(&[".", "main", "--merge-base", "--clean"]));
+}
+
+#[test]
+fn test_translate_working() {
+    // 特殊ターゲット → --merge-base 不要（完了条件 5）
+    let result = translate_difit_args(args(&["working"]));
+    assert_eq!(result, args(&["working", "--clean"]));
+}
+
+#[test]
+fn test_translate_staged() {
+    // 特殊ターゲット → --merge-base 不要（完了条件 5）
+    let result = translate_difit_args(args(&["staged"]));
+    assert_eq!(result, args(&["staged", "--clean"]));
+}
+
+#[test]
+fn test_translate_empty() {
+    // 空 → そのまま透過
+    let result = translate_difit_args(vec![]);
+    assert_eq!(result, Vec::<String>::new());
+}
+
+#[test]
+fn test_translate_commit_ref_head_tilde() {
+    // 単一コミット参照 → --merge-base 不要
+    let result = translate_difit_args(args(&["HEAD~3"]));
+    assert_eq!(result, args(&["HEAD~3", "--clean"]));
+}
+
+#[test]
+fn test_translate_commit_ref_head_caret() {
+    let result = translate_difit_args(args(&["HEAD^2"]));
+    assert_eq!(result, args(&["HEAD^2", "--clean"]));
+}
+
+#[test]
+fn test_translate_commit_ref_head_plain() {
+    let result = translate_difit_args(args(&["HEAD"]));
+    assert_eq!(result, args(&["HEAD", "--clean"]));
+}
+
+#[test]
+fn test_translate_commit_ref_sha() {
+    // SHA ハッシュ → コミット参照として扱う
+    let result = translate_difit_args(args(&["abc1234"]));
+    assert_eq!(result, args(&["abc1234", "--clean"]));
+}
+
+#[test]
+fn test_translate_commit_ref_full_sha() {
+    let result = translate_difit_args(args(&["a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2"]));
+    assert_eq!(
+        result,
+        args(&["a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2", "--clean"])
+    );
+}
+
+#[test]
+fn test_translate_branch_with_tilde_is_commit_ref() {
+    // branch~N 形式もコミット参照として扱う
+    let result = translate_difit_args(args(&["main~2"]));
+    assert_eq!(result, args(&["main~2", "--clean"]));
+}
+
+#[test]
+fn test_translate_multi_args_without_dot() {
+    // 複数引数（"." なし）→ --clean のみ付与（保守的フォールバック）
+    let result = translate_difit_args(args(&["main", "feature"]));
+    assert_eq!(result, args(&["main", "feature", "--clean"]));
+}
+
+// ---------------------------------------------------------------------------
 // 統合テスト: 実 difit サーバ起動（完了条件 1, 3）
 // ---------------------------------------------------------------------------
 
@@ -256,4 +355,119 @@ fn test_reinject_reply_roundtrip() {
     assert_eq!(resp2.threads[0].id, *thread_id, "スレッド ID が維持される");
 
     shared::kill_server(bg2.pid);
+}
+
+// ---------------------------------------------------------------------------
+// 統合テスト: 変換後引数による merge-base コメント配信エンドツーエンド
+// （ADR-0008 回帰テスト, 完了条件 1, 2）
+// ---------------------------------------------------------------------------
+
+/// ヘルパー: 指定リポジトリで git コマンドを実行する（失敗時 panic）。
+fn git_cmd(path: &std::path::Path, args: &[&str]) {
+    let output = Command::new("git")
+        .args(args)
+        .current_dir(path)
+        .output()
+        .expect("git 実行");
+    assert!(
+        output.status.success(),
+        "git {} が失敗しました: {}",
+        args.join(" "),
+        String::from_utf8_lossy(&output.stderr).trim()
+    );
+}
+
+/// ヘルパー: difit サーバの HTTP エンドポイントを GET し、JSON として返す。
+fn http_get_json(port: u16, path_and_query: &str) -> serde_json::Value {
+    let agent = ureq::AgentBuilder::new()
+        .timeout(std::time::Duration::from_secs(10))
+        .build();
+    let url = format!("http://localhost:{}{}", port, path_and_query);
+    let resp = agent
+        .get(&url)
+        .call()
+        .unwrap_or_else(|e| panic!("GET {} が失敗しました: {e}", url));
+    resp.into_json().expect("JSON パース")
+}
+
+/// 変換後引数（`[".", "main", "--merge-base", "--clean"]`）で実 difit サーバを起動し、
+/// 注入コメントが選択キー一致で配信されることをエンドツーエンドで検証する。
+///
+/// 修正前のバグ（`difit main` 実行 → 選択キー不一致 → `commentImports: null`）の回帰テスト。
+#[test]
+fn test_merge_base_args_delivers_comments_end_to_end() {
+    let _guard = shared::DIFIT_TEST_LOCK.lock().unwrap();
+    if !shared::difit_available() {
+        eprintln!("SKIP: difit がインストールされていません");
+        return;
+    }
+
+    // 一時リポジトリ: main（ベースブランチ）→ 作業ブランチでコミット（乖離）→ ワーキングディレクトリ変更。
+    // make_temp_git_repo は main ブランチ + README.md("hello\n") の初期コミットを作る。
+    let (_tmp, path) = shared::make_temp_git_repo();
+    git_cmd(&path, &["checkout", "-qb", "feature"]);
+    std::fs::write(path.join("README.md"), "hello\nworld\n").unwrap();
+    git_cmd(&path, &["commit", "-aqm", "feature commit"]);
+    // ワーキングディレクトリ変更（未コミット）→ "." ターゲットの diff 対象
+    std::fs::write(path.join("README.md"), "hello\nworld\nextra\n").unwrap();
+
+    // 引数変換（ADR-0008）: ["main"] → [".", "main", "--merge-base", "--clean"]
+    let difit_args = translate_difit_args(args(&["main"]));
+    assert_eq!(difit_args, args(&[".", "main", "--merge-base", "--clean"]));
+
+    // コメント位置はワーキングディレクトリ変更で追加した行（diff の new 側 3 行目）を指す
+    let comment = serde_json::json!({
+        "type": "thread",
+        "filePath": "README.md",
+        "position": {"side": "new", "line": 3},
+        "body": "[issue] merge-base delivery regression"
+    });
+
+    let bg = shared::spawn_difit_server(&path, &difit_args, &[comment])
+        .expect("変換後引数での difit サーバ起動");
+    assert!(shared::is_process_alive(bg.pid));
+
+    // 1. /api/diff が commentImports を配信する（選択キー一致, 完了条件 2）。
+    //    ブラウザ初回ロードと同じパラメータなしリクエスト。
+    //    修正前のバグでは選択キー不一致により commentImports が欠落（null）していた。
+    let diff = http_get_json(bg.port, "/api/diff");
+    let imports = diff["commentImports"]
+        .as_array()
+        .expect("commentImports が配列として配信される");
+    assert_eq!(imports.len(), 1, "注入コメントが配信される");
+    assert_eq!(imports[0]["body"], "[issue] merge-base delivery regression");
+
+    // diff セマンティクス: ワーキングディレクトリ vs ベースブランチの merge-base 解決（完了条件 1）
+    assert_eq!(diff["requestedBaseCommitish"], "main");
+    assert_eq!(diff["targetCommitish"], ".");
+    assert_eq!(diff["requestedBaseMode"], "merge-base");
+    assert_eq!(diff["clearComments"], true, "--clean がサーバに反映される");
+    assert_eq!(diff["files"][0]["path"], "README.md");
+
+    // 2. ブラウザのコメントブートストラップを再現: /api/diff レスポンスの解決済み選択キーで
+    //    /api/comments-json を取得し、コメントが届くことを検証する。
+    let base = diff["baseCommitish"].as_str().expect("baseCommitish");
+    let target = diff["targetCommitish"].as_str().expect("targetCommitish");
+    let comments = http_get_json(
+        bg.port,
+        &format!("/api/comments-json?base={base}&target={target}&baseMode=merge-base"),
+    );
+    let threads = comments["threads"].as_array().expect("threads");
+    assert_eq!(threads.len(), 1, "解決済み選択キーでコメントが配信される");
+    assert_eq!(
+        threads[0]["messages"][0]["body"],
+        "[issue] merge-base delivery regression"
+    );
+
+    // 3. fetch_comments（`mt difit check` が使う経路）でも取得できる
+    let resp = shared::fetch_comments(bg.port).expect("コメント取得");
+    assert_eq!(resp.threads.len(), 1);
+    assert_eq!(
+        resp.threads[0].messages[0].body,
+        "[issue] merge-base delivery regression"
+    );
+
+    // クリーンアップ
+    shared::kill_server(bg.pid);
+    assert!(!shared::is_process_alive(bg.pid));
 }
