@@ -4,6 +4,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import {
   collectReviewContext,
+  markUntrackedIntentToAdd,
   runCommand,
   CollectError,
   parseCli,
@@ -135,6 +136,57 @@ describe("collect-review-context", () => {
 
     it("rejects on unknown command", async () => {
       await expect(runCommand("__nonexistent_cmd_xyzzy__", [])).rejects.toThrow(CollectError);
+    });
+  });
+
+  describe("markUntrackedIntentToAdd (ADR-0009)", () => {
+    let repo: string;
+    let origCwd: string;
+
+    const git = (args: string[]) => runCommand("git", args);
+
+    beforeEach(async () => {
+      repo = fs.mkdtempSync(path.join(os.tmpdir(), "mt-plan-collect-repo-"));
+      origCwd = process.cwd();
+      process.chdir(repo);
+      await git(["init", "-q", "-b", "main"]);
+      await git(["config", "user.email", "test@test.local"]);
+      await git(["config", "user.name", "test"]);
+      fs.writeFileSync(path.join(repo, "tracked.txt"), "base\n");
+      fs.writeFileSync(path.join(repo, ".gitignore"), "ignored.txt\n");
+      await git(["add", "."]);
+      await git(["commit", "-qm", "initial"]);
+    });
+
+    afterEach(() => {
+      process.chdir(origCwd);
+      fs.rmSync(repo, { recursive: true, force: true });
+    });
+
+    it("marks untracked files so git diff includes them", async () => {
+      fs.writeFileSync(path.join(repo, "new-file.txt"), "untracked content\n");
+
+      const marked = await markUntrackedIntentToAdd();
+      expect(marked).toEqual(["new-file.txt"]);
+
+      const diff = await git(["diff"]);
+      expect(diff.stdout).toContain("new-file.txt");
+      expect(diff.stdout).toContain("untracked content");
+    });
+
+    it("does not mark gitignored files", async () => {
+      fs.writeFileSync(path.join(repo, "ignored.txt"), "ignored content\n");
+
+      const marked = await markUntrackedIntentToAdd();
+      expect(marked).toEqual([]);
+
+      const diff = await git(["diff"]);
+      expect(diff.stdout).not.toContain("diff --git a/ignored.txt");
+    });
+
+    it("returns empty array when no untracked files", async () => {
+      const marked = await markUntrackedIntentToAdd();
+      expect(marked).toEqual([]);
     });
   });
 });

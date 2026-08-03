@@ -93,6 +93,19 @@ async function collectGitUnstagedDiff(): Promise<string> {
   }
 }
 
+// ADR-0009: untracked ファイルに intent-to-add を付け、git diff の証拠に含める。
+// difit の --include-untracked と同じ機構（git add --intent-to-add）。
+export async function markUntrackedIntentToAdd(): Promise<string[]> {
+  const result = await runCommand("git", [
+    "ls-files", "--others", "--exclude-standard", "-z",
+  ]);
+  const files = result.stdout.split("\0").filter((f) => f.length > 0);
+  if (files.length > 0) {
+    await runCommand("git", ["add", "--intent-to-add", "--", ...files]);
+  }
+  return files;
+}
+
 export interface CollectInput {
   planNumber: number;
   sessionDir: string;
@@ -112,6 +125,10 @@ export async function collectReviewContext(
   await mkdir(input.sessionDir, { recursive: true });
 
   const baseBranch = input.baseBranch ?? (await detectBaseBranch());
+
+  await markUntrackedIntentToAdd().catch(() => {
+    // best-effort: git 未初期化等は既存の diff 収集と同様に縮退
+  });
 
   const [issueBody, branchDiff, unstagedDiff] = await Promise.all([
     collectIssueBody(input.planNumber, input.repo).catch((err) => {

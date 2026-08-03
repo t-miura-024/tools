@@ -19,6 +19,9 @@ pub fn start(difit_args: Vec<String>) -> anyhow::Result<()> {
     // --- 引数変換: ワーキングディレクトリ vs ベースブランチのセマンティクス ---
     let difit_args = translate_difit_args(difit_args);
 
+    // --- untracked ファイルを intent-to-add で diff に含める（ADR-0009）---
+    mark_untracked_intent_to_add(&repo_root);
+
     // --- 旧サーバの処理（ゾンビ防止 & stale 自己修復）---
     let old_state = shared::read_review_state(&repo_root);
 
@@ -151,6 +154,65 @@ fn is_commit_ref(s: &str) -> bool {
         return true;
     }
     false
+}
+
+/// untracked ファイル（.gitignore 対象外）に intent-to-add を付ける（ADR-0009）。
+///
+/// `git diff` に untracked ファイルが現れるようになり、difit のワーキング
+/// ディレクトリ diff に含まれる。difit の `--include-untracked` と同じ機構だが、
+/// あのフラグは `--background` 起動時に親プロセスが子の stdout 最初の 1 行
+/// （JSON ではなく "✅ Files added" メッセージ）を転送してハングするため
+/// 使わず、mt 側で事前に実行する。
+///
+/// best-effort: 失敗時は警告のみで続行する（untracked なしの diff に縮退）。
+pub fn mark_untracked_intent_to_add(repo_root: &std::path::Path) {
+    use std::os::unix::ffi::OsStrExt;
+
+    let listed = match std::process::Command::new("git")
+        .args(["ls-files", "--others", "--exclude-standard", "-z"])
+        .current_dir(repo_root)
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .output()
+    {
+        Ok(output) if output.status.success() => output.stdout,
+        _ => return,
+    };
+
+    let files: Vec<std::ffi::OsString> = listed
+        .split(|byte| *byte == 0)
+        .filter(|chunk| !chunk.is_empty())
+        .map(|chunk| std::ffi::OsStr::from_bytes(chunk).to_os_string())
+        .collect();
+
+    if files.is_empty() {
+        return;
+    }
+
+    let result = std::process::Command::new("git")
+        .arg("add")
+        .arg("--intent-to-add")
+        .arg("--")
+        .args(&files)
+        .current_dir(repo_root)
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::piped())
+        .output();
+
+    match result {
+        Ok(output) if output.status.success() => {
+            eprintln!("marked {} untracked file(s) as intent-to-add", files.len());
+        }
+        Ok(output) => {
+            eprintln!(
+                "warning: git add --intent-to-add failed: {}",
+                String::from_utf8_lossy(&output.stderr).trim()
+            );
+        }
+        Err(error) => {
+            eprintln!("warning: git add --intent-to-add failed: {error}");
+        }
+    }
 }
 
 /// stdin からコメント JSON を読み込む。
