@@ -39,3 +39,17 @@ _Avoid_: imported comments, initial comments
 **merge-base 解決**:
 git merge-base <base> HEAD でベースコミットを解決し、3-way diff を行うモード。
 _Avoid_: merge base mode, three-way mode
+
+### grilling（mt-grill-rounds）
+
+**round**:
+フロンティアの質問をまとめて提示し、ユーザーの回答を待つ 1 往復の単位。
+_Avoid_: ターン, イテレーション
+
+**frontier**:
+前提条件がすべて確定済みで、今この瞬間に尋ねられる決定の集合。
+_Avoid_: キュー, 未回答リスト
+
+**design tree**:
+決定事項をノード、依存関係をエッジとして持つ木の構造。ラウンドごとの回答で枝が確定し、フロンティアが外側へ押し出される。
+_Avoid_: 質問リスト, アジェンダ

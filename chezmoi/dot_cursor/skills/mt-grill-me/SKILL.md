@@ -1,6 +1,7 @@
 ---
 name: mt-grill-me
-description: 計画・決定・アイデアについて容赦なく質問する。思考のストレステスト、grill-me、徹底ヒアリング、設計インタビューと言われた時に使用する。
+description: 計画・決定・アイデアについて一度に 1 問ずつ容赦なく深掘りする、手動専用の一問一答ヒアリング。
+disable-model-invocation: true
 ---
 
 # 指示

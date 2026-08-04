@@ -42,10 +42,10 @@ function isTMiura024(artifacts: ArtifactRecord[]): boolean {
 
 const PREPARE_DECISION_KEY = 'prepare-decision.json';
 const ISSUE_BODY_KEY = 'issue-body.md';
-const GRILL_NOTES_KEY = 'grill-notes.md';
+const GRILL_MAP_KEY = 'grill-map.md';
 const REPO_INFO_KEY = 'repo-info.json';
 const mtPlanDir = join(import.meta.dir, '..', 'mt-plan');
-const mtGrillMeDir = join(import.meta.dir, '..', 'mt-grill-me');
+const mtGrillRoundsDir = join(import.meta.dir, '..', 'mt-grill-rounds');
 const mtDomainModelingDir = join(import.meta.dir, '..', 'mt-domain-modeling');
 
 // ---------------------------------------------------------------------------
@@ -90,23 +90,24 @@ const def: WorkflowDef = {
         action: 'orchestrate',
         buildPrompt: (ctx: PromptCtx) => {
           const withDocs = isTMiura024(ctx.artifacts);
+          const grillMapPath = join(ctx.sessionDir, GRILL_MAP_KEY);
 
           const hearingSection = withDocs
             ? [
                 '### 2. 徹底ヒアリング + ドメインモデリング',
                 '',
-                `mt-grill-me スキル（${join(mtGrillMeDir, 'SKILL.md')}）をロードし、その指示に従ってヒアリングを行う。`,
+                `mt-grill-rounds スキル（${join(mtGrillRoundsDir, 'SKILL.md')}）をロードし、その指示に従ってヒアリングを行う。`,
                 '',
                 `加えて mt-domain-modeling スキル（${join(mtDomainModelingDir, 'SKILL.md')}）を参照し、その規律をすべて適用する。`,
                 '',
                 '**重要:** repo へのファイル書き込み（CONTEXT.md の更新、ADR ファイルの作成）は禁止。',
-                `確定した用語・ADR 案はすべて \`${GRILL_NOTES_KEY}\` に記録すること。`,
+                '確定した用語・ADR 案はすべてライブ地図の `## 確定用語` / `## ADR 案` セクションに記録すること。',
                 `フォーマットは ${join(mtDomainModelingDir, 'CONTEXT-FORMAT.md')} / ${join(mtDomainModelingDir, 'ADR-FORMAT.md')} に従う。`,
               ]
             : [
                 '### 2. 徹底ヒアリング',
                 '',
-                `mt-grill-me スキル（${join(mtGrillMeDir, 'SKILL.md')}）をロードし、その指示に従ってヒアリングを行う。`,
+                `mt-grill-rounds スキル（${join(mtGrillRoundsDir, 'SKILL.md')}）をロードし、その指示に従ってヒアリングを行う。`,
               ];
 
           return [
@@ -123,20 +124,26 @@ const def: WorkflowDef = {
             '- No の場合: 新規計画としてヒアリングを開始する',
             '',
             ...hearingSection,
-            'ユーザーが「十分」と宣言するまで継続する。',
             '',
-            '### 3. ヒアリング結果の記録',
+            'ヒアリングは mt-grill-rounds の方式に従って進める:',
+            `- ライブ地図のパスは既定パスではなく \`${grillMapPath}\`（セッションディレクトリ配下）を明示的に指定し、このパスで地図を育成する`,
+            '- 各ラウンドでフロンティア（前提がすべて確定済みの決定）の質問全体をまとめて提示し、ユーザーの回答を待ってから次のラウンドに進む',
+            '- 回答をライブ地図へ反映した後にフロンティアを再計算し、次のラウンドを提示する',
+            '- フロンティアが空になり、ユーザーが共通認識を確認するまでラウンドを継続する',
             '',
-            `ヒアリングで確定した内容・未決事項を自由形式でセッションディレクトリの \`${GRILL_NOTES_KEY}\` に書き出す。`,
+            '### 3. ライブ地図の最終確認',
+            '',
+            `ヒアリングの全決定がセッションディレクトリのライブ地図 \`${grillMapPath}\` に蒸留されていることを確認する。`,
+            '地図は Markdown 入れ子リスト＋状態マーカー（`[確定]` / `[未決]` / `[保留]`）の単一ファイルとし、質疑ログなどの別ファイルは残さない。',
             ...(withDocs
-              ? [`ドメインモデリングで確定した用語・ADR 案も \`${GRILL_NOTES_KEY}\` の専用セクション（## 確定用語 / ## ADR 案）に記録する。`]
+              ? ['ドメインモデリングで確定した用語・ADR 案が `## 確定用語` / `## ADR 案` セクションに記録されていることも確認する。']
               : []),
             '',
             '## 成果物',
             '',
             'report 時の `artifacts` に以下を含める:',
             '```json',
-            `{"key": "${GRILL_NOTES_KEY}", "path": "${join(ctx.sessionDir, GRILL_NOTES_KEY)}"}`,
+            `{"key": "${GRILL_MAP_KEY}", "path": "${grillMapPath}"}`,
             '```',
             '',
             '## セッション情報',
@@ -173,14 +180,14 @@ const def: WorkflowDef = {
             '',
             '### 1. ヒアリング結果の読み込み',
             '',
-            `セッションディレクトリの \`${GRILL_NOTES_KEY}\` を読み込む。`,
+            `セッションディレクトリの \`${GRILL_MAP_KEY}\`（ライブ地図）を読み込む。`,
             'from-Issue フローの場合は既存 Issue の内容も合わせて参照する。',
             '',
             ...(withDocs
               ? [
                   '### 2. ドキュメントの整形・埋め込み',
                   '',
-                  `Grill Phase で \`${GRILL_NOTES_KEY}\` に記録された確定用語・ADR 案は確定済みとして扱う。要否の再判断はしない。`,
+                  `Grill Phase で \`${GRILL_MAP_KEY}\` の \`## 確定用語\` / \`## ADR 案\` セクションに記録された確定用語・ADR 案は確定済みとして扱う。要否の再判断はしない。`,
                   '',
                   '以下を行い、plan-format.md の `## 📄 ドキュメント` セクションに埋め込む:',
                   `- CONTEXT は ${join(mtDomainModelingDir, 'CONTEXT-FORMAT.md')} に従い本文を整形する`,
@@ -266,7 +273,7 @@ const def: WorkflowDef = {
             '',
             '### 3. 分解要否の判定',
             '',
-            `Grill Phase で確定した内容（\`${GRILL_NOTES_KEY}\`）を確認し、以下を判定する:`,
+            `Grill Phase で確定した内容（ライブ地図 \`${GRILL_MAP_KEY}\`）を確認し、以下を判定する:`,
             '',
             '- 計画が複数の機能・領域を含み、単一 Issue では独立した完了条件と進捗を管理できない場合 → `mode: "decompose"`',
             '- それ以外 → `mode: "update"`',
