@@ -20,7 +20,7 @@ description: 1 セッションに収まらない大きな企画を、決定チ�
 | 種別 | 誰が動くか | 用途 |
 | --- | --- | --- |
 | `research` | エージェント単独可 | 一次資料の事実を集め、決定の前提を固める |
-| `grilling` | 人間必須 | 方針・優先度・トレードオフを 1 問ずつ詰める |
+| `grilling` | 人間必須 | 方針・優先度・トレードオフをヒアリングで詰める |
 | `prototype` | 人間必須 | 安い具体物で「どう見える/動くか」を確かめる |
 | `task` | どちらか | 決定の前に必要な手作業（権限取得、データ移動など） |
 
@@ -32,7 +32,7 @@ description: 1 セッションに収まらない大きな企画を、決定チ�
 
 #### A1. Destination を確定する
 
-1. `mt-grill-me` または `mt-grill-with-docs`（`mt-domain-modeling` 併用）で、このマップが辿り着く状態を 1〜2 文に固定する
+1. `mt-grill-rounds` または `mt-grill-with-docs`（`mt-domain-modeling` 併用）で、このマップが辿り着く状態を 1〜2 文に固定する
 2. Destination は仕様・決定・変更のいずれでもよいが、「何ができたら道が開いたか」が判定可能であること
 3. スコープ外の作業を先に切り、Out of scope 候補としてメモする
 
@@ -125,7 +125,7 @@ gh issue create \
 3. `gh issue edit <n> --add-assignee @me` で claim する（作業前に必ず）
 4. 種別に応じて 1 件だけ解く
    - research: 一次資料調査
-   - grilling: `mt-grill-me` / `mt-grill-with-docs`（`mt-domain-modeling` 併用）
+   - grilling: `mt-grill-rounds` / `mt-grill-with-docs`（`mt-domain-modeling` 併用）
    - prototype: 安い具体物を作り反応を取る
    - task: チェックリストを実行または人間へ渡す
 5. 解決コメントを残して close する
