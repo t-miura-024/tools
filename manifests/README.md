@@ -30,6 +30,19 @@ mt tool install
 
 `bun-global.yml` は bun global package の存在を管理します。package が CLI binary を提供しない場合、package はインストールされても同名コマンドとして使えるとは限りません。
 
+`bun-global.yml` の各エントリは `version` または `repo` のいずれか一方を指定します。両方の指定、または両方の未指定はバリデーションエラーになります。
+
+- `version: latest` — registry パッケージ（npm 等）の宣言。`latest` で最新版を追従します
+- `repo: <owner>/<name>` — GitHub ホストパッケージの宣言。`<owner>/<name>` 形式でリポジトリを指定し、デフォルトブランチの最新に追従します（例: `tado: repo: t-miura-024/tado`）
+
+```yaml
+packages:
+  difit:
+    version: latest
+  tado:
+    repo: t-miura-024/tado
+```
+
 ### 管理状態の確認
 
 ```bash
@@ -49,8 +62,16 @@ mt tool brew upgrade
 
 Homebrew のみを対象にし、mise のバージョンは自動更新しません。
 
+### bun global パッケージの更新
+
+```bash
+mt tool bun upgrade
+```
+
+`manifests/bun-global.yml` に記載された package を一括更新します。registry パッケージ（`version:` エントリ）は最新版に、GitHub ホストパッケージ（`repo:` エントリ）はデフォルトブランチの最新コミットに更新されます。bun global のみを対象にし、Homebrew / mise は更新しません。
+
 ### ツールの追加・変更
 
 - Homebrew パッケージの追加: `manifests/Brewfile` を編集して `mt tool install`
 - mise のツールバージョン変更: `manifests/mise.toml` を編集して `mt tool install`
-- bun global package の追加・削除: `manifests/bun-global.yml` を編集して `mt tool install`
+- bun global package の追加・削除: `manifests/bun-global.yml` を編集して `mt tool install`（registry パッケージは `version:` で、GitHub ホストパッケージは `repo:` で宣言）

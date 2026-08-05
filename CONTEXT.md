@@ -40,6 +40,14 @@ _Avoid_: imported comments, initial comments
 git merge-base <base> HEAD でベースコミットを解決し、3-way diff を行うモード。
 _Avoid_: merge base mode, three-way mode
 
+**repo エントリ**:
+`bun-global.yml` で GitHub ホストパッケージを宣言する `repo:` フィールド持ちのエントリ。`repo: <owner>/<name>` はデフォルトブランチ最新への追従を意味する。
+_Avoid_: git エントリ, GitHub パッケージエントリ
+
+**version エントリ**:
+`bun-global.yml` で registry パッケージを宣言する `version:` フィールド持ちのエントリ。repo エントリと相互排他。
+_Avoid_: npm エントリ, registry エントリ
+
 **ファイルレベル指摘**:
 position を持たない thread。ファイル全体に紐づく指摘・補足。difit スキーマに表現がなく、`mt difit start` の position 合成で line:1 に変換される。
 _Avoid_: ファイル全体コメント, ファイルスコープ指摘

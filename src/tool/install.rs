@@ -283,12 +283,25 @@ fn bun_global_install_command(
 ) -> ToolCommandSpec {
     let mut args = mise_exec_prefix(manifest_dir);
     args.extend(["bun".to_string(), "install".to_string(), "-g".to_string()]);
-    args.extend(
-        packages
-            .iter()
-            .map(|package| format!("{}@{}", package.name, package.version)),
-    );
+    args.extend(packages.iter().map(bun_global_install_spec));
     ToolCommandSpec::new("mise", args)
+}
+
+/// `bun install -g` に渡す install spec を生成する。
+/// repo エントリは `<name>@github:<repo>` 形式にし、インストール後のパッケージ名が
+/// マニフェストキーと一致することを保証する（verify / cleanup の名前突合の前提）。
+fn bun_global_install_spec(package: &BunGlobalPackage) -> String {
+    match &package.repo {
+        Some(repo) => format!("{}@github:{}", package.name, repo),
+        None => format!(
+            "{}@{}",
+            package.name,
+            package
+                .version
+                .as_deref()
+                .expect("マニフェスト検証で version または repo のいずれかが保証される")
+        ),
+    }
 }
 
 fn bun_global_list_command(manifest_dir: &Path) -> ToolCommandSpec {
