@@ -50,6 +50,12 @@ pub fn start(difit_args: Vec<String>) -> anyhow::Result<()> {
     // --- コメントの決定: stdin 優先、空なら保存済みで復旧 ---
     let comments = read_stdin_comments()?.unwrap_or(saved_comments);
 
+    // --- position 正規化（ADR-0011, 完了条件 1, 2, 3）---
+    // difit 5.0.8 の normalizeCommentImportEntry は position（side + line）を必須とし、
+    // 欠落時は throw する。stdin と保存済みコメントの統合後の最終配列に合成を適用する
+    // ことで、両パス（stdin 入力 / クラッシュ復旧）の position 欠落エントリを正規化する。
+    let comments = synthesize_missing_positions(comments);
+
     // --- difit サーバ起動 ---
     let bg = shared::spawn_difit_server(&repo_root, &difit_args, &comments)?;
 
@@ -245,6 +251,31 @@ fn read_stdin_comments() -> anyhow::Result<Option<Vec<serde_json::Value>>> {
     };
 
     Ok(Some(comments))
+}
+
+/// position キーを持たないコメントエントリに `{"side":"new","line":1}` を合成する。
+///
+/// difit 5.0.8 の `normalizeCommentImportEntry` は position（side + line）を必須として
+/// おり、欠落時は throw して起動が失敗する。position なし（ファイルレベル）のコメント
+/// エントリを difit に渡す前に line:1 に正規化する（ADR-0011）。
+///
+/// 合成は position キーが**存在しない**エントリにのみ適用される。position を持つ
+/// エントリ（thread / reply）は一切変更しない。非オブジェクトのエントリも変更しない。
+/// 適用後に再適用しても結果は変わらない（冪等）。
+fn synthesize_missing_positions(comments: Vec<serde_json::Value>) -> Vec<serde_json::Value> {
+    comments
+        .into_iter()
+        .map(|entry| match entry {
+            serde_json::Value::Object(mut obj) if !obj.contains_key("position") => {
+                obj.insert(
+                    "position".to_string(),
+                    serde_json::json!({"side": "new", "line": 1}),
+                );
+                serde_json::Value::Object(obj)
+            }
+            other => other,
+        })
+        .collect()
 }
 
 #[cfg(test)]

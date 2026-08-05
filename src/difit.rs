@@ -1,6 +1,7 @@
 //! difit レビューセッション管理（`mt difit`）。
 //!
 //! `start` で difit サーバを起動し、`check` / `done` でゲート判定を行う。
+//! `status` でセッション状態を診断表示する。
 //! 実装本体は `src/difit/` 配下（src/README.md ルール A / B 準拠）。
 
 use clap::Subcommand;
@@ -9,6 +10,7 @@ pub mod check;
 pub mod done;
 pub mod shared;
 pub mod start;
+pub mod status;
 
 #[derive(Subcommand)]
 pub enum DifitCommands {
@@ -22,6 +24,8 @@ pub enum DifitCommands {
     Check,
     /// レビューを終了し、ゲート結果にかかわらずサーバを停止する
     Done,
+    /// セッション状態を表示する（読み取り専用。stale state は警告のみ）
+    Status,
 }
 
 pub fn run(cmd: DifitCommands) -> anyhow::Result<()> {
@@ -29,5 +33,6 @@ pub fn run(cmd: DifitCommands) -> anyhow::Result<()> {
         DifitCommands::Start { args } => start::start(args),
         DifitCommands::Check => check::check(),
         DifitCommands::Done => done::done(),
+        DifitCommands::Status => status::status(),
     }
 }
