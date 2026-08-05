@@ -106,6 +106,97 @@ fn test_translate_multi_args_without_dot() {
 }
 
 // ---------------------------------------------------------------------------
+// ユニットテスト: position 合成（ADR-0011, 完了条件 1, 2）
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_synthesize_missing_positions_adds_line_1_for_file_level_comment() {
+    // 完了条件 1: position なし（ファイルレベル）エントリに {"side":"new","line":1} を合成
+    let comments = vec![serde_json::json!({
+        "type": "thread",
+        "filePath": "README.md",
+        "body": "[issue] file-level comment"
+    })];
+
+    let result = synthesize_missing_positions(comments);
+
+    assert_eq!(result.len(), 1);
+    assert_eq!(result[0]["position"], serde_json::json!({"side": "new", "line": 1}));
+    // 他のフィールドは保持される
+    assert_eq!(result[0]["type"], "thread");
+    assert_eq!(result[0]["filePath"], "README.md");
+    assert_eq!(result[0]["body"], "[issue] file-level comment");
+}
+
+#[test]
+fn test_synthesize_missing_positions_preserves_existing_position() {
+    // 完了条件 2: position を持つエントリ（thread / reply）は一切変更しない
+    let comments = vec![
+        serde_json::json!({
+            "type": "thread",
+            "filePath": "README.md",
+            "position": {"side": "new", "line": 42},
+            "body": "[issue] thread"
+        }),
+        serde_json::json!({
+            "type": "reply",
+            "filePath": "README.md",
+            "position": {"side": "new", "line": 2},
+            "body": "reply"
+        }),
+    ];
+
+    let result = synthesize_missing_positions(comments);
+
+    assert_eq!(result[0]["position"], serde_json::json!({"side": "new", "line": 42}));
+    assert_eq!(result[1]["position"], serde_json::json!({"side": "new", "line": 2}));
+    // 余計なフィールドが追加されない（キー数が変わらない）
+    assert_eq!(result[0].as_object().unwrap().len(), 4);
+    assert_eq!(result[1].as_object().unwrap().len(), 4);
+}
+
+#[test]
+fn test_synthesize_missing_positions_only_for_missing_and_idempotent() {
+    // 完了条件 2: 欠落エントリのみ合成。再適用しても結果が変わらない（冪等）。
+    let comments = vec![
+        serde_json::json!({
+            "type": "thread",
+            "filePath": "a.rs",
+            "position": {"side": "new", "line": 7},
+            "body": "[context] anchored"
+        }),
+        serde_json::json!({
+            "type": "thread",
+            "filePath": "b.rs",
+            "body": "[issue] file-level"
+        }),
+    ];
+
+    let once = synthesize_missing_positions(comments);
+    assert_eq!(once[0]["position"], serde_json::json!({"side": "new", "line": 7}));
+    assert_eq!(once[1]["position"], serde_json::json!({"side": "new", "line": 1}));
+
+    let twice = synthesize_missing_positions(once.clone());
+    assert_eq!(twice, once, "再適用しても結果が変わらないこと");
+}
+
+#[test]
+fn test_synthesize_missing_positions_leaves_non_object_entries() {
+    // 非オブジェクトエントリ（例: 文字列）は変更しない
+    let comments = vec![serde_json::json!("not an object")];
+
+    let result = synthesize_missing_positions(comments);
+
+    assert_eq!(result, vec![serde_json::json!("not an object")]);
+}
+
+#[test]
+fn test_synthesize_missing_positions_empty() {
+    let result = synthesize_missing_positions(vec![]);
+    assert!(result.is_empty());
+}
+
+// ---------------------------------------------------------------------------
 // 統合テスト: untracked ファイルの intent-to-add マーク（ADR-0009）
 // ---------------------------------------------------------------------------
 
@@ -518,4 +609,150 @@ fn test_merge_base_args_delivers_comments_end_to_end() {
     // クリーンアップ
     shared::kill_server(bg.pid);
     assert!(!shared::is_process_alive(bg.pid));
+}
+
+// ---------------------------------------------------------------------------
+// 統合テスト: position なしコメントの起動（ADR-0011, 完了条件 1, 3）
+// ---------------------------------------------------------------------------
+
+/// 実 `mt` バイナリで `mt difit start working` を実行する（stdin は指定入力）。
+fn run_mt_difit_start(path: &std::path::Path, stdin_input: &str) -> std::process::Output {
+    use std::io::Write;
+    use std::process::Stdio;
+
+    let mut child = Command::new(assert_cmd::cargo::cargo_bin("mt"))
+        .args(["difit", "start", "working"])
+        .current_dir(path)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("mt difit start の実行");
+
+    child
+        .stdin
+        .take()
+        .expect("stdin pipe")
+        .write_all(stdin_input.as_bytes())
+        .expect("stdin への書き込み");
+    child.wait_with_output().expect("mt difit start の出力")
+}
+
+#[test]
+fn test_start_stdin_positionless_comment_synthesizes_and_starts() {
+    // 完了条件 1: position なし（ファイルレベル）コメントを stdin で渡しても起動に成功し、
+    // difit に渡る時点で {"side":"new","line":1} が合成されている。
+    let _guard = shared::DIFIT_TEST_LOCK.lock().unwrap();
+    if !shared::difit_available() {
+        eprintln!("SKIP: difit がインストールされていません");
+        return;
+    }
+
+    let (_tmp, path) = shared::make_temp_git_repo();
+    std::fs::write(path.join("README.md"), "hello\nworld\n").unwrap();
+
+    let input = serde_json::json!([{
+        "type": "thread",
+        "filePath": "README.md",
+        "body": "[issue] file-level comment via stdin"
+    }])
+    .to_string();
+
+    let output = run_mt_difit_start(&path, &input);
+    assert!(
+        output.status.success(),
+        "position なしコメントでも起動に成功すること: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let json: serde_json::Value =
+        serde_json::from_str(stdout.trim()).expect("stdout が JSON であること");
+    let port = json["port"].as_u64().expect("port");
+    assert!(port > 0);
+
+    // difit に渡した配列が状態に保存されている → 合成済み position を検証できる
+    let state = shared::read_review_state(&path).expect("状態が保存されている");
+    assert_eq!(
+        state.comments[0]["position"],
+        serde_json::json!({"side": "new", "line": 1}),
+        "difit に渡る時点で position が合成されている"
+    );
+
+    // 合成された position でコメントがサーバに受理されている
+    let resp = shared::fetch_comments(port as u16).expect("コメント取得");
+    assert_eq!(resp.threads.len(), 1);
+    assert_eq!(
+        resp.threads[0].messages[0].body,
+        "[issue] file-level comment via stdin"
+    );
+    assert!(
+        resp.threads[0].position.as_object().is_some(),
+        "サーバ上でも position が付与されている"
+    );
+
+    // クリーンアップ
+    shared::kill_server(state.pid);
+    assert!(!shared::is_process_alive(state.pid));
+}
+
+#[test]
+fn test_start_stale_positionless_saved_comments_synthesizes_and_recovers() {
+    // 完了条件 3: 保存済みコメント（クラッシュ復旧パス）にも合成が適用される。
+    // 旧バージョンが保存した position なしコメントを持つ stale 状態から復旧できる。
+    let _guard = shared::DIFIT_TEST_LOCK.lock().unwrap();
+    if !shared::difit_available() {
+        eprintln!("SKIP: difit がインストールされていません");
+        return;
+    }
+
+    let (_tmp, path) = shared::make_temp_git_repo();
+    std::fs::write(path.join("README.md"), "hello\nworld\n").unwrap();
+
+    // stale 状態: 確実に存在しない PID + position なしコメント（旧保存形式を再現）
+    shared::ensure_difit_dir(&path).unwrap();
+    let stale = shared::ReviewState {
+        port: 1,
+        pid: 2_000_000_000,
+        comments: vec![serde_json::json!({
+            "type": "thread",
+            "filePath": "README.md",
+            "body": "[issue] stale file-level comment"
+        })],
+        difit_args: vec!["working".to_string()],
+    };
+    shared::write_review_state(&path, &stale).unwrap();
+
+    // 空 stdin で起動 → 保存済みコメントで復旧（stdin 空なら保存済みが選ばれる）
+    let output = run_mt_difit_start(&path, "");
+    assert!(
+        output.status.success(),
+        "保存済み position なしコメントでも復旧起動に成功すること: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let json: serde_json::Value =
+        serde_json::from_str(stdout.trim()).expect("stdout が JSON であること");
+    let port = json["port"].as_u64().expect("port");
+
+    // 復旧後は position 合成済みのコメントが状態・サーバの両方に存在する
+    let state = shared::read_review_state(&path).expect("新しい状態が保存されている");
+    assert!(shared::is_process_alive(state.pid), "新しいサーバが起動している");
+    assert_eq!(
+        state.comments[0]["position"],
+        serde_json::json!({"side": "new", "line": 1}),
+        "保存済みコメントにも合成が適用されている"
+    );
+
+    let resp = shared::fetch_comments(port as u16).expect("コメント取得");
+    assert_eq!(resp.threads.len(), 1);
+    assert_eq!(
+        resp.threads[0].messages[0].body,
+        "[issue] stale file-level comment"
+    );
+
+    // クリーンアップ
+    shared::kill_server(state.pid);
+    assert!(!shared::is_process_alive(state.pid));
 }

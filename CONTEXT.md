@@ -40,6 +40,14 @@ _Avoid_: imported comments, initial comments
 git merge-base <base> HEAD でベースコミットを解決し、3-way diff を行うモード。
 _Avoid_: merge base mode, three-way mode
 
+**ファイルレベル指摘**:
+position を持たない thread。ファイル全体に紐づく指摘・補足。difit スキーマに表現がなく、`mt difit start` の position 合成で line:1 に変換される。
+_Avoid_: ファイル全体コメント, ファイルスコープ指摘
+
+**position 合成**:
+`mt difit start` が position なしの import エントリに `{"side":"new","line":1}` を付与して difit の必須スキーマを満たす動作。
+_Avoid_: 正規化, フォールバック
+
 ### grilling（mt-grill-rounds）
 
 **round**:
