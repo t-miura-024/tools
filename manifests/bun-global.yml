@@ -1,5 +1,5 @@
 packages:
-  agent-browser:
+  "@jackwener/opencli":
     version: latest
   difit:
     version: latest
