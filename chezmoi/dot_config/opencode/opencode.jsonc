@@ -15,7 +15,7 @@
       "~/Downloads/**": "deny",
       "~/Pictures/**": "deny",
       "~/Library/**": "deny",
-      "~/.agent-browser/**": "deny",
+      "~/.opencli/**": "deny",
       "~/.ssh/**": "deny",
       "~/.zshrc": "deny",
       "~/.zsh_secrets.age": "deny",
