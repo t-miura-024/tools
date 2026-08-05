@@ -68,11 +68,13 @@ fn test_bun_global_install_and_uninstall_use_mise() {
     let packages = vec![
         BunGlobalPackage {
             name: "agent-browser".to_string(),
-            version: "latest".to_string(),
+            version: Some("latest".to_string()),
+            repo: None,
         },
         BunGlobalPackage {
             name: "pnpm".to_string(),
-            version: "9.0.0".to_string(),
+            version: Some("9.0.0".to_string()),
+            repo: None,
         },
     ];
 
@@ -111,6 +113,42 @@ fn test_bun_global_install_and_uninstall_use_mise() {
                 "-g".into(),
                 "agent-browser".into(),
                 "pnpm".into(),
+            ],
+            envs: vec![],
+        }
+    );
+}
+
+#[test]
+fn test_bun_global_install_command_uses_github_spec_for_repo_entries() {
+    let manifest_dir = Path::new("/repo/manifests");
+    let packages = vec![
+        BunGlobalPackage {
+            name: "agent-browser".to_string(),
+            version: Some("latest".to_string()),
+            repo: None,
+        },
+        BunGlobalPackage {
+            name: "tado".to_string(),
+            version: None,
+            repo: Some("t-miura-024/tado".to_string()),
+        },
+    ];
+
+    assert_eq!(
+        bun_global_install_command(manifest_dir, &packages),
+        ToolCommandSpec {
+            program: "mise",
+            args: vec![
+                "exec".into(),
+                "-C".into(),
+                "/repo/manifests".into(),
+                "--".into(),
+                "bun".into(),
+                "install".into(),
+                "-g".into(),
+                "agent-browser@latest".into(),
+                "tado@github:t-miura-024/tado".into(),
             ],
             envs: vec![],
         }

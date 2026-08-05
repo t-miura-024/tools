@@ -62,6 +62,12 @@ impl Manifests {
         Ok(())
     }
 
+    pub(super) fn ensure_bun_files(&self) -> anyhow::Result<()> {
+        ensure_file(&self.mise_toml, "mise.toml")?;
+        ensure_file(&self.bun_global, "bun-global.yml")?;
+        Ok(())
+    }
+
     pub(super) fn ensure_brewfile(&self) -> anyhow::Result<()> {
         ensure_file(&self.brewfile, "Brewfile")
     }
@@ -123,13 +129,16 @@ pub(super) fn read_bun_global_packages(path: &Path) -> anyhow::Result<Vec<BunGlo
         )
     })?;
 
-    Ok(manifest.into_packages())
+    manifest.into_packages(path)
 }
 
 #[derive(Debug, PartialEq, Eq)]
 pub(super) struct BunGlobalPackage {
     pub(super) name: String,
-    pub(super) version: String,
+    /// version エントリのバージョン。repo エントリでは None。
+    pub(super) version: Option<String>,
+    /// repo エントリのリポジトリ（例: t-miura-024/tado）。version エントリでは None。
+    pub(super) repo: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -140,18 +149,40 @@ struct BunGlobalManifest {
 
 #[derive(Debug, Deserialize)]
 struct BunGlobalPackageEntry {
-    version: String,
+    #[serde(default)]
+    version: Option<String>,
+    #[serde(default)]
+    repo: Option<String>,
 }
 
 impl BunGlobalManifest {
-    fn into_packages(self) -> Vec<BunGlobalPackage> {
+    fn into_packages(self, path: &Path) -> anyhow::Result<Vec<BunGlobalPackage>> {
         self.packages
             .into_iter()
-            .map(|(name, entry)| BunGlobalPackage {
-                name,
-                version: entry.version,
-            })
+            .map(|(name, entry)| entry.into_package(name, path))
             .collect()
+    }
+}
+
+impl BunGlobalPackageEntry {
+    fn into_package(self, name: String, path: &Path) -> anyhow::Result<BunGlobalPackage> {
+        match (&self.version, &self.repo) {
+            (Some(_), Some(_)) => anyhow::bail!(
+                "bun-global.yml のエントリ {} は version と repo を同時に指定できません: {}",
+                name,
+                path.display()
+            ),
+            (None, None) => anyhow::bail!(
+                "bun-global.yml のエントリ {} は version または repo のいずれかを指定してください: {}",
+                name,
+                path.display()
+            ),
+            _ => Ok(BunGlobalPackage {
+                name,
+                version: self.version,
+                repo: self.repo,
+            }),
+        }
     }
 }
 

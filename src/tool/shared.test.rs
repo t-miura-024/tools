@@ -30,15 +30,18 @@ fn test_read_bun_global_packages_parses_yml_and_sorts_alphabetically() {
         vec![
             BunGlobalPackage {
                 name: "agent-browser".to_string(),
-                version: "latest".to_string(),
+                version: Some("latest".to_string()),
+                repo: None,
             },
             BunGlobalPackage {
                 name: "firecrawl".to_string(),
-                version: "1.0.0".to_string(),
+                version: Some("1.0.0".to_string()),
+                repo: None,
             },
             BunGlobalPackage {
                 name: "pnpm".to_string(),
-                version: "latest".to_string(),
+                version: Some("latest".to_string()),
+                repo: None,
             },
         ]
     );
@@ -56,7 +59,36 @@ fn test_read_bun_global_packages_treats_empty_packages_as_empty_list() {
 }
 
 #[test]
-fn test_read_bun_global_packages_requires_version() {
+fn test_read_bun_global_packages_parses_repo_entry() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("bun-global.yml");
+    std::fs::write(
+        &path,
+        "packages:\n  tado:\n    repo: t-miura-024/tado\n  pnpm:\n    version: latest\n",
+    )
+    .unwrap();
+
+    let packages = read_bun_global_packages(&path).unwrap();
+
+    assert_eq!(
+        packages,
+        vec![
+            BunGlobalPackage {
+                name: "pnpm".to_string(),
+                version: Some("latest".to_string()),
+                repo: None,
+            },
+            BunGlobalPackage {
+                name: "tado".to_string(),
+                version: None,
+                repo: Some("t-miura-024/tado".to_string()),
+            },
+        ]
+    );
+}
+
+#[test]
+fn test_read_bun_global_packages_requires_version_or_repo() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("bun-global.yml");
     std::fs::write(&path, "packages:\n  pnpm: {}\n").unwrap();
@@ -64,8 +96,26 @@ fn test_read_bun_global_packages_requires_version() {
     let error = read_bun_global_packages(&path).unwrap_err();
     let message = format!("{error:#}");
     assert!(
-        message.contains("bun-global.yml"),
-        "expected error to mention manifest path, got: {message}"
+        message.contains("pnpm"),
+        "expected error to mention package name, got: {message}"
+    );
+}
+
+#[test]
+fn test_read_bun_global_packages_rejects_version_and_repo_together() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("bun-global.yml");
+    std::fs::write(
+        &path,
+        "packages:\n  tado:\n    version: latest\n    repo: t-miura-024/tado\n",
+    )
+    .unwrap();
+
+    let error = read_bun_global_packages(&path).unwrap_err();
+    let message = format!("{error:#}");
+    assert!(
+        message.contains("tado"),
+        "expected error to mention package name, got: {message}"
     );
 }
 
