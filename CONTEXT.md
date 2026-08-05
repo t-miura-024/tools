@@ -48,6 +48,26 @@ _Avoid_: ファイル全体コメント, ファイルスコープ指摘
 `mt difit start` が position なしの import エントリに `{"side":"new","line":1}` を付与して difit の必須スキーマを満たす動作。
 _Avoid_: 正規化, フォールバック
 
+**OpenCLI**:
+jackwener/OpenCLI（npm: `@jackwener/opencli`）。ログイン済み Chrome を Browser Bridge 拡張経由で操作し、Web サイトを決定論的な CLI として提供するツール。エージェントブラウザとして採用。
+_Avoid_: opencli.org / opencli.dev の仕様プロジェクトとの混同
+
+**Browser Bridge**:
+OpenCLI が Chrome/Chromium に接続するための軽量ブラウザ拡張 + ローカルデーモン。拡張は Chrome Web Store から手動インストールする。
+_Avoid_: bridge extension, 拡張機能一般
+
+**ad-hoc 操作**:
+`opencli browser <session>` プリミティブ（open / click / extract 等）による、その場限りのブラウザ操作。アダプタ化された決定論的コマンドの対義。
+_Avoid_: 生操作, 手動ブラウザ操作
+
+**アダプタ化**:
+あるサイトに対する操作を OpenCLI のアダプタ（`opencli <site> <command>` 形式の再利用可能コマンド）として定式化すること。
+_Avoid_: CLI 化, ラッパー化
+
+**受け入れ検証**:
+エージェントブラウザの置換を完了と宣言するための最小検証。opencli doctor 正常・Chrome 拡張接続・ad-hoc 操作成功・組み込みアダプタ実行の各項目で構成される。
+_Avoid_: POC, スモークテスト
+
 ### grilling（mt-grill-rounds）
 
 **round**:
