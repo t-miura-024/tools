@@ -83,7 +83,10 @@ fn test_parse_issue_number_from_url() {
         parse_issue_number_from_url("https://github.com/owner/repo/issues/1"),
         Some(1)
     );
-    assert_eq!(parse_issue_number_from_url("https://github.com/owner/repo"), None);
+    assert_eq!(
+        parse_issue_number_from_url("https://github.com/owner/repo"),
+        None
+    );
     assert_eq!(parse_issue_number_from_url(""), None);
     assert_eq!(parse_issue_number_from_url("not-a-url"), None);
 }

@@ -4,14 +4,12 @@ use std::sync::mpsc;
 use std::time::Duration;
 
 use anyhow::Context;
-use crossterm::event::{
-    self, Event, KeyCode, KeyEvent, KeyModifiers, MouseEvent, MouseEventKind,
-};
+use crossterm::ExecutableCommand;
+use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers, MouseEvent, MouseEventKind};
+use crossterm::execute;
 use crossterm::terminal::{
     EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
 };
-use crossterm::ExecutableCommand;
-use crossterm::execute;
 use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
 use tui_textarea::{CursorMove, TextArea};
@@ -154,7 +152,14 @@ fn event_loop(
             }
             Event::Mouse(mouse) => {
                 let frame_area = terminal.get_frame().area();
-                handle_mouse_event(mouse, state, desc_area, frame_area, &mut hover, &mut popup_hover)
+                handle_mouse_event(
+                    mouse,
+                    state,
+                    desc_area,
+                    frame_area,
+                    &mut hover,
+                    &mut popup_hover,
+                )
             }
             _ => None,
         };
@@ -194,8 +199,8 @@ fn on_repo_changed(
     *fetch_rx = Some(rx);
     let config_owner = config.owner.clone();
     std::thread::spawn(move || {
-        let result = draft::fetch_existing_for_repo(&repo_path, &config_owner)
-            .map_err(|e| e.to_string());
+        let result =
+            draft::fetch_existing_for_repo(&repo_path, &config_owner).map_err(|e| e.to_string());
         let _ = tx.send((repo_path, result));
     });
 }
@@ -225,7 +230,8 @@ fn poll_fetch_result(state: &mut FormState, fetch_rx: &mut Option<mpsc::Receiver
         Err(mpsc::TryRecvError::Empty) => {}
         Err(mpsc::TryRecvError::Disconnected) => {
             if state.fetch_phase == FetchPhase::Loading {
-                state.fetch_phase = FetchPhase::Failed("fetch スレッドが異常終了しました".to_string());
+                state.fetch_phase =
+                    FetchPhase::Failed("fetch スレッドが異常終了しました".to_string());
             }
             *fetch_rx = None;
         }
@@ -268,8 +274,7 @@ fn poll_submit_result(
         }
         Err(mpsc::TryRecvError::Empty) => false,
         Err(mpsc::TryRecvError::Disconnected) => {
-            state.submit_phase =
-                SubmitPhase::Error("送信スレッドが異常終了しました".to_string());
+            state.submit_phase = SubmitPhase::Error("送信スレッドが異常終了しました".to_string());
             *submit_rx = None;
             true
         }
@@ -416,13 +421,11 @@ fn scroll_panel_at(
     if areas.created.contains(pos) {
         let offset = state.created_list_state.offset() as i32 + delta;
         let max_offset = state.created_issues.len().saturating_sub(1) as i32;
-        *state.created_list_state.offset_mut() =
-            offset.clamp(0, max_offset.max(0)) as usize;
+        *state.created_list_state.offset_mut() = offset.clamp(0, max_offset.max(0)) as usize;
     } else if areas.existing.contains(pos) {
         let offset = state.existing_list_state.offset() as i32 + delta;
         let max_offset = state.existing_issues.len().saturating_sub(1) as i32;
-        *state.existing_list_state.offset_mut() =
-            offset.clamp(0, max_offset.max(0)) as usize;
+        *state.existing_list_state.offset_mut() = offset.clamp(0, max_offset.max(0)) as usize;
     }
 }
 
@@ -638,8 +641,7 @@ fn title_visual_move(state: &mut FormState, delta: i32) {
         return;
     }
     let visual_lines = ui::wrap_line(&state.title, width);
-    let (cur_visual, cur_col) =
-        ui::cursor_to_visual_pos(&state.title, state.title_cursor, width);
+    let (cur_visual, cur_col) = ui::cursor_to_visual_pos(&state.title, state.title_cursor, width);
 
     let target_visual = if delta < 0 {
         if cur_visual == 0 {
@@ -687,7 +689,8 @@ fn desc_visual_move(state: &mut FormState, desc_area: &mut TextArea, delta: i32)
         cur_visual + 1
     };
 
-    let (target_row, target_col) = ui::desc_visual_to_cursor(&lines, target_visual, cur_vcol, width);
+    let (target_row, target_col) =
+        ui::desc_visual_to_cursor(&lines, target_visual, cur_vcol, width);
 
     // TextArea のカーソルを目標位置に移動
     let (row_now, _) = desc_area.cursor();
@@ -829,11 +832,19 @@ mod tests {
         ))
         .unwrap();
 
-        let completed = poll_submit_result(&mut state, &mut desc_area, &mut submit_rx, &mut session_created);
+        let completed = poll_submit_result(
+            &mut state,
+            &mut desc_area,
+            &mut submit_rx,
+            &mut session_created,
+        );
         assert!(completed);
         assert_eq!(state.submit_phase, SubmitPhase::Idle);
         assert_eq!(state.created_issues.len(), 1);
-        assert_eq!(state.created_issues[0].url, "https://github.com/o/r/issues/1");
+        assert_eq!(
+            state.created_issues[0].url,
+            "https://github.com/o/r/issues/1"
+        );
         assert!(state.title.is_empty());
         assert_eq!(state.title_cursor, 0);
         assert!(desc_area.lines().iter().all(|l| l.is_empty()));
@@ -866,7 +877,12 @@ mod tests {
         ))
         .unwrap();
 
-        let completed = poll_submit_result(&mut state, &mut desc_area, &mut submit_rx, &mut session_created);
+        let completed = poll_submit_result(
+            &mut state,
+            &mut desc_area,
+            &mut submit_rx,
+            &mut session_created,
+        );
         assert!(completed);
         assert_eq!(state.submit_phase, SubmitPhase::Idle);
         // セッション一覧には追加される
@@ -898,7 +914,12 @@ mod tests {
         ))
         .unwrap();
 
-        let completed = poll_submit_result(&mut state, &mut desc_area, &mut submit_rx, &mut session_created);
+        let completed = poll_submit_result(
+            &mut state,
+            &mut desc_area,
+            &mut submit_rx,
+            &mut session_created,
+        );
         assert!(completed);
         assert_eq!(state.submit_phase, SubmitPhase::Error("boom".to_string()));
         assert_eq!(state.title, "keep me");
@@ -918,7 +939,12 @@ mod tests {
 
         let (_tx, rx) = mpsc::channel();
         let mut submit_rx = Some(rx);
-        let completed = poll_submit_result(&mut state, &mut desc_area, &mut submit_rx, &mut session_created);
+        let completed = poll_submit_result(
+            &mut state,
+            &mut desc_area,
+            &mut submit_rx,
+            &mut session_created,
+        );
         assert!(!completed);
         assert_eq!(state.submit_phase, SubmitPhase::Submitting);
         assert!(submit_rx.is_some());
@@ -991,7 +1017,10 @@ mod tests {
         .unwrap();
 
         poll_fetch_result(&mut state, &mut fetch_rx);
-        assert_eq!(state.fetch_phase, FetchPhase::Failed("network error".to_string()));
+        assert_eq!(
+            state.fetch_phase,
+            FetchPhase::Failed("network error".to_string())
+        );
         assert!(state.existing_issues.is_empty());
     }
 }

@@ -4,7 +4,7 @@ use std::process::{Command, Stdio};
 
 use anyhow::Context;
 use clap::CommandFactory;
-use clap_complete::{generate, Shell};
+use clap_complete::{Shell, generate};
 
 use crate::chezmoi::shared::{chezmoi_binary_present, resolve_source_dir};
 use crate::cli::style;
@@ -30,7 +30,8 @@ fn install_completion() -> anyhow::Result<()> {
     let target_dir = PathBuf::from("/opt/homebrew/share/zsh/site-functions");
     let target_file = target_dir.join("_mt");
 
-    std::fs::create_dir_all(&target_dir).context("site-functions ディレクトリを作成できませんでした")?;
+    std::fs::create_dir_all(&target_dir)
+        .context("site-functions ディレクトリを作成できませんでした")?;
 
     let mut script = Vec::new();
     let mut cmd = crate::Cli::command();

@@ -121,8 +121,7 @@ fn test_add_changed_files_untracked_gets_added() {
     );
 
     // git add 済み → staged 状態 (A) になっている
-    let status = command_output_in(&path, "git", &["status", "--porcelain"])
-        .expect("status 取得");
+    let status = command_output_in(&path, "git", &["status", "--porcelain"]).expect("status 取得");
     assert!(
         status.contains("A  new.txt"),
         "add 後に staged 状態になるべき: {status:?}"
@@ -187,7 +186,10 @@ fn test_add_changed_files_rename_uses_new_path() {
 fn test_add_changed_files_clean_repo_returns_empty() {
     let (_tmp, path) = make_temp_git_repo("main");
     let added = add_changed_files_in(&path).expect("add が成功するはず");
-    assert!(added.is_empty(), "クリーンなリポジトリでは空であるべき: {added:?}");
+    assert!(
+        added.is_empty(),
+        "クリーンなリポジトリでは空であるべき: {added:?}"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -201,8 +203,8 @@ fn test_checkout_branch_in_success() {
     run_git(&path, &["checkout", "-q", "main"]);
     assert_eq!(current_branch_of(&path), "main");
 
-    let ok =
-        checkout_branch_in(&path, "feature", "main", &AbortSelector).expect("checkout が成功するはず");
+    let ok = checkout_branch_in(&path, "feature", "main", &AbortSelector)
+        .expect("checkout が成功するはず");
     assert!(ok, "存在するブランチへの checkout は true を返すべき");
     assert_eq!(
         current_branch_of(&path),

@@ -304,8 +304,8 @@ fn test_detect_current_repo_path_from_subdir() {
     let subdir = repo.join("nested/dir");
     fs::create_dir_all(&subdir).unwrap();
 
-    let detected =
-        detect_current_repo_path(&subdir).expect("サブディレクトリからもリポジトリを検出できるはず");
+    let detected = detect_current_repo_path(&subdir)
+        .expect("サブディレクトリからもリポジトリを検出できるはず");
     assert_eq!(
         fs::canonicalize(detected).unwrap(),
         fs::canonicalize(&repo).unwrap()

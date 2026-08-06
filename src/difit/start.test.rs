@@ -121,7 +121,10 @@ fn test_synthesize_missing_positions_adds_line_1_for_file_level_comment() {
     let result = synthesize_missing_positions(comments);
 
     assert_eq!(result.len(), 1);
-    assert_eq!(result[0]["position"], serde_json::json!({"side": "new", "line": 1}));
+    assert_eq!(
+        result[0]["position"],
+        serde_json::json!({"side": "new", "line": 1})
+    );
     // 他のフィールドは保持される
     assert_eq!(result[0]["type"], "thread");
     assert_eq!(result[0]["filePath"], "README.md");
@@ -148,8 +151,14 @@ fn test_synthesize_missing_positions_preserves_existing_position() {
 
     let result = synthesize_missing_positions(comments);
 
-    assert_eq!(result[0]["position"], serde_json::json!({"side": "new", "line": 42}));
-    assert_eq!(result[1]["position"], serde_json::json!({"side": "new", "line": 2}));
+    assert_eq!(
+        result[0]["position"],
+        serde_json::json!({"side": "new", "line": 42})
+    );
+    assert_eq!(
+        result[1]["position"],
+        serde_json::json!({"side": "new", "line": 2})
+    );
     // 余計なフィールドが追加されない（キー数が変わらない）
     assert_eq!(result[0].as_object().unwrap().len(), 4);
     assert_eq!(result[1].as_object().unwrap().len(), 4);
@@ -173,8 +182,14 @@ fn test_synthesize_missing_positions_only_for_missing_and_idempotent() {
     ];
 
     let once = synthesize_missing_positions(comments);
-    assert_eq!(once[0]["position"], serde_json::json!({"side": "new", "line": 7}));
-    assert_eq!(once[1]["position"], serde_json::json!({"side": "new", "line": 1}));
+    assert_eq!(
+        once[0]["position"],
+        serde_json::json!({"side": "new", "line": 7})
+    );
+    assert_eq!(
+        once[1]["position"],
+        serde_json::json!({"side": "new", "line": 1})
+    );
 
     let twice = synthesize_missing_positions(once.clone());
     assert_eq!(twice, once, "再適用しても結果が変わらないこと");
@@ -215,9 +230,18 @@ fn test_mark_untracked_intent_to_add_includes_files_in_diff() {
         .output()
         .expect("git diff");
     let diff = String::from_utf8_lossy(&output.stdout);
-    assert!(diff.contains("new-file.txt"), "untracked ファイルが diff に含まれる");
-    assert!(diff.contains("untracked content"), "untracked ファイルの内容が diff に含まれる");
-    assert!(!diff.contains("diff --git a/ignored.txt"), "gitignore 対象はマークされない");
+    assert!(
+        diff.contains("new-file.txt"),
+        "untracked ファイルが diff に含まれる"
+    );
+    assert!(
+        diff.contains("untracked content"),
+        "untracked ファイルの内容が diff に含まれる"
+    );
+    assert!(
+        !diff.contains("diff --git a/ignored.txt"),
+        "gitignore 対象はマークされない"
+    );
 }
 
 #[test]
@@ -313,8 +337,8 @@ fn test_reinject_excludes_resolved_threads() {
     ];
 
     // 初回起動
-    let bg1 = shared::spawn_difit_server(&path, &["working".to_string()], &comments)
-        .expect("初回起動");
+    let bg1 =
+        shared::spawn_difit_server(&path, &["working".to_string()], &comments).expect("初回起動");
 
     // 1 つ目のスレッドを resolve
     let resp = shared::fetch_comments(bg1.port).unwrap();
@@ -322,7 +346,13 @@ fn test_reinject_excludes_resolved_threads() {
     let thread_id = &resp.threads[0].id;
 
     let resolve_output = Command::new("difit")
-        .args(["comment", "resolve", "--port", &bg1.port.to_string(), thread_id])
+        .args([
+            "comment",
+            "resolve",
+            "--port",
+            &bg1.port.to_string(),
+            thread_id,
+        ])
         .output()
         .expect("resolve");
     assert!(resolve_output.status.success());
@@ -339,8 +369,8 @@ fn test_reinject_excludes_resolved_threads() {
     // kill → 再注入で再起動
     shared::kill_server(bg1.pid);
 
-    let bg2 = shared::spawn_difit_server(&path, &["working".to_string()], &reimport)
-        .expect("再注入起動");
+    let bg2 =
+        shared::spawn_difit_server(&path, &["working".to_string()], &reimport).expect("再注入起動");
 
     let resp2 = shared::fetch_comments(bg2.port).unwrap();
     assert_eq!(resp2.threads.len(), 1, "resolve 済みは再注入されない");
@@ -448,9 +478,19 @@ fn test_reinject_reply_roundtrip() {
     // reply が付いたことを確認
     let resp_with_reply = shared::fetch_comments(bg1.port).unwrap();
     assert_eq!(resp_with_reply.threads.len(), 1);
-    assert_eq!(resp_with_reply.threads[0].messages.len(), 2, "thread + reply の 2 メッセージ");
-    assert_eq!(resp_with_reply.threads[0].messages[0].body, "[issue] parent thread");
-    assert_eq!(resp_with_reply.threads[0].messages[1].body, "this is a reply");
+    assert_eq!(
+        resp_with_reply.threads[0].messages.len(),
+        2,
+        "thread + reply の 2 メッセージ"
+    );
+    assert_eq!(
+        resp_with_reply.threads[0].messages[0].body,
+        "[issue] parent thread"
+    );
+    assert_eq!(
+        resp_with_reply.threads[0].messages[1].body,
+        "this is a reply"
+    );
 
     // 3. 変換（threads_to_import_comments）
     let reimport = shared::threads_to_import_comments(&resp_with_reply.threads);
@@ -458,14 +498,17 @@ fn test_reinject_reply_roundtrip() {
     assert_eq!(reimport[0]["type"], "thread");
     assert_eq!(reimport[0]["id"], thread_id.as_str());
     assert_eq!(reimport[1]["type"], "reply");
-    assert!(reimport[1].get("parentId").is_none(), "parentId はスキーマ外");
+    assert!(
+        reimport[1].get("parentId").is_none(),
+        "parentId はスキーマ外"
+    );
 
     // 4. kill（クラッシュ模擬）→ 再注入で再起動
     shared::kill_server(bg1.pid);
     assert!(!shared::is_process_alive(bg1.pid));
 
-    let bg2 = shared::spawn_difit_server(&path, &["working".to_string()], &reimport)
-        .expect("再注入起動");
+    let bg2 =
+        shared::spawn_difit_server(&path, &["working".to_string()], &reimport).expect("再注入起動");
 
     // 5. reply が親スレッドに再付着していることを検証
     let resp2 = shared::fetch_comments(bg2.port).unwrap();
@@ -738,7 +781,10 @@ fn test_start_stale_positionless_saved_comments_synthesizes_and_recovers() {
 
     // 復旧後は position 合成済みのコメントが状態・サーバの両方に存在する
     let state = shared::read_review_state(&path).expect("新しい状態が保存されている");
-    assert!(shared::is_process_alive(state.pid), "新しいサーバが起動している");
+    assert!(
+        shared::is_process_alive(state.pid),
+        "新しいサーバが起動している"
+    );
     assert_eq!(
         state.comments[0]["position"],
         serde_json::json!({"side": "new", "line": 1}),

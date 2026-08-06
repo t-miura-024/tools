@@ -61,16 +61,22 @@ fn main() -> anyhow::Result<()> {
 
     match cli.command {
         None => cli::launcher::run(),
-        Some(Commands::SelfCmd(cmd)) => cli::self_cmd::run(cmd),
-        Some(Commands::Git(cmd)) => git::run(cmd),
-        Some(Commands::Opencode(cmd)) => opencode::run(cmd),
-        Some(Commands::Tool(cmd)) => tool::run(cmd),
-        Some(Commands::Chezmoi(cmd)) => chezmoi::run(cmd),
-        Some(Commands::Vector(cmd)) => vector::run(cmd),
-        Some(Commands::Plan(cmd)) => plan::run(cmd),
-        Some(Commands::Raycast(cmd)) => raycast::run(cmd),
-        Some(Commands::Agent(cmd)) => agent::run(cmd),
-        Some(Commands::Difit(cmd)) => difit::run(cmd),
-        Some(Commands::Doctor) => doctor::run(),
+        Some(command) => dispatch(command),
+    }
+}
+
+pub(crate) fn dispatch(command: Commands) -> anyhow::Result<()> {
+    match command {
+        Commands::SelfCmd(cmd) => cli::self_cmd::run(cmd),
+        Commands::Git(cmd) => git::run(cmd),
+        Commands::Opencode(cmd) => opencode::run(cmd),
+        Commands::Tool(cmd) => tool::run(cmd),
+        Commands::Chezmoi(cmd) => chezmoi::run(cmd),
+        Commands::Vector(cmd) => vector::run(cmd),
+        Commands::Plan(cmd) => plan::run(cmd),
+        Commands::Raycast(cmd) => raycast::run(cmd),
+        Commands::Agent(cmd) => agent::run(cmd),
+        Commands::Difit(cmd) => difit::run(cmd),
+        Commands::Doctor => doctor::run(),
     }
 }

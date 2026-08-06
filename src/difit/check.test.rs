@@ -127,7 +127,10 @@ fn test_check_gate_blocks_human_comment() {
     let bg = setup_server(&path, &comments);
 
     let resp = shared::fetch_comments(bg.port).unwrap();
-    assert!(!shared::gate_passes(&resp.threads), "プレフィックスなしはブロック");
+    assert!(
+        !shared::gate_passes(&resp.threads),
+        "プレフィックスなしはブロック"
+    );
 
     shared::kill_server(bg.pid);
 }
@@ -223,12 +226,15 @@ fn test_check_stale_recovery_then_gate() {
     let state = shared::read_review_state(&path).unwrap();
     assert!(!shared::is_process_alive(state.pid));
 
-    let bg2 = shared::spawn_difit_server(&path, &state.difit_args, &state.comments)
-        .expect("stale 復旧");
+    let bg2 =
+        shared::spawn_difit_server(&path, &state.difit_args, &state.comments).expect("stale 復旧");
 
     // 復旧後のゲート判定
     let resp = shared::fetch_comments(bg2.port).unwrap();
-    assert!(shared::gate_passes(&resp.threads), "復旧後もゲート判定が動作");
+    assert!(
+        shared::gate_passes(&resp.threads),
+        "復旧後もゲート判定が動作"
+    );
 
     shared::kill_server(bg2.pid);
 }
