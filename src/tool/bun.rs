@@ -21,7 +21,10 @@ pub(super) fn upgrade() -> anyhow::Result<()> {
             &manifests.root,
         )?;
     }
-    run_tool_command(&mise_reshim_command(&manifests.manifest_dir), &manifests.root)?;
+    run_tool_command(
+        &mise_reshim_command(&manifests.manifest_dir),
+        &manifests.root,
+    )?;
 
     style::outro("✅ bun global パッケージの更新が完了しました");
     Ok(())

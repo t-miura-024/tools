@@ -82,7 +82,10 @@ fn test_status_stale_session_warns_but_keeps_state() {
     let mut child = std::process::Command::new("true").spawn().unwrap();
     let dead_pid = child.id() as i32;
     child.wait().unwrap();
-    assert!(!shared::is_process_alive(dead_pid), "前提: プロセスは死んでいる");
+    assert!(
+        !shared::is_process_alive(dead_pid),
+        "前提: プロセスは死んでいる"
+    );
 
     write_state(&path, dead_pid, &[], &["main"]);
 

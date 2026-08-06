@@ -95,7 +95,11 @@ impl RepoPopup {
             .iter()
             .position(|&i| i == self.selected_index)
             .unwrap_or(0);
-        let new_pos = if pos == 0 { filtered.len() - 1 } else { pos - 1 };
+        let new_pos = if pos == 0 {
+            filtered.len() - 1
+        } else {
+            pos - 1
+        };
         self.selected_index = filtered[new_pos];
     }
 
@@ -108,7 +112,11 @@ impl RepoPopup {
             .iter()
             .position(|&i| i == self.selected_index)
             .unwrap_or(0);
-        let new_pos = if pos + 1 >= filtered.len() { 0 } else { pos + 1 };
+        let new_pos = if pos + 1 >= filtered.len() {
+            0
+        } else {
+            pos + 1
+        };
         self.selected_index = filtered[new_pos];
     }
 
@@ -133,8 +141,7 @@ pub fn filter_repos(entries: &[RepoEntry], query: &str) -> Vec<usize> {
         .iter()
         .enumerate()
         .filter(|(_, e)| {
-            e.name.to_lowercase().contains(&lower)
-                || e.category.to_lowercase().contains(&lower)
+            e.name.to_lowercase().contains(&lower) || e.category.to_lowercase().contains(&lower)
         })
         .map(|(i, _)| i)
         .collect()
@@ -449,10 +456,7 @@ mod tests {
         state.open_popup();
         state.popup.as_mut().unwrap().selected_index = 2;
         state.confirm_repo_selection();
-        assert_eq!(
-            state.repo_path,
-            Some(PathBuf::from("/home/user/src/tools"))
-        );
+        assert_eq!(state.repo_path, Some(PathBuf::from("/home/user/src/tools")));
         assert!(state.repo_display.contains("src/tools"));
         assert!(state.popup.is_none());
     }
@@ -589,10 +593,7 @@ mod tests {
         let repos = sample_repos();
         let mut state = FormState::new(repos);
         state.apply_default_selection(Path::new("/home/user/src/tools"));
-        assert_eq!(
-            state.repo_path,
-            Some(PathBuf::from("/home/user/src/tools"))
-        );
+        assert_eq!(state.repo_path, Some(PathBuf::from("/home/user/src/tools")));
         assert!(state.repo_display.contains("src/tools"));
         assert!(state.repo_display.contains("[main]"));
     }
@@ -611,10 +612,7 @@ mod tests {
         let repos = sample_repos();
         let mut state = FormState::new(repos);
         state.apply_default_selection(Path::new("/home/user/src/tools"));
-        assert_eq!(
-            state.repo_path,
-            Some(PathBuf::from("/home/user/src/tools"))
-        );
+        assert_eq!(state.repo_path, Some(PathBuf::from("/home/user/src/tools")));
 
         // ポップアップを開くとデフォルト選択済みエントリが選択状態になる
         state.open_popup();
@@ -623,10 +621,7 @@ mod tests {
         // 別のリポジトリに変更できる
         state.popup.as_mut().unwrap().selected_index = 0;
         state.confirm_repo_selection();
-        assert_eq!(
-            state.repo_path,
-            Some(PathBuf::from("/home/user/doc/notes"))
-        );
+        assert_eq!(state.repo_path, Some(PathBuf::from("/home/user/doc/notes")));
         assert!(state.repo_display.contains("doc/notes"));
     }
 

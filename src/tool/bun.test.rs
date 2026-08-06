@@ -31,11 +31,7 @@ fn test_mise_reshim_command_uses_manifest_dir() {
         mise_reshim_command(manifest_dir),
         ToolCommandSpec {
             program: "mise",
-            args: vec![
-                "reshim".into(),
-                "-C".into(),
-                "/repo/manifests".into(),
-            ],
+            args: vec!["reshim".into(), "-C".into(), "/repo/manifests".into(),],
             envs: vec![],
         }
     );

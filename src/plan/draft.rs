@@ -196,8 +196,12 @@ pub fn submit_draft(
                 has_external_label,
             )
         });
-        let repo_result = repo_result.join().expect("リポジトリ確認スレッドが異常終了しました");
-        let label_result = label_result.join().expect("label 作成スレッドが異常終了しました");
+        let repo_result = repo_result
+            .join()
+            .expect("リポジトリ確認スレッドが異常終了しました");
+        let label_result = label_result
+            .join()
+            .expect("label 作成スレッドが異常終了しました");
         repo_result?;
         label_result?;
         Ok(())
@@ -208,15 +212,11 @@ pub fn submit_draft(
     } else {
         None
     };
-    let issue_url = create_issue(
-        &target_repo,
-        title,
-        description,
-        external_label.as_deref(),
-    )?;
+    let issue_url = create_issue(&target_repo, title, description, external_label.as_deref())?;
 
-    add_to_project_and_set_status(config, &issue_url)
-        .map_err(|e| anyhow::anyhow!("Project/Status の設定に失敗しました: {e}\nIssue URL: {issue_url}"))?;
+    add_to_project_and_set_status(config, &issue_url).map_err(|e| {
+        anyhow::anyhow!("Project/Status の設定に失敗しました: {e}\nIssue URL: {issue_url}")
+    })?;
 
     Ok(issue_url)
 }
@@ -242,7 +242,10 @@ pub fn fetch_existing_for_repo(
 
 /// 指定 repo の open な `kind/plan` Issue を `gh issue list` で取得する。
 /// `extra_label` が指定された場合は AND 条件で追加絞り込みする。
-fn fetch_existing_issues(repo: &str, extra_label: Option<&str>) -> anyhow::Result<Vec<ExistingIssue>> {
+fn fetch_existing_issues(
+    repo: &str,
+    extra_label: Option<&str>,
+) -> anyhow::Result<Vec<ExistingIssue>> {
     let mut args = vec![
         "issue",
         "list",

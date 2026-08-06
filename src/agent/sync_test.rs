@@ -5,7 +5,7 @@ mod tests {
     use tempfile::TempDir;
 
     use crate::agent::shared;
-    use crate::agent::sync::{sync_agents, SyncMode};
+    use crate::agent::sync::{SyncMode, sync_agents};
 
     /// Create the canonical cursor agent directory structure and write a cursor agent file.
     fn setup_source_dir(tmp: &TempDir) -> std::path::PathBuf {
@@ -44,7 +44,13 @@ mod tests {
         let source_dir = setup_source_dir(&tmp);
 
         write_cursor_agent(
-            &source_dir, "my-agent", "my-agent", "test desc", false, "green", "body",
+            &source_dir,
+            "my-agent",
+            "my-agent",
+            "test desc",
+            false,
+            "green",
+            "body",
         );
 
         // Write stale content to claude target so it differs from generated
@@ -74,7 +80,13 @@ mod tests {
         let source_dir = setup_source_dir(&tmp);
 
         write_cursor_agent(
-            &source_dir, "new-agent", "new-agent", "desc", false, "blue", "hello",
+            &source_dir,
+            "new-agent",
+            "new-agent",
+            "desc",
+            false,
+            "blue",
+            "hello",
         );
 
         // No target files exist → both claude and opencode should be drift
@@ -98,7 +110,12 @@ mod tests {
         let source_dir = setup_source_dir(&tmp);
 
         write_cursor_agent(
-            &source_dir, "writer-agent", "writer-agent", "writes stuff", false, "green",
+            &source_dir,
+            "writer-agent",
+            "writer-agent",
+            "writes stuff",
+            false,
+            "green",
             "# Body",
         );
 
@@ -109,14 +126,20 @@ mod tests {
         let claude_path = shared::claude_agents_dir(&source_dir).join("writer-agent.md");
         let opencode_path = shared::opencode_agents_dir(&source_dir).join("writer-agent.md");
         assert!(claude_path.exists(), "claude agent file should be written");
-        assert!(opencode_path.exists(), "opencode agent file should be written");
+        assert!(
+            opencode_path.exists(),
+            "opencode agent file should be written"
+        );
 
         // Verify content matches expected generation
         let agent_files = shared::read_cursor_agents(&source_dir).unwrap();
         let expected_claude = shared::generate_claude_agent(&agent_files[0].1);
         let expected_opencode = shared::generate_opencode_agent(&agent_files[0].1);
         assert_eq!(fs::read_to_string(&claude_path).unwrap(), expected_claude);
-        assert_eq!(fs::read_to_string(&opencode_path).unwrap(), expected_opencode);
+        assert_eq!(
+            fs::read_to_string(&opencode_path).unwrap(),
+            expected_opencode
+        );
 
         // Second sync should produce no drift
         let drift2 = sync_agents(&source_dir, SyncMode::Sync).unwrap();
@@ -131,7 +154,13 @@ mod tests {
         let source_dir = setup_source_dir(&tmp);
 
         write_cursor_agent(
-            &source_dir, "check-agent", "check-agent", "desc", false, "red", "body",
+            &source_dir,
+            "check-agent",
+            "check-agent",
+            "desc",
+            false,
+            "red",
+            "body",
         );
 
         let drift = sync_agents(&source_dir, SyncMode::Check).unwrap();
@@ -157,7 +186,13 @@ mod tests {
         let source_dir = setup_source_dir(&tmp);
 
         write_cursor_agent(
-            &source_dir, "dry-agent", "dry-agent", "desc", true, "yellow", "body",
+            &source_dir,
+            "dry-agent",
+            "dry-agent",
+            "desc",
+            true,
+            "yellow",
+            "body",
         );
 
         let drift = sync_agents(&source_dir, SyncMode::DryRun).unwrap();
@@ -184,7 +219,13 @@ mod tests {
 
         // One canonical agent
         write_cursor_agent(
-            &source_dir, "alive", "alive", "desc", false, "green", "body",
+            &source_dir,
+            "alive",
+            "alive",
+            "desc",
+            false,
+            "green",
+            "body",
         );
 
         // Orphan files in both platform dirs (no matching cursor agent)
@@ -197,14 +238,24 @@ mod tests {
 
         // Should have: 2 updates (alive claude+opencode) + 2 deletes (ghost claude+opencode)
         let deletes: Vec<_> = drift.iter().filter(|d| d.2 == "delete").collect();
-        assert_eq!(deletes.len(), 2, "orphan should be detected on both platforms");
+        assert_eq!(
+            deletes.len(),
+            2,
+            "orphan should be detected on both platforms"
+        );
         for d in &deletes {
             assert_eq!(d.0, "ghost");
         }
 
         // Orphan files should be removed
-        assert!(!orphan_claude.exists(), "orphan claude file should be deleted");
-        assert!(!orphan_opencode.exists(), "orphan opencode file should be deleted");
+        assert!(
+            !orphan_claude.exists(),
+            "orphan claude file should be deleted"
+        );
+        assert!(
+            !orphan_opencode.exists(),
+            "orphan opencode file should be deleted"
+        );
     }
 
     #[test]
@@ -213,7 +264,13 @@ mod tests {
         let source_dir = setup_source_dir(&tmp);
 
         write_cursor_agent(
-            &source_dir, "alive", "alive", "desc", false, "green", "body",
+            &source_dir,
+            "alive",
+            "alive",
+            "desc",
+            false,
+            "green",
+            "body",
         );
 
         let orphan_claude = shared::claude_agents_dir(&source_dir).join("ghost.md");
@@ -240,7 +297,13 @@ mod tests {
 
         // Write agent with empty color
         write_cursor_agent(
-            &source_dir, "no-color", "no-color", "desc", false, "", "body",
+            &source_dir,
+            "no-color",
+            "no-color",
+            "desc",
+            false,
+            "",
+            "body",
         );
 
         let result = sync_agents(&source_dir, SyncMode::Sync);
@@ -260,7 +323,13 @@ mod tests {
         let source_dir = setup_source_dir(&tmp);
 
         write_cursor_agent(
-            &source_dir, "synced", "synced", "desc", false, "blue", "body",
+            &source_dir,
+            "synced",
+            "synced",
+            "desc",
+            false,
+            "blue",
+            "body",
         );
 
         // First sync to write files
@@ -283,7 +352,7 @@ mod skill_tests {
     use tempfile::TempDir;
 
     use crate::agent::shared;
-    use crate::agent::sync::{sync_skills, SyncMode};
+    use crate::agent::sync::{SyncMode, sync_skills};
 
     /// Create a minimal chezmoi source dir with the given skill names as dirs
     /// under `dot_cursor/skills/`, plus empty target dirs for both platforms.
@@ -311,10 +380,7 @@ mod skill_tests {
         let drift = sync_skills(&source_dir, SyncMode::Check).unwrap();
 
         // drift should detect symlink needed for both platforms
-        assert!(
-            !drift.is_empty(),
-            "Check モードでも drift は検出されるべき"
-        );
+        assert!(!drift.is_empty(), "Check モードでも drift は検出されるべき");
         assert!(
             drift
                 .iter()
@@ -377,8 +443,7 @@ mod skill_tests {
 
         // Create orphan symlink files in both target dirs
         let claude_orphan = shared::claude_skills_dir(&source_dir).join("symlink_orphan-skill");
-        let opencode_orphan =
-            shared::opencode_skills_dir(&source_dir).join("symlink_orphan-skill");
+        let opencode_orphan = shared::opencode_skills_dir(&source_dir).join("symlink_orphan-skill");
         fs::write(&claude_orphan, "../../.cursor/skills/orphan-skill").unwrap();
         fs::write(&opencode_orphan, "../../../.cursor/skills/orphan-skill").unwrap();
 

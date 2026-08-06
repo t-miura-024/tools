@@ -3,167 +3,128 @@ use std::path::PathBuf;
 use std::process::{Command, Stdio};
 
 use anyhow::Context;
+use clap::{CommandFactory, Parser};
 use dialoguer::Input;
 
-use crate::agent::{self, AgentCommands};
+use crate::Cli;
 use crate::chezmoi::{self, ChezmoiCommands, SecretCommands};
-use crate::cli::self_cmd::{self, SelfCommands};
 use crate::cli::style;
-use crate::doctor;
-use crate::git::{self, GitCommands, GitRepoCommands, GitWorktreeCommands};
-use crate::opencode::{self, OpencodeCommands, OpencodeOauthCommands, OpencodeWebCommands};
-use crate::plan::{self, PlanCommands};
-use crate::raycast::{self, RaycastCommands};
-use crate::tool::{self, ToolBrewCommands, ToolCommands};
 use crate::vector::{self, VectorCommands};
 
 struct ScriptEntry {
-    name: &'static str,
-    category: &'static str,
-    description: &'static str,
+    name: String,
+    category: String,
+    description: String,
 }
 
 const CATEGORY_WIDTH: usize = 10;
 const COMMAND_WIDTH: usize = 24;
 
-const SCRIPTS: &[ScriptEntry] = &[
-    ScriptEntry {
-        name: "git repo create",
-        category: "git",
-        description: "GitHub リポジトリを対話的に作成",
-    },
-    ScriptEntry {
-        name: "git repo select",
-        category: "git",
-        description: "~/doc, ~/src から親 Git リポジトリを選択してパスを出力（worktree は対象外）",
-    },
-    ScriptEntry {
-        name: "git worktree select",
-        category: "git",
-        description: "Git worktree を選択してパスを出力",
-    },
-    ScriptEntry {
-        name: "git worktree create",
-        category: "git",
-        description: "Git worktree と新規ブランチを対話的に作成",
-    },
-    ScriptEntry {
-        name: "git worktree delete",
-        category: "git",
-        description: "Git worktree を対話的に削除（多段ガード + 復旧ヒント）",
-    },
-    ScriptEntry {
-        name: "git sync",
-        category: "git",
-        description: "現在のブランチを upstream 同期 + target を pull で取り込み",
-    },
-    ScriptEntry {
-        name: "git ship",
-        category: "git",
-        description: "自身のブランチで commit & push → target に no-ff マージ & push",
-    },
-    ScriptEntry {
-        name: "opencode oauth setup",
-        category: "opencode",
-        description: "Google OAuth のセットアップ",
-    },
-    ScriptEntry {
-        name: "opencode web expose",
-        category: "opencode",
-        description: "OpenCode Web を ngrok で公開",
-    },
-    ScriptEntry {
-        name: "opencode web stop",
-        category: "opencode",
-        description: "OpenCode Web の公開を停止",
-    },
-    ScriptEntry {
-        name: "tool install",
-        category: "tool",
-        description: "manifest からツールをインストール",
-    },
-    ScriptEntry {
-        name: "tool verify",
-        category: "tool",
-        description: "Homebrew、mise、bun global の管理状態を検証",
-    },
-    ScriptEntry {
-        name: "tool brew upgrade",
-        category: "tool",
-        description: "Homebrew パッケージを更新",
-    },
-    ScriptEntry {
-        name: "vector ingest",
-        category: "vector",
-        description: "Markdown ファイルを Qdrant に投入",
-    },
-    ScriptEntry {
-        name: "vector search",
-        category: "vector",
-        description: "Qdrant コレクションをベクトル検索",
-    },
-    ScriptEntry {
-        name: "self install",
-        category: "config",
-        description: "mt バイナリのビルドとシェル環境整備",
-    },
-    ScriptEntry {
-        name: "mt doctor",
-        category: "config",
-        description: "システム全体の健全性チェック（chezmoi / Docker / ツール / drift）",
-    },
-    ScriptEntry {
-        name: "chezmoi apply",
-        category: "dotfiles",
-        description: "chezmoi ソースを home ディレクトリに展開",
-    },
-    ScriptEntry {
-        name: "chezmoi diff",
-        category: "dotfiles",
-        description: "chezmoi の差分プレビュー",
-    },
-    ScriptEntry {
-        name: "chezmoi doctor",
-        category: "dotfiles",
-        description: "chezmoi + mt 固有 doctor を実行",
-    },
-    ScriptEntry {
-        name: "chezmoi secret set",
-        category: "dotfiles",
-        description: "dot_zsh_secrets.age に API キー等を追加・更新",
-    },
-    ScriptEntry {
-        name: "chezmoi secret delete",
-        category: "dotfiles",
-        description: "dot_zsh_secrets.age から API キー等を削除",
-    },
-    ScriptEntry {
-        name: "agent sync",
-        category: "config",
-        description: "agents / skills を cursor canonical から Claude / OpenCode へ同期",
-    },
-    ScriptEntry {
-        name: "raycast sync",
-        category: "raycast",
-        description: "Raycast 設定をエクスポートして chezmoi 管理下に保存",
-    },
-    ScriptEntry {
-        name: "raycast restore",
-        category: "raycast",
-        description: "バックアップから Raycast 設定を復元",
-    },
-    ScriptEntry {
-        name: "plan draft",
-        category: "plan",
-        description: "新しい計画 Issue を draft で作成",
-    },
+/// ランチャーに表示しないコマンド（clap リーフのパス表記）
+const EXCLUDED: &[&str] = &[
+    "chezmoi init",
+    "chezmoi status",
+    "chezmoi add",
+    "chezmoi edit",
+    "chezmoi install-hook",
+    "chezmoi uninstall-hook",
 ];
+
+/// 既定カテゴリ（トップレベルコマンド名）に対する表示カテゴリの上書き
+const CATEGORY_OVERRIDES: &[(&str, &str)] = &[
+    ("self", "config"),
+    ("doctor", "config"),
+    ("agent", "config"),
+];
+
+/// 対話ラッパーを持つコマンド。clap 自動生成をスキップし専用ハンドラで実行する
+fn is_wrapped(name: &str) -> bool {
+    matches!(
+        name,
+        "vector ingest" | "vector search" | "chezmoi secret set"
+    )
+}
+
+fn wrapped_entries() -> Vec<ScriptEntry> {
+    vec![
+        ScriptEntry {
+            name: "vector ingest".to_string(),
+            category: "vector".to_string(),
+            description: "Markdown ファイルを Qdrant に投入（既定 config 使用）".to_string(),
+        },
+        ScriptEntry {
+            name: "vector search".to_string(),
+            category: "vector".to_string(),
+            description: "Qdrant コレクションを検索（既定 config 使用）".to_string(),
+        },
+        ScriptEntry {
+            name: "chezmoi secret set".to_string(),
+            category: "dotfiles".to_string(),
+            description: "dot_zsh_secrets.age に API キー等を追加・更新".to_string(),
+        },
+    ]
+}
+
+fn category_for(top: &str) -> String {
+    CATEGORY_OVERRIDES
+        .iter()
+        .find(|(name, _)| *name == top)
+        .map_or_else(|| top.to_string(), |(_, category)| (*category).to_string())
+}
+
+/// clap のコマンドツリーから全リーフサブコマンドを列挙する
+fn leaf_entries() -> Vec<ScriptEntry> {
+    fn collect(cmd: &clap::Command, path: &mut Vec<String>, out: &mut Vec<ScriptEntry>) {
+        let subcommands: Vec<_> = cmd.get_subcommands().collect();
+        if subcommands.is_empty() {
+            if !path.is_empty() {
+                let name = path.join(" ");
+                out.push(ScriptEntry {
+                    name,
+                    category: category_for(&path[0]),
+                    description: cmd
+                        .get_about()
+                        .map(|about| about.to_string())
+                        .unwrap_or_default(),
+                });
+            }
+            return;
+        }
+        for subcommand in subcommands {
+            path.push(subcommand.get_name().to_string());
+            collect(subcommand, path, out);
+            path.pop();
+        }
+    }
+
+    let mut entries = Vec::new();
+    collect(&Cli::command(), &mut Vec::new(), &mut entries);
+    entries
+}
+
+/// ランチャーに表示するスクリプト一覧（clap 自動生成 + 対話ラッパー）
+fn script_entries() -> Vec<ScriptEntry> {
+    let mut entries = Vec::new();
+    for entry in leaf_entries() {
+        if EXCLUDED.contains(&entry.name.as_str()) || is_wrapped(&entry.name) {
+            continue;
+        }
+        entries.push(entry);
+    }
+    entries.extend(wrapped_entries());
+    entries
+}
 
 pub fn run() -> anyhow::Result<()> {
     style::intro("mt: スクリプト選択");
 
-    let mut sorted: Vec<&ScriptEntry> = SCRIPTS.iter().collect();
-    sorted.sort_by(|a, b| a.category.cmp(b.category).then_with(|| a.name.cmp(b.name)));
+    let entries = script_entries();
+    let mut sorted: Vec<&ScriptEntry> = entries.iter().collect();
+    sorted.sort_by(|a, b| {
+        a.category
+            .cmp(&b.category)
+            .then_with(|| a.name.cmp(&b.name))
+    });
 
     let selected = select_script(&sorted)?;
     if let Some(name) = selected {
@@ -175,54 +136,17 @@ pub fn run() -> anyhow::Result<()> {
 
 fn run_script(name: &str) -> anyhow::Result<()> {
     match name {
-        "git repo create" => git::run(GitCommands::Repo(GitRepoCommands::Create)),
-        "git repo select" => git::run(GitCommands::Repo(GitRepoCommands::Select)),
-        "git worktree select" => git::run(GitCommands::Worktree(GitWorktreeCommands::Select)),
-        "git worktree create" => git::run(GitCommands::Worktree(GitWorktreeCommands::Create {
-            no_push: false,
-        })),
-        "git worktree delete" => git::run(GitCommands::Worktree(GitWorktreeCommands::Delete {
-            force: false,
-        })),
-        "git sync" => git::run(GitCommands::Sync {
-            target: None,
-            target_default: false,
-        }),
-        "git ship" => git::run(GitCommands::Ship {
-            target: None,
-            target_default: false,
-            message: None,
-        }),
-        "opencode oauth setup" => {
-            opencode::run(OpencodeCommands::Oauth(OpencodeOauthCommands::Setup))
-        }
-        "opencode web expose" => opencode::run(OpencodeCommands::Web(OpencodeWebCommands::Expose)),
-        "opencode web stop" => opencode::run(OpencodeCommands::Web(OpencodeWebCommands::Stop)),
-        "tool install" => tool::run(ToolCommands::Install),
-        "tool verify" => tool::run(ToolCommands::Verify),
-        "tool brew upgrade" => tool::run(ToolCommands::Brew(ToolBrewCommands::Upgrade)),
-        "vector ingest" => run_vector_ingest(),
-        "vector search" => run_vector_search(),
-        "self install" => self_cmd::run(SelfCommands::Install),
-        "mt doctor" => doctor::run(),
-        "chezmoi apply" => chezmoi::run(ChezmoiCommands::Apply),
-        "chezmoi diff" => chezmoi::run(ChezmoiCommands::Diff),
-        "chezmoi doctor" => chezmoi::run(ChezmoiCommands::Doctor),
-        "chezmoi secret set" => run_chezmoi_secret_set(),
-        "chezmoi secret delete" => run_chezmoi_secret_delete(),
-        "agent sync" => agent::run(AgentCommands::Sync {
-            check: false,
-            dry_run: false,
-        }),
-        "raycast sync" => raycast::run(RaycastCommands::Sync),
-        "raycast restore" => raycast::run(RaycastCommands::Restore),
-        "plan draft" => plan::run(PlanCommands::Draft {
-            title: None,
-            body_file: None,
-            repo: None,
-        }),
-        _ => anyhow::bail!("Unknown script: {}", name),
+        "vector ingest" => return run_vector_ingest(),
+        "vector search" => return run_vector_search(),
+        "chezmoi secret set" => return run_chezmoi_secret_set(),
+        _ => {}
     }
+
+    let tokens = std::iter::once("mt".to_string()).chain(name.split(' ').map(str::to_string));
+    let cli = Cli::try_parse_from(tokens)
+        .map_err(|err| anyhow::anyhow!("スクリプト {} の実行に失敗しました: {}", name, err))?;
+    let command = cli.command.context("コマンドが指定されていません")?;
+    crate::dispatch(command)
 }
 
 fn select_script(scripts: &[&ScriptEntry]) -> anyhow::Result<Option<String>> {
@@ -329,14 +253,6 @@ fn run_chezmoi_secret_set() -> anyhow::Result<()> {
     }
     chezmoi::run(ChezmoiCommands::Secret(SecretCommands::Set {
         key,
-        dry_run: false,
-        no_apply: false,
-    }))
-}
-
-fn run_chezmoi_secret_delete() -> anyhow::Result<()> {
-    chezmoi::run(ChezmoiCommands::Secret(SecretCommands::Delete {
-        key: None,
         dry_run: false,
         no_apply: false,
     }))

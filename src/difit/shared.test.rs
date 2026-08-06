@@ -11,12 +11,18 @@ fn test_classify_body_issue() {
 
 #[test]
 fn test_classify_body_question() {
-    assert_eq!(classify_body("[question] should we do X?"), Taxonomy::Question);
+    assert_eq!(
+        classify_body("[question] should we do X?"),
+        Taxonomy::Question
+    );
 }
 
 #[test]
 fn test_classify_body_context() {
-    assert_eq!(classify_body("[context] this is background info"), Taxonomy::Context);
+    assert_eq!(
+        classify_body("[context] this is background info"),
+        Taxonomy::Context
+    );
 }
 
 #[test]
@@ -143,7 +149,10 @@ fn test_gate_blocks_mixed_with_issue() {
 fn test_gate_uses_parent_body_not_reply() {
     // 親が [context]、reply が [issue] でもゲートは通過する
     // （ゲート判定はスレッド親の body のみ）
-    let threads = vec![make_thread_with_reply("[context] info", "[issue] reply issue")];
+    let threads = vec![make_thread_with_reply(
+        "[context] info",
+        "[issue] reply issue",
+    )];
     assert!(gate_passes(&threads));
 }
 
@@ -195,7 +204,10 @@ fn test_threads_to_import_comments_thread_with_reply() {
     assert_eq!(comments[1]["position"]["side"], "new");
     assert_eq!(comments[1]["position"]["line"], 1);
     assert_eq!(comments[1]["body"], "will fix");
-    assert!(comments[1].get("parentId").is_none(), "parentId はスキーマ外のため出力しない");
+    assert!(
+        comments[1].get("parentId").is_none(),
+        "parentId はスキーマ外のため出力しない"
+    );
 }
 
 #[test]

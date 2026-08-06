@@ -34,7 +34,9 @@ fn test_mt_git_worktree_create_help() {
     cmd.args(["git", "worktree", "create", "--help"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("Git worktree と新規ブランチを対話的に作成"));
+        .stdout(predicate::str::contains(
+            "Git worktree と新規ブランチを対話的に作成",
+        ));
 }
 
 #[test]
@@ -52,9 +54,7 @@ fn test_mt_git_sync_help() {
     cmd.args(["git", "sync", "--help"])
         .assert()
         .success()
-        .stdout(predicate::str::contains(
-            "現在のブランチを upstream と同期",
-        ));
+        .stdout(predicate::str::contains("現在のブランチを upstream と同期"));
 }
 
 #[test]
@@ -118,6 +118,15 @@ fn test_mt_tool_brew_upgrade_help() {
         .assert()
         .success()
         .stdout(predicate::str::contains("Homebrew パッケージ"));
+}
+
+#[test]
+fn test_mt_tool_bun_upgrade_help() {
+    let mut cmd = Command::cargo_bin("mt").unwrap();
+    cmd.args(["tool", "bun", "upgrade", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("bun global パッケージ"));
 }
 
 #[test]

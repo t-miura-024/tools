@@ -64,8 +64,11 @@ pub fn sync_in(
     style::info("ステップ 2/2: target branch の変更を現在のブランチに取り込みます");
     style::info(&format!("target: {target_branch}"));
     let spinner = style::spinner(&format!("git pull --no-rebase origin {target_branch} ..."));
-    if let Err(e) = command_output_in(cwd, "git", &["pull", "--no-rebase", "origin", &target_branch])
-    {
+    if let Err(e) = command_output_in(
+        cwd,
+        "git",
+        &["pull", "--no-rebase", "origin", &target_branch],
+    ) {
         spinner.finish_with_message("pull 失敗");
         handle_failure_in(
             cwd,

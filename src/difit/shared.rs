@@ -328,7 +328,14 @@ pub fn threads_to_import_comments(threads: &[Thread]) -> Vec<serde_json::Value> 
 /// 指定ポートの difit サーバからコメントを取得する。
 pub fn fetch_comments(port: u16) -> anyhow::Result<CommentGetResponse> {
     let output = Command::new("difit")
-        .args(["comment", "get", "--port", &port.to_string(), "--format", "json"])
+        .args([
+            "comment",
+            "get",
+            "--port",
+            &port.to_string(),
+            "--format",
+            "json",
+        ])
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .output()

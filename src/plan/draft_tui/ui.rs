@@ -94,12 +94,7 @@ pub fn hit_test_form(x: u16, y: u16, areas: &LayoutAreas) -> Option<ClickTarget>
     None
 }
 
-pub fn popup_hit_test(
-    x: u16,
-    y: u16,
-    popup_area: Rect,
-    filtered_count: usize,
-) -> Option<usize> {
+pub fn popup_hit_test(x: u16, y: u16, popup_area: Rect, filtered_count: usize) -> Option<usize> {
     if !popup_area.contains((x, y).into()) {
         return None;
     }
@@ -303,9 +298,7 @@ fn draw_description_field(
     }
     // クランプ
     if total_visual > 0 {
-        state.desc_scroll_top = state
-            .desc_scroll_top
-            .min(total_visual.saturating_sub(1));
+        state.desc_scroll_top = state.desc_scroll_top.min(total_visual.saturating_sub(1));
     } else {
         state.desc_scroll_top = 0;
     }
@@ -350,10 +343,7 @@ fn auth_status_span(status: AuthStatus) -> Span<'static> {
             " ⏳ 認証を確認中...（送信は認証完了後に可能になります）",
             Style::default().fg(Color::Yellow),
         ),
-        AuthStatus::Authenticated => Span::styled(
-            " ✔ 認証済み",
-            Style::default().fg(Color::Green),
-        ),
+        AuthStatus::Authenticated => Span::styled(" ✔ 認証済み", Style::default().fg(Color::Green)),
         AuthStatus::Failed => Span::styled(
             " ✖ gh CLI の認証に失敗しました。ターミナルで `gh auth login` を実行してください（送信できません）",
             Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
@@ -368,9 +358,7 @@ fn draw_help_bar(frame: &mut Frame, state: &FormState, area: Rect) {
         SubmitPhase::Idle if state.popup.is_some() => {
             "↑↓: 移動  Enter: 選択  Esc: 閉じる  入力: 絞り込み"
         }
-        SubmitPhase::Idle => {
-            "Tab/Shift-Tab: 移動  Enter: リポ選択  Ctrl+S: 送信  Esc/Ctrl+C: 終了"
-        }
+        SubmitPhase::Idle => "Tab/Shift-Tab: 移動  Enter: リポ選択  Ctrl+S: 送信  Esc/Ctrl+C: 終了",
     };
 
     let paragraph = Paragraph::new(vec![
@@ -399,7 +387,9 @@ fn draw_repo_popup(
         .border_style(Style::default().fg(Color::Cyan))
         .title(Span::styled(
             format!(" リポジトリ選択 (絞り込み: {}) ", popup.filter),
-            Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
         ));
 
     let filtered = popup.filtered_indices(&state.repos);
@@ -435,7 +425,9 @@ fn draw_created_section(frame: &mut Frame, state: &mut FormState, area: Rect) {
         .border_style(Style::default().fg(Color::DarkGray))
         .title(Span::styled(
             format!(" 🎉 今回作成 ({}) ", state.created_issues.len()),
-            Style::default().fg(Color::Green).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(Color::Green)
+                .add_modifier(Modifier::BOLD),
         ));
 
     let inner = block.inner(area);
@@ -477,7 +469,9 @@ fn draw_existing_section(frame: &mut Frame, state: &mut FormState, area: Rect, t
         .border_style(Style::default().fg(Color::DarkGray))
         .title(Span::styled(
             " 📋 既存の計画 ".to_string(),
-            Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
         ));
 
     let inner = block.inner(area);
@@ -547,7 +541,9 @@ fn draw_submit_overlay(frame: &mut Frame, state: &FormState, tick: u64) {
                 .border_style(Style::default().fg(Color::Yellow))
                 .title(Span::styled(
                     " 送信中 ",
-                    Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+                    Style::default()
+                        .fg(Color::Yellow)
+                        .add_modifier(Modifier::BOLD),
                 ));
             let inner = block.inner(area);
             frame.render_widget(block, area);
@@ -557,7 +553,10 @@ fn draw_submit_overlay(frame: &mut Frame, state: &FormState, tick: u64) {
                 Line::from(""),
                 Line::from(vec![
                     Span::styled(format!("  {spinner} "), Style::default().fg(Color::Yellow)),
-                    Span::styled("Issue を作成しています...", Style::default().fg(Color::White)),
+                    Span::styled(
+                        "Issue を作成しています...",
+                        Style::default().fg(Color::White),
+                    ),
                 ]),
                 Line::from(Span::styled(
                     "  （完了まで esc / ctrl+C は無効です）",
@@ -636,9 +635,7 @@ fn char_display_width(c: char) -> usize {
 
 /// 文字列の表示幅を返す。各文字の幅は `char_display_width` に委譲する。
 fn unicode_width(s: &str) -> u16 {
-    s.chars()
-        .map(|c| char_display_width(c) as u16)
-        .sum()
+    s.chars().map(|c| char_display_width(c) as u16).sum()
 }
 
 /// 1 論理行を表示幅で折り返し、視覚行のバイトオフセット範囲 `(start, end)` を返す。
@@ -713,7 +710,12 @@ pub fn cursor_to_visual_pos(line: &str, byte_offset: usize, width: usize) -> (us
 }
 
 /// 視覚行インデックスと目標表示列からバイトオフセットを計算する。
-pub fn visual_pos_to_byte(line: &str, visual_line: usize, target_col: usize, width: usize) -> usize {
+pub fn visual_pos_to_byte(
+    line: &str,
+    visual_line: usize,
+    target_col: usize,
+    width: usize,
+) -> usize {
     let visual_lines = wrap_line(line, width);
     let Some(&(start, end)) = visual_lines.get(visual_line) else {
         return line.len();
@@ -1198,11 +1200,7 @@ mod tests {
     #[test]
     fn desc_click_basic() {
         let area = Rect::new(0, 6, 100, 10);
-        let lines = vec![
-            "hello".to_string(),
-            "world".to_string(),
-            "foo".to_string(),
-        ];
+        let lines = vec!["hello".to_string(), "world".to_string(), "foo".to_string()];
         assert_eq!(desc_click_to_row_col(1, 7, &area, 0, &lines, 98), (0, 0));
         assert_eq!(desc_click_to_row_col(3, 7, &area, 0, &lines, 98), (0, 2));
         assert_eq!(desc_click_to_row_col(1, 8, &area, 0, &lines, 98), (1, 0));
