@@ -13,3 +13,6 @@ dot_takt/README.md
 .config/opencode/skills/*
 !.config/opencode/skills/_shared
 !.config/opencode/skills/mt-*
+
+# LazyVim が生成する動的ファイル（プラグイン更新のたびに変わる）
+.config/nvim/lazy-lock.json
