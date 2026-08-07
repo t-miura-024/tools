@@ -554,6 +554,8 @@ fn resolve_target_dir(
         }
     }
 
+    available.sort_by(|a, b| a.1.cmp(&b.1));
+
     if available.is_empty() {
         bail!("複製先の候補が見つかりません (~/doc, ~/src 配下の未使用 linked worktree がありません)");
     }
