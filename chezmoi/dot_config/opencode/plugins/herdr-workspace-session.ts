@@ -253,6 +253,13 @@ function errorMessage(error: unknown): string {
   return String(error);
 }
 
+export function resolveHerdrBinary(
+  environment: Record<string, string | undefined>,
+): string | undefined {
+  if (environment[HERDR_ENV] !== "1") return undefined;
+  return environment[HERDR_BIN_PATH]?.trim() || "herdr";
+}
+
 function sessionArgs(workspaceID: string, value?: string): string[] {
   const args = [
     "workspace",
@@ -329,8 +336,8 @@ export const HerdrWorkspaceSessionPlugin: Plugin = async ({
 }) => {
   const environment = process.env;
   const workspaceID = environment[HERDR_WORKSPACE_ID]?.trim();
-  const herdrBinary = environment[HERDR_BIN_PATH]?.trim();
-  if (environment[HERDR_ENV] !== "1" || !workspaceID || !herdrBinary) {
+  const herdrBinary = resolveHerdrBinary(environment);
+  if (!workspaceID || !herdrBinary) {
     return {};
   }
 
