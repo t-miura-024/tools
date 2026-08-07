@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   createHerdrMetadataReporter,
+  resolveHerdrBinary,
   SessionTracker,
   sessionDisplayValue,
   type HerdrRunResult,
@@ -42,6 +43,14 @@ function info(value: RootSession) {
 }
 
 describe("SessionTracker", () => {
+  test("falls back to the herdr command when Herdr does not inject its path", () => {
+    expect(resolveHerdrBinary({ HERDR_ENV: "1" })).toBe("herdr");
+    expect(
+      resolveHerdrBinary({ HERDR_ENV: "1", HERDR_BIN_PATH: "/bin/herdr" }),
+    ).toBe("/bin/herdr");
+    expect(resolveHerdrBinary({})).toBeUndefined();
+  });
+
   test("falls back to the full session ID when the title is blank", () => {
     expect(sessionDisplayValue(session("ses_123", 1, "  "))).toBe("ses_123");
     expect(sessionDisplayValue(session("ses_123", 1, "Review auth"))).toBe(
