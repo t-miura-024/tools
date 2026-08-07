@@ -119,7 +119,7 @@ pub fn duplicate(target: Option<String>) -> anyhow::Result<()> {
 
     let source_root = find_source_root(&snapshot, &source_ws_id)?;
 
-    let target_dir = resolve_target_dir(target, &snapshot, &source_root)?;
+    let target_dir = resolve_target_dir(target, &source_root)?;
     let target_label = target_dir
         .file_name()
         .and_then(|s| s.to_str())
@@ -495,11 +495,7 @@ fn region_pane_cwd<'a>(
 }
 
 /// fzf で複製先ディレクトリを選択する
-fn resolve_target_dir(
-    target: Option<String>,
-    snapshot: &Snapshot,
-    source_root: &Path,
-) -> anyhow::Result<PathBuf> {
+fn resolve_target_dir(target: Option<String>, source_root: &Path) -> anyhow::Result<PathBuf> {
     if let Some(raw) = target {
         let path = PathBuf::from(raw);
         let canonical = fs::canonicalize(&path).with_context(|| {
@@ -521,7 +517,11 @@ fn resolve_target_dir(
     }
 
     // 既に他のワークスペースで開いている worktree は除外対象にする
-    let open_roots = open_workspace_roots(snapshot);
+    let open_roots: HashSet<PathBuf> = client::worktree_list()?
+        .into_iter()
+        .filter(|w| w.open_workspace_id.is_some())
+        .map(|w| PathBuf::from(w.path))
+        .collect();
 
     let mut available: Vec<(String, String, String, String)> = Vec::new();
     for root in config::REPO_ROOTS {
@@ -615,17 +615,6 @@ fn cols_width(rows: &[(String, String, String, String)], idx: usize) -> usize {
 
 fn is_worktree_root(dir: &Path) -> bool {
     dir.join(".git").is_file()
-}
-
-/// 既に開いているワークスペースの（推測）ルート一覧
-fn open_workspace_roots(snapshot: &Snapshot) -> HashSet<PathBuf> {
-    let mut roots: HashSet<PathBuf> = HashSet::new();
-    for pane in &snapshot.panes {
-        if let Some(root) = find_repo_root(Path::new(&pane.cwd)) {
-            roots.insert(root);
-        }
-    }
-    roots
 }
 
 /// worktree の HEAD ブランチ名を取得する
