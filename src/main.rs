@@ -7,6 +7,7 @@ mod config;
 mod difit;
 mod doctor;
 mod git;
+mod herdr;
 mod opencode;
 mod plan;
 mod raycast;
@@ -52,6 +53,9 @@ enum Commands {
     /// difit レビューセッション管理（start / check）
     #[command(subcommand)]
     Difit(difit::DifitCommands),
+    /// herdr ワークスペース操作
+    #[command(subcommand)]
+    Herdr(herdr::HerdrCommands),
     /// システム全体の健全性チェック（chezmoi / Docker / ツール / drift）
     Doctor,
 }
@@ -77,6 +81,7 @@ pub(crate) fn dispatch(command: Commands) -> anyhow::Result<()> {
         Commands::Raycast(cmd) => raycast::run(cmd),
         Commands::Agent(cmd) => agent::run(cmd),
         Commands::Difit(cmd) => difit::run(cmd),
+        Commands::Herdr(cmd) => herdr::run(cmd),
         Commands::Doctor => doctor::run(),
     }
 }
