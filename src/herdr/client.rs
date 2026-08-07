@@ -1,6 +1,7 @@
 use std::process::Command;
 
 use anyhow::{Context, bail};
+use serde::Deserialize;
 use serde_json::Value;
 
 fn run_herdr(args: &[&str]) -> anyhow::Result<String> {
@@ -28,6 +29,27 @@ fn parse_result(output: &str) -> anyhow::Result<Value> {
         bail!("herdr API error: {message}");
     }
     Ok(v)
+}
+
+#[derive(Deserialize)]
+pub struct WorktreeInfo {
+    pub path: String,
+    pub open_workspace_id: Option<String>,
+}
+
+pub fn worktree_list() -> anyhow::Result<Vec<WorktreeInfo>> {
+    let output = run_herdr(&["worktree", "list"])?;
+    let v = parse_result(&output)?;
+    let arr = v
+        .pointer("/result/worktrees")
+        .and_then(|w| w.as_array())
+        .context("worktree list の応答に worktrees がありません")?;
+    arr.iter()
+        .map(|w| {
+            serde_json::from_value::<WorktreeInfo>(w.clone())
+                .context("worktree エントリの解析に失敗しました")
+        })
+        .collect()
 }
 
 pub fn api_snapshot() -> anyhow::Result<Value> {
