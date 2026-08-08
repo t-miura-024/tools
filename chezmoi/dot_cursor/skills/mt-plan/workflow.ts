@@ -265,17 +265,39 @@ function validateContextNotes(raw: string | undefined): { valid: boolean; error?
   return { valid: true };
 }
 
-function findReviewRound(
-  attempts: Array<{ attemptNumber: number; endedAt?: string; checkStatus?: string }>,
-): number {
-  let maxRound = 0;
-  for (const a of attempts) {
-    // Previous review_work attempts that passed or failed indicate a round
-    if (a.checkStatus === 'pass' || a.checkStatus === 'fail') {
-      maxRound = Math.max(maxRound, a.attemptNumber);
-    }
+/**
+ * 完了済みの review_work 試行数を workflow DB から数える（レビューラウンド算出用）。
+ *
+ * tado ADR-0003 で PromptCtx.previousAttempts が削除されたため、エンジンの
+ * ボイラープレートに頼らず、セッション DB を直接参照する。tado のセッション
+ * DB は共有の ~/.tado/workflow.db（TADO_HOME で上書き可）にあり、セッション
+ * ディレクトリには置かれない。
+ */
+function getWorkflowDbPath(): string {
+  const fs = require('node:fs');
+  const os = require('node:os') as { homedir: () => string };
+  const configuredHome = process.env.TADO_HOME?.trim();
+  const home = configuredHome || os.homedir();
+  return join(home, '.tado', 'workflow.db');
+}
+
+function countReviewRounds(sessionId: string): number {
+  const fs = require('node:fs');
+  const dbPath = getWorkflowDbPath();
+  if (!fs.existsSync(dbPath)) return 0;
+
+  const { Database } = require('bun:sqlite') as { Database: new (path: string) => { query: (sql: string) => { get: (params?: unknown[]) => JsonRecord | undefined }; run: (sql: string, params?: unknown[]) => void; close: () => void } };
+  const db = new Database(dbPath);
+  try {
+    const row = db
+      .query(
+        "SELECT COUNT(*) AS cnt FROM step_attempts WHERE step_id = (SELECT id FROM steps WHERE session_id = ? AND step_key = 'review_work')",
+      )
+      .get(sessionId);
+    return typeof row?.cnt === 'number' ? row.cnt : 0;
+  } finally {
+    db.close();
   }
-  return maxRound;
 }
 
 function findArtifactText(artifacts: ArtifactRecord[], key: string): string | undefined {
@@ -443,10 +465,7 @@ const def: WorkflowDef = {
             '',
             '書き出したファイル一覧（パス・新規/更新・マージの有無）を報告する。',
             '',
-            '## セッション情報',
-            '',
-            `- セッションディレクトリ: ${ctx.sessionDir}`,
-            `- 試行: ${ctx.attemptNumber}/${ctx.maxRetries}`,
+            // セッション情報はエンジンが自動付与する（ADR-0003）
           ].join('\n');
         },
       },
@@ -564,10 +583,7 @@ const def: WorkflowDef = {
             'gh issue edit <number> --repo <repo> --body-file <tmpfile>',
             '```',
             '',
-            '## セッション情報',
-            '',
-            `- セッションディレクトリ: ${ctx.sessionDir}`,
-            `- 試行: ${ctx.attemptNumber}/${ctx.maxRetries}`,
+            // セッション情報はエンジンが自動付与する（ADR-0003）
             '',
             '## 禁止事項',
             '',
@@ -612,7 +628,7 @@ const def: WorkflowDef = {
           const collectScriptPath = join(import.meta.dir, 'collect-review-context.ts');
           const jsonPath = join(ctx.sessionDir, 'agent-review.json');
           const mdPath = join(ctx.sessionDir, 'agent-review.md');
-          const prevRound = findReviewRound(ctx.previousAttempts);
+          const prevRound = countReviewRounds(ctx.sessionId);
           const nextRound = prevRound + 1;
 
           return [
