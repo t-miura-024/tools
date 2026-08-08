@@ -4,7 +4,6 @@ dist
 .DS_Store
 tmp
 target
-.takt
 
 # difit レビューセッションのランタイム状態（port, pid, コメント JSON）
 .difit/

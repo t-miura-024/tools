@@ -218,7 +218,7 @@ export function usage(): string {
     "Usage: collect-review-context --plan-number <n> --session-dir <dir> [--repo <owner/repo>] [--base-branch <branch>]",
     "",
     "Collects review context (issue body, branch diff, unstaged diff) and writes to session-dir.",
-    "Used by mt-run-plan's review_work step before delegating to the reviewer SubAgent.",
+    "Used by mt-plan-run's review_work step before delegating to the reviewer SubAgent.",
   ].join("\n");
 }
 

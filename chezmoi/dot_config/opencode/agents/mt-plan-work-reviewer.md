@@ -1,5 +1,5 @@
 ---
-description: "mt-run-plan の作業レビュアー SubAgent。収集された証拠（Issue body、git diff）をもとに 5 軸で作業をレビューし、agent-review.json スキーマで結果を返す。"
+description: "mt-plan-run の作業レビュアー SubAgent。収集された証拠（Issue body、git diff）をもとに 5 軸で作業をレビューし、agent-review.json スキーマで結果を返す。"
 mode: "subagent"
 color: "warning"
 permission:
@@ -77,5 +77,5 @@ permission:
 
 ## 🔗 参照 Skill
 
-- `skills/mt-run-plan/SKILL.md`
+- `skills/mt-plan-run/SKILL.md`
 - `skills/mt-plan/workflow.ts`

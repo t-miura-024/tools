@@ -34,13 +34,9 @@ chezmoi/
         ├── skills/                # opencode 形式
         ├── plugins/               # opencode プラグイン
         │   ├── cmux-notify.ts     # cmux 通知プラグイン
-        │   ├── mt-loop-engine.ts  # mt loop engine
         │   ├── cursor-hook-bridge.ts  # Cursor の hooks.json を opencode plugin に bridge
         │   └── agent-hooks/
         │       └── block-cursor-config-direct-edit.ts  # 共通 hook スクリプト
-        ├── commands/              # opencode slash commands
-        │   ├── mt-goal.md
-        │   └── mt-loop.md
         └── config.json            # opencode 設定（plugin: cursor-hook-bridge）
 ```
 

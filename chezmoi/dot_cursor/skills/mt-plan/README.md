@@ -1,6 +1,6 @@
 # mt-plan 共有資材
 
-`mt-create-plan`、`mt-run-plan`、`mt-plan` で共有する GitHub Issue / Project ベースの計画管理用の資材を置くディレクトリです。
+`mt-plan-create`、`mt-plan-run`、`mt-plan` で共有する GitHub Issue / Project ベースの計画管理用の資材を置くディレクトリです。
 各 Skill の `SKILL.md` には共有資材の本文を重複させず、このディレクトリ配下のファイルを参照します。
 
 ## ファイル
@@ -26,8 +26,8 @@ bun <mt-plan-skill-dir>/list-plans.ts refined in-progress
 
 主な用途は以下です。
 
-- `mt-run-plan`: `refined` / `in-progress` の実行候補一覧（インタラクティブ選択）
-- `mt-create-plan`: 既存計画確認
+- `mt-plan-run`: `refined` / `in-progress` の実行候補一覧（インタラクティブ選択）
+- `mt-plan-create`: 既存計画確認
 
 ## 状態遷移
 

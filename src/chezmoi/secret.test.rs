@@ -101,16 +101,9 @@ fn test_key_exists_partial_match_avoided() {
 
 #[test]
 fn test_list_keys_in_plaintext() {
-    let plaintext =
-        "# firecrawl\nexport FIRECRAWL_API_KEY=x\n\n# takt\nexport TAKT_OPENCODE_API_KEY=y\n";
+    let plaintext = "# firecrawl\nexport FIRECRAWL_API_KEY=x\n";
     let keys = shared::list_keys_in_plaintext(plaintext);
-    assert_eq!(
-        keys,
-        vec![
-            "FIRECRAWL_API_KEY".to_string(),
-            "TAKT_OPENCODE_API_KEY".to_string()
-        ]
-    );
+    assert_eq!(keys, vec!["FIRECRAWL_API_KEY".to_string()]);
 }
 
 #[test]
