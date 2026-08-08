@@ -9,5 +9,3 @@ packages:
     version: latest
   tado:
     repo: t-miura-024/tado
-  takt:
-    version: latest

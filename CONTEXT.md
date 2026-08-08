@@ -40,6 +40,26 @@ _Avoid_: imported comments, initial comments
 git merge-base <base> HEAD でベースコミットを解決し、3-way diff を行うモード。
 _Avoid_: merge base mode, three-way mode
 
+**手動見直し**:
+人間が既存の AI エージェント設定（Rule・Skill・SubAgent・Hook）に対して行う削除・内容変更の作業。AI は関与しない。
+_Avoid_: 手動操作, 直接編集
+
+**影響範囲確認**:
+手動変更を起点に、変更箇所以外の参照・整合性の破綻を AI が洗い出す作業。
+_Avoid_: 影響分析, 波及調査
+
+**破壊的変更**:
+参照・契約の破壊（削除/リネーム/パス変更/入出力契約の変更）のうち、機械的な参照追従修正では解決できないもの。
+_Avoid_: breaking, 互換性破壊
+
+**合意フェーズ**:
+AI が課題の全リストを提示した後、課題一つずつを対話して対処を確定する段階。
+_Avoid_: レビューフェーズ, 確認フェーズ
+
+**改修フェーズ**:
+全課題の合意が揃った後に AI が一括で改修を実施する段階。
+_Avoid_: 実装フェーズ, 修正フェーズ
+
 **repo エントリ**:
 `bun-global.yml` で GitHub ホストパッケージを宣言する `repo:` フィールド持ちのエントリ。`repo: <owner>/<name>` はデフォルトブランチ最新への追従を意味する。
 _Avoid_: git エントリ, GitHub パッケージエントリ

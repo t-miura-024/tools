@@ -36,7 +36,7 @@ description: 計画・決定・アイデアについて、ラウンド制で容�
 
 設計ツリーは、ライブ地図 `grill-map.md` としてセッション中に育て続ける。
 
-- 既定パスは `tmp/mt-grill-rounds/grill-map.md`。呼び出し元がパスを指定した場合は、そちらを優先する（例: `mt-create-plan` workflow は `tmp/tado/<id>/grill-map.md` を指定する）
+- 既定パスは `tmp/mt-grill-rounds/grill-map.md`。呼び出し元がパスを指定した場合は、そちらを優先する（例: `mt-plan-create` workflow は `tmp/tado/<id>/grill-map.md` を指定する）
 - 地図は Markdown で構造化する。構造や深さは固定せず、議論対象と決定間の依存関係に応じて適応的に決める
 - 地図では Why（なぜ取り組むか）/ What（何を決めるか）/ How（どう実現するか）を漏れなく扱う。ただし、これらを固定の見出しとして強制せず、議論対象に適した構造へ組み込む
 - 決定事項・未決定事項・保留事項を区別し、セッション中を通して継続的に記録する。表現方法は地図の構造に合わせて選ぶ

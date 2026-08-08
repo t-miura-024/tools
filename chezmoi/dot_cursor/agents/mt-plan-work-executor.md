@@ -1,6 +1,6 @@
 ---
 name: mt-plan-work-executor
-description: mt-run-plan の作業実行者 SubAgent。計画 Issue の実行単位（ユニット）を 1 つ担当し、スコープ内のファイル編集・コード変更・ローカル検証を完遂する。workflow.ts の execute_work ステップから、必要数だけ並列起動される。
+description: mt-plan-run の作業実行者 SubAgent。計画 Issue の実行単位（ユニット）を 1 つ担当し、スコープ内のファイル編集・コード変更・ローカル検証を完遂する。workflow.ts の execute_work ステップから、必要数だけ並列起動される。
 readonly: false
 color: green
 ---
@@ -46,6 +46,6 @@ color: green
 
 ## 🔗 参照 Skill
 
-- `skills/mt-run-plan/SKILL.md`
+- `skills/mt-plan-run/SKILL.md`
 - `skills/mt-plan/workflow.ts`
 - `skills/mt-plan/plan-format.md`

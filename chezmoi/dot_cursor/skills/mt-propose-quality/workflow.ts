@@ -354,7 +354,7 @@ const def: WorkflowDef = {
             '起票結果を報告する:',
             '- 各 Issue の URL、タイトル、Status',
             '- 起票しなかった候補の一覧',
-            '- 次ステップの案内: 「具体化は `mt-create-plan` の from-Issue フローで取り込めます」',
+            '- 次ステップの案内: 「具体化は `mt-plan-create` の from-Issue フローで取り込めます」',
             '',
             '## セッション情報',
             '',

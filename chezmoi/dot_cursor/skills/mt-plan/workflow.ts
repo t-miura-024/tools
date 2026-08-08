@@ -360,7 +360,7 @@ const def: WorkflowDef = {
             `bun run ${join(import.meta.dir, 'list-plans.ts')}`,
             '```',
             '',
-            '- `draft` なら `mt-create-plan` へ案内して中断',
+            '- `draft` なら `mt-plan-create` へ案内して中断',
             '- `done` なら「完了済み。再開しますか？」と確認',
             '',
             '4. GitHub Sub Issue を確認する。Sub Issue を持つ親計画は実行できないため、子計画を選び直して中断する:',
