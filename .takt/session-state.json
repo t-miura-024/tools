@@ -1,0 +1,8 @@
+{
+  "status": "error",
+  "errorMessage": "Workflow interrupted by user (SIGINT)",
+  "timestamp": "2026-07-02T17:14:15.400Z",
+  "workflowName": "mt-run-plan",
+  "taskContent": "Implement using only the files in `.takt/runs/20260702-170657-implement-using-only-the-files-r0mv0q/context/task`.\nPrimary spec: `.takt/runs/20260702-170657-implement-using-only-the-files-r0mv0q/conte...",
+  "lastStep": "validate-plan"
+}
