@@ -7,7 +7,7 @@ import type {
   ConditionCtx,
   ArtifactRecord,
 } from 'tado';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { loadConfig } from './init-config';
 
 type JsonRecord = Record<string, unknown>;
@@ -276,7 +276,8 @@ function validateContextNotes(raw: string | undefined): { valid: boolean; error?
  * tado ADR-0003 で PromptCtx.previousAttempts が削除されたため、エンジンの
  * ボイラープレートに頼らず、セッション DB を直接参照する。tado のセッション
  * DB は共有の ~/.tado/workflow.db（TADO_HOME で上書き可）にあり、セッション
- * ディレクトリには置かれない。
+ * ディレクトリには置かれない。なお PromptCtx.sessionId は tado が値を設定
+ * しないため、sessionDir の basename（= セッション ID）から導出する。
  */
 function getWorkflowDbPath(): string {
   const fs = require('node:fs');
@@ -286,17 +287,18 @@ function getWorkflowDbPath(): string {
   return join(home, '.tado', 'workflow.db');
 }
 
-function countReviewRounds(sessionId: string): number {
+function countReviewRounds(sessionDir: string): number {
   const fs = require('node:fs');
   const dbPath = getWorkflowDbPath();
   if (!fs.existsSync(dbPath)) return 0;
 
+  const sessionId = basename(sessionDir);
   const { Database } = require('bun:sqlite') as { Database: new (path: string) => { query: (sql: string) => { get: (params?: unknown[]) => JsonRecord | undefined }; run: (sql: string, params?: unknown[]) => void; close: () => void } };
   const db = new Database(dbPath);
   try {
     const row = db
       .query(
-        "SELECT COUNT(*) AS cnt FROM step_attempts WHERE step_id = (SELECT id FROM steps WHERE session_id = ? AND step_key = 'review_work')",
+        "SELECT COUNT(*) AS cnt FROM step_attempts WHERE ended_at IS NOT NULL AND step_id = (SELECT id FROM steps WHERE session_id = ? AND step_key = 'review_work')",
       )
       .get(sessionId);
     return typeof row?.cnt === 'number' ? row.cnt : 0;
@@ -633,7 +635,7 @@ const def: WorkflowDef = {
           const collectScriptPath = join(import.meta.dir, 'collect-review-context.ts');
           const jsonPath = join(ctx.sessionDir, 'agent-review.json');
           const mdPath = join(ctx.sessionDir, 'agent-review.md');
-          const prevRound = countReviewRounds(ctx.sessionId);
+          const prevRound = countReviewRounds(ctx.sessionDir);
           const nextRound = prevRound + 1;
 
           return [
