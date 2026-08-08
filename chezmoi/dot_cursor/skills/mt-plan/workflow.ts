@@ -192,20 +192,25 @@ function formatDifitFeedback(ctx: PromptCtx): string | undefined {
  * check_difit から execute_work に戻る際は、間にある review steps も
  * pending に戻しておく。これがないと、修正後に check_difit だけが再実行
  * され、execute_work → review_work → difit のサイクルにならない。
+ *
+ * tado のセッション DB は共有の ~/.tado/workflow.db（TADO_HOME で上書き可）に
+ * あり、セッションディレクトリには置かれない（countReviewRounds と同じ）。
  */
-function resetReviewCycle(sessionDir: string): void {
+function resetReviewCycle(sessionId: string): void {
   const fs = require('node:fs');
-  const dbPath = join(sessionDir, 'workflow.db');
+  const dbPath = getWorkflowDbPath();
   if (!fs.existsSync(dbPath)) return;
 
-  const { Database } = require('bun:sqlite') as { Database: new (path: string) => { query: (sql: string) => { get: () => JsonRecord | undefined }; run: (sql: string, params?: unknown[]) => void; close: () => void } };
+  const { Database } = require('bun:sqlite') as { Database: new (path: string) => { query: (sql: string) => { get: (params?: unknown[]) => JsonRecord | undefined }; run: (sql: string, params?: unknown[]) => void; close: () => void } };
   const db = new Database(dbPath);
   try {
-    const executeStep = db.query("SELECT step_index FROM steps WHERE step_key = 'execute_work'").get();
+    const executeStep = db
+      .query("SELECT step_index FROM steps WHERE session_id = ? AND step_key = 'execute_work'")
+      .get(sessionId);
     if (!executeStep || typeof executeStep.step_index !== 'number') return;
     db.run(
-      "UPDATE steps SET status = 'pending', retry_count = 0 WHERE step_index > ?",
-      [executeStep.step_index],
+      "UPDATE steps SET status = 'pending', retry_count = 0 WHERE session_id = ? AND step_index > ?",
+      [sessionId, executeStep.step_index],
     );
   } finally {
     db.close();
@@ -857,7 +862,7 @@ const def: WorkflowDef = {
 
         if (result.passes) return { status: 'pass', reasons: ['difit gate passes'] };
         try {
-          resetReviewCycle(ctx.sessionDir);
+          resetReviewCycle(ctx.sessionId);
         } catch (error) {
           return { status: 'error', reasons: [`failed to reset difit review cycle: ${String(error)}`] };
         }
