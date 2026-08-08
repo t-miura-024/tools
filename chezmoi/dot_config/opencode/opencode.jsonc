@@ -4,6 +4,11 @@
   "plugin": [
     "./plugins/cursor-hook-bridge.ts"
   ],
+  "agent": {
+    "title": {
+      "disable": true
+    }
+  },
   "permission": {
     "external_directory": {
       "*": "allow",
