@@ -274,8 +274,12 @@ fn test_start_spawns_server_and_writes_state() {
         "body": "[context] test comment"
     });
 
-    let bg = shared::spawn_difit_server(&path, &["working".to_string()], &[comment.clone()])
-        .expect("difit サーバ起動");
+    let bg = shared::spawn_difit_server(
+        &path,
+        &["working".to_string()],
+        std::slice::from_ref(&comment),
+    )
+    .expect("difit サーバ起動");
 
     assert!(bg.port > 0);
     assert!(bg.pid > 0);
@@ -402,8 +406,12 @@ fn test_stale_state_recovery() {
     });
 
     // サーバ起動 → 即 kill で stale 状態を再現
-    let bg = shared::spawn_difit_server(&path, &["working".to_string()], &[comment.clone()])
-        .expect("起動");
+    let bg = shared::spawn_difit_server(
+        &path,
+        &["working".to_string()],
+        std::slice::from_ref(&comment),
+    )
+    .expect("起動");
     shared::kill_server(bg.pid);
     assert!(!shared::is_process_alive(bg.pid));
 

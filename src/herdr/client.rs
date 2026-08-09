@@ -79,11 +79,7 @@ pub fn workspace_create(cwd: &str, label: &str) -> anyhow::Result<String> {
     Ok(workspace_id)
 }
 
-pub fn tab_create(
-    workspace_id: &str,
-    cwd: &str,
-    label: &str,
-) -> anyhow::Result<(String, String)> {
+pub fn tab_create(workspace_id: &str, cwd: &str, label: &str) -> anyhow::Result<(String, String)> {
     let output = run_herdr(&[
         "tab",
         "create",
@@ -121,12 +117,7 @@ pub fn tab_focus(tab_id: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
-pub fn pane_split(
-    pane_id: &str,
-    direction: &str,
-    ratio: f64,
-    cwd: &str,
-) -> anyhow::Result<String> {
+pub fn pane_split(pane_id: &str, direction: &str, ratio: f64, cwd: &str) -> anyhow::Result<String> {
     let output = run_herdr(&[
         "pane",
         "split",

@@ -77,10 +77,7 @@ struct Rect {
 
 impl Rect {
     fn contains(&self, x: u32, y: u32) -> bool {
-        x >= self.x
-            && x < self.x + self.width
-            && y >= self.y
-            && y < self.y + self.height
+        x >= self.x && x < self.x + self.width && y >= self.y && y < self.y + self.height
     }
 
     /// other を完全に包含するか（辺が一致する場合を含む）
@@ -103,8 +100,8 @@ pub fn duplicate(target: Option<String>) -> anyhow::Result<()> {
     style::intro("herdr ワークスペース複製");
 
     let snapshot_value = client::api_snapshot()?;
-    let snapshot: Snapshot = serde_json::from_value(snapshot_value)
-        .context("snapshot の解析に失敗しました")?;
+    let snapshot: Snapshot =
+        serde_json::from_value(snapshot_value).context("snapshot の解析に失敗しました")?;
 
     let source_ws_id = snapshot
         .focused_workspace_id
@@ -162,9 +159,7 @@ pub fn duplicate(target: Option<String>) -> anyhow::Result<()> {
     }
 
     // ---- 複製実行 ----
-    let first_tab = source_tabs
-        .first()
-        .context("複製元にタブがありません")?;
+    let first_tab = source_tabs.first().context("複製元にタブがありません")?;
     let first_layout = source_layout(&snapshot, &first_tab.tab_id)
         .context("最初のタブのレイアウトが見つかりません")?;
     let first_root_cwd = map_cwd(
@@ -192,31 +187,22 @@ pub fn duplicate(target: Option<String>) -> anyhow::Result<()> {
 
     // 残りのタブを作成し、同じく分割を再構成
     for tab in source_tabs.iter().skip(1) {
-        let layout = source_layout(&snapshot, &tab.tab_id)
-            .context("タブのレイアウトが見つかりません")?;
+        let layout =
+            source_layout(&snapshot, &tab.tab_id).context("タブのレイアウトが見つかりません")?;
         let tab_cwd = map_cwd(
             &source_root,
             &target_dir,
             &pane_cwd_at(layout, &snapshot, &layout.area)?,
         );
         spinner.set_message(format!("タブ {} を作成中...", tab.label));
-        let (tab_id, root_pane_id) =
-            client::tab_create(&new_ws_id, &tab_cwd, &tab.label)?;
-        rebuild_splits_in_tab(
-            &root_pane_id,
-            layout,
-            &snapshot,
-            &source_root,
-            &target_dir,
-        )?;
+        let (tab_id, root_pane_id) = client::tab_create(&new_ws_id, &tab_cwd, &tab.label)?;
+        rebuild_splits_in_tab(&root_pane_id, layout, &snapshot, &source_root, &target_dir)?;
         recreated.push(tab_id);
     }
 
     // アクティブタブの復元
     if let Some(active_tab_id) = &source_ws.active_tab_id
-        && let Some(idx) = source_tabs
-            .iter()
-            .position(|t| &t.tab_id == active_tab_id)
+        && let Some(idx) = source_tabs.iter().position(|t| &t.tab_id == active_tab_id)
         && let Some(new_active) = recreated.get(idx)
     {
         client::tab_focus(new_active)?;
@@ -270,8 +256,8 @@ struct InitialTabState {
 
 fn initial_tab_state(workspace_id: &str) -> anyhow::Result<InitialTabState> {
     let snapshot_value = client::api_snapshot()?;
-    let snapshot: Snapshot = serde_json::from_value(snapshot_value)
-        .context("snapshot の再取得に失敗しました")?;
+    let snapshot: Snapshot =
+        serde_json::from_value(snapshot_value).context("snapshot の再取得に失敗しました")?;
 
     let ws = snapshot
         .workspaces
@@ -298,11 +284,7 @@ fn initial_tab_state(workspace_id: &str) -> anyhow::Result<InitialTabState> {
 }
 
 /// レイアウト内の指定矩形の最左上座標を覆うペーンの cwd を取得する
-fn pane_cwd_at(
-    layout: &TabLayout,
-    snapshot: &Snapshot,
-    point: &Rect,
-) -> anyhow::Result<String> {
+fn pane_cwd_at(layout: &TabLayout, snapshot: &Snapshot, point: &Rect) -> anyhow::Result<String> {
     let target = find_pane_covering(layout, point.x, point.y)
         .context("領域を覆うペーンがレイアウトに見つかりません")?;
     snapshot
@@ -313,7 +295,7 @@ fn pane_cwd_at(
         .context("ペーンの cwd が見つかりません")
 }
 
-fn find_pane_covering<'a>(layout: &'a TabLayout, x: u32, y: u32) -> Option<&'a LayoutPane> {
+fn find_pane_covering(layout: &TabLayout, x: u32, y: u32) -> Option<&LayoutPane> {
     layout.panes.iter().find(|p| p.rect.contains(x, y))
 }
 
@@ -348,8 +330,7 @@ fn rebuild_splits_in_tab(
         .map(|p| (p.pane_id.as_str(), p.cwd.as_str()))
         .collect();
 
-    let root = find_root_split(layout)
-        .context("split ツリーのルートが見つかりません")?;
+    let root = find_root_split(layout).context("split ツリーのルートが見つかりません")?;
 
     apply_split_tree(
         root_pane_id,
@@ -363,10 +344,12 @@ fn rebuild_splits_in_tab(
 
 /// ルート split（どの split にも含まれない最大領域の split）を探す
 fn find_root_split(layout: &TabLayout) -> Option<&SplitInfo> {
-    layout
-        .splits
-        .iter()
-        .find(|s| !layout.splits.iter().any(|o| o.id != s.id && o.rect.encloses(&s.rect)))
+    layout.splits.iter().find(|s| {
+        !layout
+            .splits
+            .iter()
+            .any(|o| o.id != s.id && o.rect.encloses(&s.rect))
+    })
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -485,8 +468,8 @@ fn direct_children<'a>(layout: &'a TabLayout, node: &'a SplitInfo) -> Vec<&'a Sp
 }
 
 /// 領域の最左上の属するペーンの cwd を探す
-fn region_pane_cwd<'a>(
-    layout: &'a TabLayout,
+fn region_pane_cwd(
+    layout: &TabLayout,
     cwd_map: &HashMap<&str, &str>,
     region: &Rect,
 ) -> Option<String> {
@@ -498,9 +481,8 @@ fn region_pane_cwd<'a>(
 fn resolve_target_dir(target: Option<String>, source_root: &Path) -> anyhow::Result<PathBuf> {
     if let Some(raw) = target {
         let path = PathBuf::from(raw);
-        let canonical = fs::canonicalize(&path).with_context(|| {
-            format!("指定された複製先 {} を解決できません", path.display())
-        })?;
+        let canonical = fs::canonicalize(&path)
+            .with_context(|| format!("指定された複製先 {} を解決できません", path.display()))?;
         if !canonical.is_dir() {
             bail!(
                 "指定された複製先はディレクトリではありません: {}",
@@ -557,7 +539,9 @@ fn resolve_target_dir(target: Option<String>, source_root: &Path) -> anyhow::Res
     available.sort_by(|a, b| a.1.cmp(&b.1));
 
     if available.is_empty() {
-        bail!("複製先の候補が見つかりません (~/doc, ~/src 配下の未使用 linked worktree がありません)");
+        bail!(
+            "複製先の候補が見つかりません (~/doc, ~/src 配下の未使用 linked worktree がありません)"
+        );
     }
 
     ensure_fzf_available()?;
@@ -588,14 +572,23 @@ fn format_rows(rows: &[(String, String, String, String)]) -> String {
 
     let mut out = format!(
         "{:<cw$}  {:<nw$}  {:<bw$}\tpath\n",
-        "category", "name", "branch",
-        cw = category_w, nw = name_w, bw = branch_w
+        "category",
+        "name",
+        "branch",
+        cw = category_w,
+        nw = name_w,
+        bw = branch_w
     );
     for (category, name, branch, path) in rows {
         out.push_str(&format!(
             "{:<cw$}  {:<nw$}  {:<bw$}\t{}\n",
-            category, name, branch, path,
-            cw = category_w, nw = name_w, bw = branch_w
+            category,
+            name,
+            branch,
+            path,
+            cw = category_w,
+            nw = name_w,
+            bw = branch_w
         ));
     }
     out
@@ -619,13 +612,11 @@ fn is_worktree_root(dir: &Path) -> bool {
 
 /// worktree の HEAD ブランチ名を取得する
 fn branch_of(root: &Path) -> String {
-    let gitdir = fs::read_to_string(root.join(".git"))
-        .ok()
-        .and_then(|s| {
-            s.lines()
-                .find_map(|l| l.strip_prefix("gitdir: "))
-                .map(str::to_string)
-        });
+    let gitdir = fs::read_to_string(root.join(".git")).ok().and_then(|s| {
+        s.lines()
+            .find_map(|l| l.strip_prefix("gitdir: "))
+            .map(str::to_string)
+    });
     let head = gitdir
         .map(|d| PathBuf::from(d).join("HEAD"))
         .unwrap_or_else(|| root.join(".git/HEAD"));

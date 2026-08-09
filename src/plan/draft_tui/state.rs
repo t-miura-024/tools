@@ -207,10 +207,10 @@ impl FormState {
 
     pub fn open_popup(&mut self) {
         let mut popup = RepoPopup::new();
-        if let Some(ref path) = self.repo_path {
-            if let Some(idx) = self.repos.iter().position(|e| &e.path == path) {
-                popup.selected_index = idx;
-            }
+        if let Some(ref path) = self.repo_path
+            && let Some(idx) = self.repos.iter().position(|e| &e.path == path)
+        {
+            popup.selected_index = idx;
         }
         self.popup = Some(popup);
     }
@@ -220,11 +220,11 @@ impl FormState {
     }
 
     pub fn confirm_repo_selection(&mut self) {
-        if let Some(popup) = self.popup.take() {
-            if let Some(entry) = self.repos.get(popup.selected_index) {
-                self.repo_path = Some(entry.path.clone());
-                self.repo_display = entry.display_name();
-            }
+        if let Some(popup) = self.popup.take()
+            && let Some(entry) = self.repos.get(popup.selected_index)
+        {
+            self.repo_path = Some(entry.path.clone());
+            self.repo_display = entry.display_name();
         }
     }
 

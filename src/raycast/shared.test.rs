@@ -94,13 +94,13 @@ fn test_passphrase_path_ends_with_dot_raycast_passphrase_age() {
 #[test]
 fn test_raycast_app_present_returns_bool() {
     let result = raycast_app_present();
-    assert!(result == true || result == false);
+    assert!(matches!(result, true | false));
 }
 
 #[test]
 fn test_age_binary_present_returns_bool() {
     let result = age_binary_present();
-    assert!(result == true || result == false);
+    assert!(matches!(result, true | false));
 }
 
 #[test]

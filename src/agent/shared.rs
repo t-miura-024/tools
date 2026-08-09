@@ -395,4 +395,4 @@ pub fn list_symlink_skills(dir: &Path) -> anyhow::Result<Vec<String>> {
 
 #[cfg(test)]
 #[path = "shared_test.rs"]
-mod tests;
+mod shared_tests;

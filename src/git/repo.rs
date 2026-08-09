@@ -41,7 +41,7 @@ pub fn create() -> anyhow::Result<()> {
     let visibility_options = ["Private", "Public"];
     let vis_idx = Select::new()
         .with_prompt("公開設定")
-        .items(&visibility_options)
+        .items(visibility_options)
         .default(0)
         .interact()?;
     let visibility = if vis_idx == 0 { "private" } else { "public" };

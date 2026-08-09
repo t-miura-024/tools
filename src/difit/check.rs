@@ -68,7 +68,7 @@ pub(crate) fn output_for_response(response: &shared::CommentGetResponse) -> Chec
         response
             .threads
             .iter()
-            .filter_map(|t| BlockingThread::from_thread(t))
+            .filter_map(BlockingThread::from_thread)
             .collect()
     };
 
