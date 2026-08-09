@@ -196,11 +196,14 @@ function formatDifitFeedback(ctx: PromptCtx): string | undefined {
  * tado のセッション DB は共有の ~/.tado/workflow.db（TADO_HOME で上書き可）に
  * あり、セッションディレクトリには置かれない（countReviewRounds と同じ）。
  */
-function resetReviewCycle(sessionId: string): void {
+function resetReviewCycle(sessionDir: string): void {
   const fs = require('node:fs');
   const dbPath = getWorkflowDbPath();
   if (!fs.existsSync(dbPath)) return;
 
+  // PromptCtx/CheckCtx.sessionId は tado が値を設定しないため sessionDir の
+  // basename（= セッション ID）から導出する（countReviewRounds と同じ）
+  const sessionId = basename(sessionDir);
   const { Database } = require('bun:sqlite') as { Database: new (path: string) => { query: (sql: string) => { get: (params?: unknown[]) => JsonRecord | undefined }; run: (sql: string, params?: unknown[]) => void; close: () => void } };
   const db = new Database(dbPath);
   try {
@@ -864,7 +867,7 @@ const def: WorkflowDef = {
 
         if (result.passes) return { status: 'pass', reasons: ['difit gate passes'] };
         try {
-          resetReviewCycle(ctx.sessionId);
+          resetReviewCycle(ctx.sessionDir);
         } catch (error) {
           return { status: 'error', reasons: [`failed to reset difit review cycle: ${String(error)}`] };
         }
