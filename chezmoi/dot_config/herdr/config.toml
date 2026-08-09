@@ -8,6 +8,7 @@ name = "catppuccin"
 
 [theme.custom]
 surface_dim = "#45475a"
+overlay0 = "#9399b2"
 
 [ui]
 agent_panel_sort = "priority"
