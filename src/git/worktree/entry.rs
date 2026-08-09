@@ -1,5 +1,4 @@
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 use regex::Regex;
 
@@ -102,7 +101,7 @@ pub(super) fn collect_shortstat(entries: &mut [WorktreeEntry]) {
         if entry.is_bare {
             continue;
         }
-        let output = Command::new("git")
+        let output = common::command_with_clean_git_context("git")
             .args(["-C", &entry.path, "diff", "--shortstat"])
             .output();
         if let Ok(out) = output

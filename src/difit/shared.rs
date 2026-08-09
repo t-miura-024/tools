@@ -5,7 +5,7 @@
 
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use std::process::{Child, Stdio};
 
 use anyhow::{Context, bail};
 use nix::sys::signal::{Signal, kill};
@@ -36,7 +36,7 @@ pub fn git_repo_root() -> anyhow::Result<PathBuf> {
 
 /// 指定ディレクトリを起点に Git リポジトリルートを返す。
 pub fn git_repo_root_in(cwd: &Path) -> anyhow::Result<PathBuf> {
-    let output = Command::new("git")
+    let output = crate::git::common::command_with_clean_git_context("git")
         .args(["rev-parse", "--show-toplevel"])
         .current_dir(cwd)
         .stdout(Stdio::piped())
@@ -165,7 +165,7 @@ pub fn spawn_difit_server(
 ) -> anyhow::Result<DifitBackgroundOutput> {
     use std::io::BufRead;
 
-    let mut cmd = Command::new("difit");
+    let mut cmd = crate::git::common::command_with_clean_git_context("difit");
     cmd.args(["--background", "--no-open", "--keep-alive"]);
 
     for comment in comments {
@@ -327,7 +327,7 @@ pub fn threads_to_import_comments(threads: &[Thread]) -> Vec<serde_json::Value> 
 
 /// 指定ポートの difit サーバからコメントを取得する。
 pub fn fetch_comments(port: u16) -> anyhow::Result<CommentGetResponse> {
-    let output = Command::new("difit")
+    let output = crate::git::common::command_with_clean_git_context("difit")
         .args([
             "comment",
             "get",
@@ -413,28 +413,28 @@ pub static DIFIT_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 pub(crate) fn make_temp_git_repo() -> (tempfile::TempDir, PathBuf) {
     let tmp = tempfile::tempdir().expect("tempdir");
     let path = tmp.path().to_path_buf();
-    Command::new("git")
+    crate::test_support::git_command()
         .args(["init", "-q", "-b", "main"])
         .current_dir(&path)
         .status()
         .expect("git init");
-    Command::new("git")
+    crate::test_support::git_command()
         .args(["config", "user.email", "test@test.local"])
         .current_dir(&path)
         .status()
         .expect("git config");
-    Command::new("git")
+    crate::test_support::git_command()
         .args(["config", "user.name", "test"])
         .current_dir(&path)
         .status()
         .expect("git config");
     std::fs::write(path.join("README.md"), "hello\n").unwrap();
-    Command::new("git")
+    crate::test_support::git_command()
         .args(["add", "."])
         .current_dir(&path)
         .status()
         .expect("git add");
-    Command::new("git")
+    crate::test_support::git_command()
         .args(["commit", "-qm", "initial"])
         .current_dir(&path)
         .status()
@@ -445,7 +445,7 @@ pub(crate) fn make_temp_git_repo() -> (tempfile::TempDir, PathBuf) {
 /// difit バイナリが利用可能かどうかを確認する。
 #[cfg(test)]
 pub(crate) fn difit_available() -> bool {
-    Command::new("difit")
+    crate::git::common::command_with_clean_git_context("difit")
         .arg("--version")
         .stdout(Stdio::null())
         .stderr(Stdio::null())

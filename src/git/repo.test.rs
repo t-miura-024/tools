@@ -259,7 +259,7 @@ fn test_discover_repos_handles_missing_roots() {
 // 現在地リポジトリ検出・マッチングのテスト（実 git コマンドを使用）
 
 fn run_git(cwd: &Path, args: &[&str]) {
-    let status = std::process::Command::new("git")
+    let status = crate::test_support::git_command()
         .current_dir(cwd)
         .args(args)
         .status()

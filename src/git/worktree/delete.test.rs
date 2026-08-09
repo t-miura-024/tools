@@ -25,7 +25,7 @@ fn test_format_recovery_hints_falls_back_to_generic_name() {
 // パス引数で動作するため、ここで cd は使わない。
 
 fn run_git(cwd: &Path, args: &[&str]) {
-    let status = std::process::Command::new("git")
+    let status = crate::test_support::git_command()
         .current_dir(cwd)
         .args(args)
         .status()

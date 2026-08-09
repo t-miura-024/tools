@@ -1,5 +1,4 @@
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 use anyhow::{Context, bail};
 use dialoguer::Confirm;
@@ -79,13 +78,13 @@ pub fn create(no_push: bool) -> anyhow::Result<()> {
 
     let spinner = style::spinner("worktree を作成中...");
     let result = if attach_to_existing {
-        Command::new("git")
+        common::command_with_clean_git_context("git")
             .args(["worktree", "add"])
             .arg(&new_path)
             .arg(&new_name)
             .status()
     } else {
-        Command::new("git")
+        common::command_with_clean_git_context("git")
             .args(["worktree", "add", "-b", &new_name])
             .arg(&new_path)
             .arg(&base)
@@ -144,7 +143,7 @@ fn push_branch(repo_path: &Path, branch: &str) -> anyhow::Result<()> {
             repo_path.display()
         );
     };
-    let output = Command::new("git")
+    let output = common::command_with_clean_git_context("git")
         .args(["-C", path_str, "push", "-u", "origin", branch])
         .output()
         .context("git push の起動に失敗しました")?;

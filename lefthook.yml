@@ -1,0 +1,30 @@
+pre-commit:
+  parallel: true
+  commands:
+    fmt:
+      run: cargo fmt --check
+    clippy:
+      run: cargo clippy --all-targets -- -D warnings
+
+pre-push:
+  commands:
+    test:
+      run: >-
+        env -u GIT_DIR
+        -u GIT_WORK_TREE
+        -u GIT_COMMON_DIR
+        -u GIT_INDEX_FILE
+        -u GIT_OBJECT_DIRECTORY
+        -u GIT_ALTERNATE_OBJECT_DIRECTORIES
+        -u GIT_PREFIX
+        cargo test
+
+post-commit:
+  commands:
+    agent-config-sync:
+      run: |
+        changed_files=$(git diff-tree --no-commit-id --name-only -r HEAD)
+        if echo "$changed_files" | grep -q "^agent-configs/"; then
+          echo "Detected changes in agent-configs/, syncing..."
+          mt agent-config sync
+        fi

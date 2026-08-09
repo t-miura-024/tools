@@ -1,6 +1,5 @@
 use super::*;
 use crate::git::common::ActionSelector;
-use std::process::Command;
 
 struct AbortSelector;
 impl ActionSelector for AbortSelector {
@@ -17,7 +16,7 @@ impl ActionSelector for FailSelector {
 }
 
 fn run_git(cwd: &Path, args: &[&str]) {
-    let status = Command::new("git")
+    let status = crate::test_support::git_command()
         .current_dir(cwd)
         .args(args)
         .status()
@@ -38,7 +37,7 @@ fn make_temp_git_repo(branch: &str) -> (tempfile::TempDir, PathBuf) {
 }
 
 fn current_branch_of(cwd: &Path) -> String {
-    let out = Command::new("git")
+    let out = crate::test_support::git_command()
         .current_dir(cwd)
         .args(["branch", "--show-current"])
         .output()

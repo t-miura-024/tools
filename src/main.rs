@@ -14,6 +14,9 @@ mod raycast;
 mod tool;
 mod vector;
 
+#[cfg(test)]
+mod test_support;
+
 #[derive(Parser)]
 #[command(name = "mt", about = "個人用 CLI ツール群")]
 struct Cli {

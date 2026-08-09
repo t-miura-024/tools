@@ -1,5 +1,6 @@
-use assert_cmd::Command;
+mod support;
 use predicates::prelude::predicate;
+use support::Command;
 
 #[test]
 fn test_mt_vector_help() {

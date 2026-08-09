@@ -41,7 +41,7 @@ pub fn create() -> anyhow::Result<()> {
     let visibility_options = ["Private", "Public"];
     let vis_idx = Select::new()
         .with_prompt("公開設定")
-        .items(&visibility_options)
+        .items(visibility_options)
         .default(0)
         .interact()?;
     let visibility = if vis_idx == 0 { "private" } else { "public" };
@@ -110,7 +110,7 @@ fn check_gh_auth() -> anyhow::Result<bool> {
 fn setup_local_repo(dir: &PathBuf, _name: &str) -> anyhow::Result<()> {
     fs::create_dir_all(dir)?;
 
-    let status = Command::new("git")
+    let status = crate::git::common::command_with_clean_git_context("git")
         .args(["init", "-b", "main"])
         .current_dir(dir)
         .status()?;
@@ -121,7 +121,7 @@ fn setup_local_repo(dir: &PathBuf, _name: &str) -> anyhow::Result<()> {
     fs::write(dir.join("README.md"), format!("# {}\n", _name))?;
     fs::write(dir.join(".gitignore"), "")?;
 
-    let status = Command::new("git")
+    let status = crate::git::common::command_with_clean_git_context("git")
         .args(["add", "."])
         .current_dir(dir)
         .status()?;
@@ -129,7 +129,7 @@ fn setup_local_repo(dir: &PathBuf, _name: &str) -> anyhow::Result<()> {
         bail!("git add に失敗しました");
     }
 
-    let status = Command::new("git")
+    let status = crate::git::common::command_with_clean_git_context("git")
         .args(["commit", "-m", "Initial commit"])
         .current_dir(dir)
         .status()?;

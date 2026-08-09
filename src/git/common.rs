@@ -5,6 +5,28 @@ use std::process::{Command, Stdio};
 use anyhow::{Context, bail};
 use dialoguer::Select;
 
+pub(crate) const GIT_CONTEXT_ENV: &[&str] = &[
+    "GIT_DIR",
+    "GIT_WORK_TREE",
+    "GIT_COMMON_DIR",
+    "GIT_INDEX_FILE",
+    "GIT_OBJECT_DIRECTORY",
+    "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+    "GIT_PREFIX",
+];
+
+pub(crate) fn clear_git_context(command: &mut Command) {
+    for variable in GIT_CONTEXT_ENV {
+        command.env_remove(variable);
+    }
+}
+
+pub(crate) fn command_with_clean_git_context(program: &str) -> Command {
+    let mut command = Command::new(program);
+    clear_git_context(&mut command);
+    command
+}
+
 pub trait ActionSelector {
     fn select(&self, prompt: &str, options: &[String]) -> anyhow::Result<usize>;
 }
@@ -27,7 +49,9 @@ pub fn ensure_inside_git_repo() -> anyhow::Result<()> {
 }
 
 pub fn ensure_inside_git_repo_in(cwd: &Path) -> anyhow::Result<()> {
-    let status = Command::new("git")
+    let mut command = Command::new("git");
+    clear_git_context(&mut command);
+    let status = command
         .args(["rev-parse", "--is-inside-work-tree"])
         .current_dir(cwd)
         .stdout(Stdio::null())
@@ -43,7 +67,11 @@ pub fn ensure_inside_git_repo_in(cwd: &Path) -> anyhow::Result<()> {
 }
 
 pub fn command_output_in(cwd: &Path, command: &str, args: &[&str]) -> anyhow::Result<String> {
-    let output = Command::new(command)
+    let mut child = Command::new(command);
+    if command == "git" {
+        clear_git_context(&mut child);
+    }
+    let output = child
         .args(args)
         .current_dir(cwd)
         .output()
@@ -76,7 +104,11 @@ pub fn command_status(command: &str, args: &[&str]) -> bool {
 }
 
 pub fn command_status_in(cwd: &Path, command: &str, args: &[&str]) -> bool {
-    Command::new(command)
+    let mut child = Command::new(command);
+    if command == "git" {
+        clear_git_context(&mut child);
+    }
+    child
         .args(args)
         .current_dir(cwd)
         .stdout(Stdio::null())

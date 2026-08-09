@@ -1,7 +1,6 @@
 use super::*;
 use crate::git::common::ActionSelector;
 use std::path::PathBuf;
-use std::process::Command;
 
 struct AbortSelector;
 impl ActionSelector for AbortSelector {
@@ -11,7 +10,7 @@ impl ActionSelector for AbortSelector {
 }
 
 fn run_git(cwd: &Path, args: &[&str]) {
-    let status = Command::new("git")
+    let status = crate::test_support::git_command()
         .current_dir(cwd)
         .args(args)
         .status()

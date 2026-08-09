@@ -30,8 +30,7 @@ mod tests {
     #[test]
     fn test_parse_actual_file() {
         let content =
-            std::fs::read_to_string("chezmoi/dot_cursor/agents/mt-plan-work-executor.md")
-                .unwrap();
+            std::fs::read_to_string("chezmoi/dot_cursor/agents/mt-plan-work-executor.md").unwrap();
         let result = crate::agent::shared::parse_cursor_agent(&content).unwrap();
         assert_eq!(result.meta.color, "green");
     }
