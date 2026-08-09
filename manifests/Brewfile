@@ -36,6 +36,7 @@ brew "ripgrep"
 brew "sevenzip"
 brew "yazi"
 brew "zoxide"
+brew "lefthook"
 
 cask "arc"
 cask "claude-code"
