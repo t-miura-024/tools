@@ -107,7 +107,9 @@ pub fn discover_repos(roots: &[PathBuf]) -> anyhow::Result<Vec<RepoEntry>> {
 /// ロジックでメインリポジトリに解決される。
 /// git リポジトリ外の場合や検出に失敗した場合は `None` を返す。
 pub fn detect_current_repo_path(cwd: &Path) -> Option<PathBuf> {
-    let output = Command::new("git")
+    let mut command = Command::new("git");
+    common::clear_git_context(&mut command);
+    let output = command
         .args(["rev-parse", "--path-format=absolute", "--git-common-dir"])
         .current_dir(cwd)
         .stderr(Stdio::null())

@@ -174,12 +174,16 @@ fn is_commit_ref(s: &str) -> bool {
 pub fn mark_untracked_intent_to_add(repo_root: &std::path::Path) {
     use std::os::unix::ffi::OsStrExt;
 
-    let listed = match std::process::Command::new("git")
-        .args(["ls-files", "--others", "--exclude-standard", "-z"])
-        .current_dir(repo_root)
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::null())
-        .output()
+    let listed = match {
+        let mut command = std::process::Command::new("git");
+        crate::git::common::clear_git_context(&mut command);
+        command
+    }
+    .args(["ls-files", "--others", "--exclude-standard", "-z"])
+    .current_dir(repo_root)
+    .stdout(std::process::Stdio::piped())
+    .stderr(std::process::Stdio::null())
+    .output()
     {
         Ok(output) if output.status.success() => output.stdout,
         _ => return,
@@ -195,15 +199,19 @@ pub fn mark_untracked_intent_to_add(repo_root: &std::path::Path) {
         return;
     }
 
-    let result = std::process::Command::new("git")
-        .arg("add")
-        .arg("--intent-to-add")
-        .arg("--")
-        .args(&files)
-        .current_dir(repo_root)
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::piped())
-        .output();
+    let result = {
+        let mut command = std::process::Command::new("git");
+        crate::git::common::clear_git_context(&mut command);
+        command
+    }
+    .arg("add")
+    .arg("--intent-to-add")
+    .arg("--")
+    .args(&files)
+    .current_dir(repo_root)
+    .stdout(std::process::Stdio::null())
+    .stderr(std::process::Stdio::piped())
+    .output();
 
     match result {
         Ok(output) if output.status.success() => {

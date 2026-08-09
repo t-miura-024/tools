@@ -245,7 +245,9 @@ fn test_done_cli_exits_zero_and_prints_json_schema() {
     })];
     let bg = setup_server(&path, &comments);
 
-    let output = Command::new(assert_cmd::cargo::cargo_bin("mt"))
+    let mut command = Command::new(assert_cmd::cargo::cargo_bin("mt"));
+    crate::git::common::clear_git_context(&mut command);
+    let output = command
         .args(["difit", "done"])
         .current_dir(&path)
         .output()

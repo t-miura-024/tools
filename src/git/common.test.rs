@@ -1,9 +1,9 @@
 use super::*;
 use std::path::PathBuf;
-use std::process::{Command, Command as StdCommand};
+use std::process::Command;
 
 fn run_git(cwd: &Path, args: &[&str]) {
-    let status = Command::new("git")
+    let status = crate::test_support::git_command()
         .current_dir(cwd)
         .args(args)
         .status()
@@ -21,6 +21,25 @@ fn make_temp_git_repo(branch: &str) -> (tempfile::TempDir, PathBuf) {
     run_git(&path, &["add", "."]);
     run_git(&path, &["commit", "-qm", "initial"]);
     (tmp, path)
+}
+
+#[test]
+fn test_clear_git_context_removes_hook_environment() {
+    let mut command = Command::new("sh");
+    command
+        .env("GIT_DIR", "/outside/repository/.git")
+        .env("GIT_WORK_TREE", "/outside/repository")
+        .env("GIT_INDEX_FILE", "/outside/repository/index");
+    clear_git_context(&mut command);
+    let status = command
+        .args([
+            "-c",
+            "test -z \"$GIT_DIR\" && test -z \"$GIT_WORK_TREE\" && test -z \"$GIT_INDEX_FILE\"",
+        ])
+        .status()
+        .expect("シェルの起動");
+
+    assert!(status.success(), "Git hook 環境が子プロセスに残っている");
 }
 
 #[test]
@@ -190,7 +209,7 @@ fn test_resolve_default_branch_strips_origin_prefix() {
     );
 
     // origin/HEAD が clone 時に設定されているはず
-    let symbolic = StdCommand::new("git")
+    let symbolic = crate::test_support::git_command()
         .args(["symbolic-ref", "--short", "refs/remotes/origin/HEAD"])
         .current_dir(&clone)
         .output()

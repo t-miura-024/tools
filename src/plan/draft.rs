@@ -363,7 +363,7 @@ fn spawn_gh_auth_check() -> mpsc::Receiver<bool> {
 }
 
 pub fn get_repo_owner_and_name(repo_path: &std::path::Path) -> anyhow::Result<(String, String)> {
-    let output = Command::new("git")
+    let output = crate::git::common::command_with_clean_git_context("git")
         .args(["-C"])
         .arg(repo_path)
         .args(["remote", "get-url", "origin"])

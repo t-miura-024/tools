@@ -224,7 +224,7 @@ fn test_mark_untracked_intent_to_add_includes_files_in_diff() {
 
     mark_untracked_intent_to_add(&path);
 
-    let output = Command::new("git")
+    let output = crate::test_support::git_command()
         .args(["diff"])
         .current_dir(&path)
         .output()
@@ -349,7 +349,7 @@ fn test_reinject_excludes_resolved_threads() {
     assert_eq!(resp.threads.len(), 2);
     let thread_id = &resp.threads[0].id;
 
-    let resolve_output = Command::new("difit")
+    let resolve_output = crate::git::common::command_with_clean_git_context("difit")
         .args([
             "comment",
             "resolve",
@@ -476,7 +476,7 @@ fn test_reinject_reply_roundtrip() {
         "position": {"side": "new", "line": 2},
         "body": "this is a reply"
     });
-    let add_output = Command::new("difit")
+    let add_output = crate::git::common::command_with_clean_git_context("difit")
         .args(["comment", "add", "--port", &bg1.port.to_string()])
         .arg(reply_json.to_string())
         .output()
@@ -537,7 +537,7 @@ fn test_reinject_reply_roundtrip() {
 
 /// ヘルパー: 指定リポジトリで git コマンドを実行する（失敗時 panic）。
 fn git_cmd(path: &std::path::Path, args: &[&str]) {
-    let output = Command::new("git")
+    let output = crate::test_support::git_command()
         .args(args)
         .current_dir(path)
         .output()
@@ -671,7 +671,9 @@ fn run_mt_difit_start(path: &std::path::Path, stdin_input: &str) -> std::process
     use std::io::Write;
     use std::process::Stdio;
 
-    let mut child = Command::new(assert_cmd::cargo::cargo_bin("mt"))
+    let mut command = Command::new(assert_cmd::cargo::cargo_bin("mt"));
+    crate::git::common::clear_git_context(&mut command);
+    let mut child = command
         .args(["difit", "start", "working"])
         .current_dir(path)
         .stdin(Stdio::piped())

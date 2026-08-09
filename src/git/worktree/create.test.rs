@@ -86,7 +86,7 @@ fn test_next_worktree_index_filters_by_repo_name() {
 // 実 git を一時ディレクトリに作って branch_exists / push_branch を検証。
 
 fn run_git(cwd: &Path, args: &[&str]) {
-    let status = std::process::Command::new("git")
+    let status = crate::test_support::git_command()
         .current_dir(cwd)
         .args(args)
         .status()

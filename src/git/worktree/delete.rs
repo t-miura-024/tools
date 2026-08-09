@@ -1,5 +1,5 @@
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 
 use anyhow::Context;
 use dialoguer::Confirm;
@@ -64,7 +64,9 @@ pub fn delete(force: bool) -> anyhow::Result<()> {
     args.push(&target);
 
     let spinner = style::spinner("worktree を削除中...");
-    let result = Command::new("git").args(&args).status();
+    let result = common::command_with_clean_git_context("git")
+        .args(&args)
+        .status();
     match result {
         Ok(status) if status.success() => {
             spinner.finish_with_message("worktree を削除しました");
@@ -166,7 +168,7 @@ fn check_worktree_safety(path: &Path) -> anyhow::Result<Vec<SafetyIssue>> {
                     "git",
                     &["-C", path_str, "rev-parse", "--verify", "--quiet", base],
                 ) {
-                    let merged = Command::new("git")
+                    let merged = common::command_with_clean_git_context("git")
                         .args(["-C", path_str, "merge-base", "--is-ancestor", branch, base])
                         .stdout(Stdio::null())
                         .stderr(Stdio::null())

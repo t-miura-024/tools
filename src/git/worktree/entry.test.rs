@@ -67,7 +67,7 @@ fn test_parse_shortstat_zero_diff_falls_back_to_zero_zero() {
 // テスト並列実行で CWD が他テストと衝突しないよう、パス引数で動作させる。
 
 fn run_git(cwd: &Path, args: &[&str]) {
-    let status = std::process::Command::new("git")
+    let status = crate::test_support::git_command()
         .current_dir(cwd)
         .args(args)
         .status()

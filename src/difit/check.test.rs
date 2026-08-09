@@ -3,7 +3,6 @@
 //! 実 difit バイナリを使ったゲート判定の統合テストを含む（完了条件 2, 6）。
 
 use super::*;
-use std::process::Command;
 
 /// サーバを起動し、状態を保存するヘルパー。
 fn setup_server(
@@ -173,7 +172,7 @@ fn test_check_gate_passes_after_resolve() {
         .iter()
         .find(|t| t.messages[0].body.starts_with("[issue]"))
         .unwrap();
-    let resolve_out = Command::new("difit")
+    let resolve_out = crate::git::common::command_with_clean_git_context("difit")
         .args([
             "comment",
             "resolve",

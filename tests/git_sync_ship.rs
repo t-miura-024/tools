@@ -1,11 +1,11 @@
 use std::path::{Path, PathBuf};
-use std::process::Command as StdCommand;
 
-use assert_cmd::Command;
+mod support;
+use support::Command;
 use tempfile::TempDir;
 
 fn run_git(cwd: &Path, args: &[&str]) {
-    let status = StdCommand::new("git")
+    let status = support::git_command()
         .current_dir(cwd)
         .args(args)
         .status()
@@ -14,7 +14,7 @@ fn run_git(cwd: &Path, args: &[&str]) {
 }
 
 fn run_git_output(cwd: &Path, args: &[&str]) -> String {
-    let output = StdCommand::new("git")
+    let output = support::git_command()
         .current_dir(cwd)
         .args(args)
         .output()
