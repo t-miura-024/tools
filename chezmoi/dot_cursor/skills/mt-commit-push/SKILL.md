@@ -10,7 +10,7 @@ disable-model-invocation: true
 
 ## 🧠 前提知識
 
-- 関連 Skill: mt-check-git-diff（変更内容の確認に使用）
+- 差分取得: `bun run ~/.cursor/skills/_shared/get-git-diff.ts`（変更内容の確認に使用）
 - コミットメッセージのプレフィクス: `add:` / `fix:` / `update:` / `remove:` / `refactor:` / `chore:`
 
 ### モード
@@ -35,12 +35,13 @@ disable-model-invocation: true
     - main または master ブランチの場合は警告を表示し、ユーザーに続行確認を求める。
     - ユーザーが中止を選択した場合は処理を終了する。
 
-1. **mt-check-git-diff Skill** を実行して、現在の変更内容を確認する。
-    - 変更がない場合は処理を終了する。
+1. 対象リポジトリ内で `bun run ~/.cursor/skills/_shared/get-git-diff.ts` を実行して、現在の変更内容を確認する。
+    - 出力 JSON の `staged` / `unstaged` / `untracked` から変更ファイルと変更状態を把握する。
+    - `hasChanges: false` の場合は変更がないため処理を終了する。
 
 2. **スコープに基づく対象ファイルの決定**:
-    - **session スコープ**: セッション中に自身が編集したファイルの一覧を特定し、mt-check-git-diff で検出された変更ファイルとの交差集合を「対象ファイル」とする。交差集合が空の場合は「セッションで変更したファイルに git 差分がありません」と報告して処理を終了する。
-    - **all スコープ**: mt-check-git-diff で検出された全ファイルを「対象ファイル」とする。
+    - **session スコープ**: セッション中に自身が編集したファイルの一覧を特定し、get-git-diff.ts の JSON で検出された変更ファイルとの交差集合を「対象ファイル」とする。交差集合が空の場合は「セッションで変更したファイルに git 差分がありません」と報告して処理を終了する。
+    - **all スコープ**: get-git-diff.ts の JSON で検出された全ファイル（`staged` / `unstaged` / `untracked` のすべて）を「対象ファイル」とする。
 
 3. 対象ファイルの変更内容を分析して、以下のルールに基づいて適切なプレフィクスを決定する：
     - `add:` - 新規コードの追加が含まれている場合

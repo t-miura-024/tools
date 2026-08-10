@@ -10,7 +10,7 @@ disable-model-invocation: true
 
 ## 🧠 前提知識
 
-- 関連 Skill: mt-check-branch-diff（ベースブランチの検出と差分取得に使用）
+- 差分取得スクリプト: `bun run ~/.cursor/skills/_shared/get-branch-diff.ts`（ベースブランチの検出と差分取得に使用）
 - `gh` CLI を使用して PR を作成・更新する
 - 説明欄は一時ファイル経由（`--body-file`）で渡す（シェルエスケープ問題の回避）
 - Notion MCP（`notion-fetch`）が利用可能な場合は背景情報の自動取得に使用
@@ -23,8 +23,9 @@ disable-model-invocation: true
    feature ブランチの条件はブランチ名が「feature/」から始まるブランチかどうかとする。
    hotfix ブランチの条件はブランチ名が「hotfix/」から始まるブランチかどうかとする。
    上記いずれにも該当しない場合はユーザーに伝えて作業を終了する。
-2. **mt-check-branch-diff Skill** を実行して、ベースブランチの検出と差分を取得する。
-   取得した情報（ベースブランチ名、差分ファイル一覧、変更統計、各ファイルの詳細 diff）を以降の手順で使用する。
+2. 対象リポジトリ内で `bun run ~/.cursor/skills/_shared/get-branch-diff.ts` を実行して、ベースブランチの検出と差分を取得する。
+   出力 JSON から取得した情報（`baseBranch` のベースブランチ名、`files` の差分ファイル一覧、`stat` の変更統計、各ファイルの詳細 diff）を以降の手順で使用する。
+   `hasChanges: false` の場合はベースブランチとの差分がないため、その旨をユーザーに報告して作業を終了する。
 3. `git fetch origin [ベースブランチ]` を実行して、ベースブランチを最新の状態に更新する。
 4. `git merge origin/[ベースブランチ]` を実行して、feature ブランチにベースブランチを取り込む。
    コンフリクトした場合は解消せず、ユーザーにコンフリクトしてしまったため解消してほしい旨を伝えて作業を終了する。
