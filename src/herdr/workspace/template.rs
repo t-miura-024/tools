@@ -203,7 +203,7 @@ fn apply_layouts(
     for (i, tab) in template.tabs.iter().enumerate() {
         let root = inject_cwd(&tab.root, cwd);
         let result = match existing_tabs.get(i) {
-            Some(existing) => socket.layout_apply_replace(workspace_id, &existing.tab_id, &root),
+            Some(existing) => socket.layout_apply_replace(&existing.tab_id, &root),
             None => socket.layout_apply_create(workspace_id, &tab.label, &root),
         };
         match result {
@@ -573,9 +573,15 @@ mod tests {
             "w1:t1"
         );
         assert_eq!(
+            requests[0].get("params").unwrap().get("workspace_id"),
+            None,
+            "置換時は workspace_id を送らない"
+        );
+        assert_eq!(
             requests[1].get("params").unwrap().get("tab_id").unwrap(),
             "w1:t2"
         );
+        assert_eq!(requests[1].get("params").unwrap().get("workspace_id"), None);
         assert_eq!(requests[1].get("params").unwrap().get("tab_label"), None);
         let third = requests[2].get("params").unwrap();
         assert_eq!(third.get("tab_id"), None);
