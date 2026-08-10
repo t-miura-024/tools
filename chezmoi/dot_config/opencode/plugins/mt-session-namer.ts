@@ -8,7 +8,6 @@ const TEMP_TITLE = "session-namer-temp";
 const THROTTLE_MS = 60_000;
 const MAX_LLM_CALLS = 3;
 const DEFAULT_MAX_LENGTH = 60;
-const MODEL_PATTERNS = [/free/i, /flash/i, /lite/i];
 const ENV_MODEL = process.env.OPENCODE_SESSION_NAMER_MODEL;
 const ENV_MAX_LENGTH =
   Number(process.env.OPENCODE_SESSION_NAMER_MAX_LENGTH) ||
@@ -26,6 +25,11 @@ type SessionInfo = Pick<
 >;
 
 type QueueTask = () => Promise<void>;
+
+type ModelCandidate = {
+  providerID: string;
+  modelID: string;
+};
 
 function enqueue(
   queue: { current: Promise<void> },
@@ -82,13 +86,38 @@ function sessionFromInfo(value: unknown): SessionInfo | undefined {
   return session as SessionInfo;
 }
 
-function cheapModelID(models: Provider["models"] | undefined): string | null {
-  const modelIDs = Object.keys(models ?? {});
-  for (const pattern of MODEL_PATTERNS) {
-    const match = modelIDs.find((id) => pattern.test(id));
-    if (match) return match;
-  }
-  return modelIDs[0] ?? null;
+function comparableCost(value: number | undefined): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0
+    ? value
+    : undefined;
+}
+
+function compareCost(a: number | undefined, b: number | undefined): number {
+  if (a === undefined && b === undefined) return 0;
+  if (a === undefined) return 1;
+  if (b === undefined) return -1;
+  return a - b;
+}
+
+export function orderModelIDs(
+  models: Provider["models"] | undefined,
+): string[] {
+  return Object.entries(models ?? {})
+    .map(([modelID, model], index) => ({ modelID, model, index }))
+    .sort((a, b) => {
+      const inputCost = compareCost(
+        comparableCost(a.model.cost?.input),
+        comparableCost(b.model.cost?.input),
+      );
+      if (inputCost !== 0) return inputCost;
+
+      const outputCost = compareCost(
+        comparableCost(a.model.cost?.output),
+        comparableCost(b.model.cost?.output),
+      );
+      return outputCost !== 0 ? outputCost : a.index - b.index;
+    })
+    .map(({ modelID }) => modelID);
 }
 
 export const SessionNamer: Plugin = async ({ client, project, directory }) => {
@@ -101,8 +130,7 @@ export const SessionNamer: Plugin = async ({ client, project, directory }) => {
   const llmCallCounts = new Map<string, number>();
   const pending = new Set<string>();
   const tempSessions = new Set<string>();
-  let resolvedModel: { providerID: string; modelID: string } | null | undefined =
-    null;
+  const resolvedModels = new Map<string, ModelCandidate[]>();
 
   if (ENV_DISABLED) return {};
 
@@ -155,58 +183,59 @@ export const SessionNamer: Plugin = async ({ client, project, directory }) => {
     }
   }
 
-  async function findModel(): Promise<{
-    providerID: string;
-    modelID: string;
-  } | null> {
+  async function findModels(providerID: string | null): Promise<ModelCandidate[]> {
+    if (!providerID) {
+      log("warn", "main session provider is unavailable");
+      return [];
+    }
+
     try {
       const providerResponse = await client.config.providers();
       const providers = providerResponse.data?.providers ?? [];
+      const provider = providers.find((candidate) => candidate.id === providerID);
+      if (!provider) {
+        log("warn", `main session provider not found: ${providerID}`);
+        return [];
+      }
+
+      const modelIDs = orderModelIDs(provider.models);
       if (ENV_MODEL) {
-        if (ENV_MODEL.includes("/")) {
-          const [providerID, modelID] = ENV_MODEL.split("/", 2);
-          return { providerID, modelID };
-        }
-        for (const provider of providers) {
-          if (ENV_MODEL in (provider.models ?? {})) {
-            return { providerID: provider.id, modelID: ENV_MODEL };
-          }
-        }
-        log("warn", `model not found in any provider: ${ENV_MODEL}`);
-        return null;
-      }
-      let connected: string[] = [];
-      try {
-        const listResponse = await client.provider.list();
-        connected = listResponse.data?.connected ?? [];
-      } catch (error) {
-        log("debug", `provider list failed: ${errorMessage(error)}`);
-      }
-      const sorted = [
-        ...providers.filter((p) => connected.includes(p.id)),
-        ...providers.filter((p) => !connected.includes(p.id)),
-      ];
-      for (const provider of sorted) {
-        const modelID = cheapModelID(provider.models);
-        if (modelID) {
-          log("info", `selected model: ${provider.id}/${modelID}`);
-          return { providerID: provider.id, modelID };
+        const [requestedProviderID, requestedModelID] = ENV_MODEL.includes("/")
+          ? ENV_MODEL.split("/", 2)
+          : [providerID, ENV_MODEL];
+        if (requestedProviderID !== providerID) {
+          log(
+            "warn",
+            `ignoring model from another provider: ${ENV_MODEL} (main provider: ${providerID})`,
+          );
+        } else if (requestedModelID && requestedModelID in provider.models) {
+          return [
+            { providerID, modelID: requestedModelID },
+            ...modelIDs
+              .filter((modelID) => modelID !== requestedModelID)
+              .map((modelID) => ({ providerID, modelID })),
+          ];
+        } else {
+          log("warn", `model not found in main provider: ${ENV_MODEL}`);
         }
       }
-      log("warn", "no usable model found");
+
+      return modelIDs.map((modelID) => ({ providerID, modelID }));
     } catch (error) {
       log("warn", `provider lookup failed: ${errorMessage(error)}`);
+      return [];
     }
-    return null;
   }
 
-  async function resolveModel(): Promise<{
-    providerID: string;
-    modelID: string;
-  } | undefined> {
-    if (resolvedModel !== null) return resolvedModel;
-    resolvedModel = (await findModel()) ?? undefined;
-    return resolvedModel;
+  async function resolveModels(
+    providerID: string | null,
+  ): Promise<ModelCandidate[]> {
+    if (!providerID) return [];
+    const cached = resolvedModels.get(providerID);
+    if (cached) return cached;
+    const candidates = await findModels(providerID);
+    resolvedModels.set(providerID, candidates);
+    return candidates;
   }
 
   async function getConversation(sessionID: string): Promise<{
@@ -214,12 +243,14 @@ export const SessionNamer: Plugin = async ({ client, project, directory }) => {
     latestUser: string;
     firstAssistant: string;
     latestAssistant: string;
+    providerID: string | null;
   }> {
     const empty = {
       firstUser: "",
       latestUser: "",
       firstAssistant: "",
       latestAssistant: "",
+      providerID: null,
     };
     try {
       const response = await client.session.messages({
@@ -227,12 +258,15 @@ export const SessionNamer: Plugin = async ({ client, project, directory }) => {
       });
       const result = { ...empty };
       for (const entry of response.data ?? []) {
-        const text = textOf(entry.parts);
-        if (!text) continue;
         if (entry.info.role === "user") {
+          const text = textOf(entry.parts);
+          if (!text) continue;
           if (!result.firstUser) result.firstUser = text;
           result.latestUser = text;
         } else if (entry.info.role === "assistant") {
+          result.providerID = entry.info.providerID;
+          const text = textOf(entry.parts);
+          if (!text) continue;
           if (!result.firstAssistant) result.firstAssistant = text;
           result.latestAssistant = text;
         }
@@ -251,8 +285,9 @@ export const SessionNamer: Plugin = async ({ client, project, directory }) => {
       latestUser: string;
       firstAssistant: string;
       latestAssistant: string;
+      providerID: string | null;
     },
-    model: { providerID: string; modelID: string },
+    model: ModelCandidate,
   ): Promise<string | null> {
     const context: string[] = [];
     if (conversation.firstUser) {
@@ -314,7 +349,10 @@ export const SessionNamer: Plugin = async ({ client, project, directory }) => {
       const title = sanitizeTitle(firstLine || text, ENV_MAX_LENGTH);
       return title.length > 0 ? title : null;
     } catch (error) {
-      log("warn", `title generation failed: ${errorMessage(error)}`);
+      log(
+        "warn",
+        `title generation failed for ${model.providerID}/${model.modelID}: ${errorMessage(error)}`,
+      );
       return null;
     } finally {
       if (tempID) {
@@ -378,10 +416,15 @@ export const SessionNamer: Plugin = async ({ client, project, directory }) => {
       lastEvaluationAt.set(sessionID, now);
       pending.add(sessionID);
       try {
-        const model = await resolveModel();
-        if (model) {
-          llmCallCounts.set(sessionID, calls + 1);
+        const models = await resolveModels(conversation.providerID);
+        let attempts = calls;
+        for (const model of models) {
+          if (attempts >= MAX_LLM_CALLS) break;
+          attempts += 1;
+          llmCallCounts.set(sessionID, attempts);
+          log("info", `selected model: ${model.providerID}/${model.modelID}`);
           title = await generateTitle(sessionID, conversation, model);
+          if (title) break;
         }
       } finally {
         pending.delete(sessionID);
