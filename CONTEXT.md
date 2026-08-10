@@ -109,3 +109,37 @@ _Avoid_: キュー, 未回答リスト
 **design tree**:
 決定事項をノード、依存関係をエッジとして持つ木の構造。ラウンドごとの回答で枝が確定し、フロンティアが外側へ押し出される。
 _Avoid_: 質問リスト, アジェンダ
+
+## herdr ワークスペーステンプレート
+
+**mt herdr workspace template**:
+herdr のワークスペース設定状態を名前付きテンプレートとして作成・一覧・反映・削除する `mt` の機能。
+_Avoid_: herdr template, workspace preset
+
+**ワークスペース**:
+herdr が管理するタブと pane のまとまりで、設定状態を保存・反映する対象。
+_Avoid_: worktree, window, session
+
+**pane**:
+ワークスペース内で個別の作業ディレクトリを持つ作業領域。
+_Avoid_: panel, split
+
+**設定状態**:
+ワークスペースのタブ・pane の構成、配置、およびそれらを再現するための設定を表す状態。
+_Avoid_: layout, snapshot
+
+**テンプレート**:
+名前を持つ設定状態の保存単位。特定のワークスペースや cwd に属さず、別のワークスペースで再利用できる。
+_Avoid_: preset, profile, snapshot
+
+**反映**:
+選択したテンプレートの設定状態を、反映コマンドの実行対象ワークスペースへ適用する操作。
+_Avoid_: 適用, 復元
+
+**反映時 cwd**:
+反映コマンドを実行した時点の現在の作業ディレクトリ。テンプレートには含めず、反映時にすべての pane の cwd として使う。
+_Avoid_: template cwd, saved cwd
+
+**ユーザー共通 JSON**:
+リポジトリやワークスペースに依存せず、ユーザー単位でテンプレートを保存する JSON ファイル。
+_Avoid_: repository-local JSON, workspace-local JSON

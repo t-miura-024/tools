@@ -37,6 +37,10 @@ cargo install --path .
 | `mt git worktree select`       | Git worktree を選択してパスを出力      |
 | `mt git worktree create`       | Git worktree と新規ブランチを対話的に作成 |
 | `mt git worktree delete`       | Git worktree を対話的に削除（多段ガード + 復旧ヒント） |
+| `mt herdr workspace duplicate` | herdr ワークスペースを対話中に複製（既存タブ + 設定のクローン） |
+| `mt herdr workspace template create` | ワークスペースのタブ・ペーン構成を名前付きテンプレートとして保存 |
+| `mt herdr workspace template apply`  | テンプレートをワークスペースに反映（既存タブ置換 + cwd 注入 + active 復元） |
+| `mt herdr workspace template delete` | 保存済みテンプレートを一覧から選択して削除 |
 | `mt opencode oauth setup`      | Google OAuth のセットアップ            |
 | `mt opencode web expose`       | OpenCode Web を ngrok で公開           |
 | `mt opencode web stop`         | OpenCode Web の公開を停止              |
@@ -111,6 +115,25 @@ mt raycast sync
 mt raycast restore
 # → バックアップパスと passphrase を表示 → Raycast Import 画面が開く → GUI で Import 手順を案内
 ```
+
+## herdr ワークスペーステンプレート
+
+herdr のタブ・ペーン構成を名前付きテンプレートとして保存し、別のワークスペースへ反映します。対象ワークスペースは `HERDR_WORKSPACE_ID` 環境変数のみから解決し、推測しません。テンプレートは `~/.config/mt/herdr/templates/<name>.json` に保存されます。
+
+```bash
+# 現在のワークスペースの構成をテンプレートとして保存（対話で名前を入力）
+HERDR_WORKSPACE_ID=w1 mt herdr workspace template create
+
+# テンプレートを別のワークスペースに反映（不足タブは作成・余剰タブは削除）
+HERDR_WORKSPACE_ID=w2 mt herdr workspace template apply
+
+# 保存済みテンプレートを一覧から選択して削除
+HERDR_WORKSPACE_ID=w1 mt herdr workspace template delete
+```
+
+- create / apply / delete はすべて対話型のため TTY 環境でのみ実行できます（非対話オプションはありません）
+- テンプレートには cwd / command / env は保存されません。apply 時は全 pane に反映時 cwd を設定します
+- apply は既存 pane の実行中プロセス・スクロールバック・PTY を失わせるため、実行前に確認します（途中失敗はロールバックしません）
 
 ## Worktree Workflow
 
@@ -203,6 +226,7 @@ src/
   chezmoi/      # chezmoi ラッパーコマンド
   cli/          # self_cmd (install), launcher, style utilities
   git/          # GitHub リポジトリ・worktree 操作
+  herdr/        # herdr ワークスペース操作（duplicate, workspace template）
   opencode/     # OAuth setup, ngrok expose/stop
   plan/         # 計画管理（mt plan/run-plan）
   raycast/      # Raycast 設定バックアップ（sync / restore）

@@ -1,6 +1,8 @@
 use clap::Subcommand;
 
 pub mod client;
+pub mod socket;
+pub mod template;
 pub mod workspace;
 
 #[derive(Subcommand)]
