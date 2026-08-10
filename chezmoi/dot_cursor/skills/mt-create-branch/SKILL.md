@@ -12,15 +12,16 @@ model: fast
 
 - ベースブランチに応じてプレフィックスを自動決定する（`main`/`master` → `hotfix/`、それ以外 → `feature/`）
 - ブランチ名は英語のケバブケースで、変更内容を端的に表す名前にする
-- 関連 Skill: mt-check-git-diff（変更内容の確認に使用）
+- 差分取得: `bun run ~/.cursor/skills/_shared/get-git-diff.ts`（変更内容の確認に使用）
 
 ## 🏃 ステップ
 
 1. `git branch --show-current` を実行して、現在のブランチを確認する。
     - このブランチが新しいブランチのベースブランチとなる。
 
-2. **mt-check-git-diff Skill** を実行して、現在の変更内容を確認する。
-    - 変更がない場合は処理を終了する。
+2. 対象リポジトリ内で `bun run ~/.cursor/skills/_shared/get-git-diff.ts` を実行して、現在の変更内容を確認する。
+    - 出力 JSON の `staged` / `unstaged` / `untracked` から変更ファイルを把握する。
+    - `hasChanges: false` の場合は変更がないため処理を終了する。
 
 3. 現在のブランチに応じてプレフィックスを決定する：
     - `main` または `master` ブランチの場合 → `hotfix/`

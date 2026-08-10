@@ -11,7 +11,7 @@ description: 差分をマクロ（アーキテクチャ）とミクロ（コー�
 
 - レビュー観点・コメント分類: [code-review-criteria.md](code-review-criteria.md) を参照
 - 設計語彙: [../_shared/codebase-design-vocabulary.md](../_shared/codebase-design-vocabulary.md) を参照
-- 関連 Skill: mt-check-branch-diff（ブランチ差分の取得に使用）
+- 差分取得スクリプト: `~/.cursor/skills/_shared/get-branch-diff.ts`（ブランチ差分）、`~/.cursor/skills/_shared/get-git-diff.ts`（未コミット差分）
 - 変更ファイル 6 件以上は SubAgent 並列実行に切り替える
 - レビュー前に背景（目的・制約・意図）を抽出する。抽出元はセッション文脈を基本とし、ブランチ差分レビュー時は既存 PR があればその内容も参照する。不十分な場合はユーザーに確認または提供を依頼する
 - 可能なら元 Issue / PRD / spec を特定し、仕様適合を Standards と分けて見る
@@ -115,33 +115,35 @@ taxonomy の意味を守り、本文の先頭に次のいずれかを付ける�
 
 #### ブランチ差分を取得する場合
 
-**mt-check-branch-diff Skill** を使用して、ベースブランチの検出から各ファイルの詳細 diff 取得までを行う。
+対象リポジトリ内で `bun run ~/.cursor/skills/_shared/get-branch-diff.ts` を実行して、ベースブランチの検出から各ファイルの詳細 diff 取得までを行う。
+
+出力 JSON から以下を取得する:
+
+- `baseBranch` / `mergeBase`: ベースブランチ名とマージベースコミット
+- `files`: 差分ファイル一覧（name-status）
+- `stat`: 変更統計
+- 各ファイルの詳細 diff（raw diff）
+
+`hasChanges: false` の場合は「差分がありません」と報告して終了する。
 
 #### コミットされていない差分を取得する場合
 
-ヒアリングで選択されたスコープに応じたコマンドを実行する。
+対象リポジトリ内で `bun run ~/.cursor/skills/_shared/get-git-diff.ts` を実行する。
 
-##### スコープ: ステージ済みのみ
+出力 JSON は変更状態ごとに分離されている:
 
-```bash
-git status --short
-git diff --staged --name-status
-git diff --staged --stat
-git diff --staged -- [ファイルパス]
-```
+- `staged`: ステージ済み
+- `unstaged`: 未ステージ（追跡済みファイルの未ステージ変更）
+- `untracked`: 未追跡
 
-##### スコープ: すべて（ステージ済み + 未ステージ）
+ヒアリングで選択されたスコープに応じて、レビュー対象とする JSON のフィールドを決定する:
 
-```bash
-git status --short
-git diff HEAD --name-status
-git diff HEAD --stat
-git diff HEAD -- [ファイルパス]
-```
+- スコープ: ステージ済みのみ → `staged` をレビュー対象とする
+- スコープ: すべて（ステージ済み + 未ステージ）→ `staged` + `unstaged` をレビュー対象とする
 
-未追跡ファイルがある場合は `git ls-files --others --exclude-standard` で一覧を取得し、内容を `Read` ツールで直接読み取る。
+未追跡ファイルの内容は `untracked` の情報（ファイルパス等）をもとに `Read` ツールで直接読み取る。
 
-差分が存在しない場合は「差分がありません」と報告して終了する。
+`hasChanges: false` の場合は「差分がありません」と報告して終了する。
 
 #### 両方取得する場合
 

@@ -7,7 +7,7 @@ description: Git の未コミット差分やブランチ差分から正常系・
 
 ## 🧠 前提知識
 
-- 差分取得 Skill: `mt-check-git-diff`（未コミット差分）、`mt-check-branch-diff`（ブランチ差分）
+- 差分取得スクリプト: `~/.cursor/skills/_shared/get-git-diff.ts`（未コミット差分）、`~/.cursor/skills/_shared/get-branch-diff.ts`（ブランチ差分）
 - テスト手順書テンプレート: [test-template.md](test-template.md)
 
 ## 🏃 ステップ
@@ -36,9 +36,11 @@ description: Git の未コミット差分やブランチ差分から正常系・
 
 **差分の取得**（ステップ 1 で選択されたスコープに応じて）:
 
-- 未コミット差分 → `mt-check-git-diff` Skill を実行
-- ブランチ差分 → `mt-check-branch-diff` Skill を実行
-- 両方 → 両 Skill を実行
+- 未コミット差分 → 対象リポジトリ内で `bun run ~/.cursor/skills/_shared/get-git-diff.ts` を実行
+- ブランチ差分 → 対象リポジトリ内で `bun run ~/.cursor/skills/_shared/get-branch-diff.ts` を実行
+- 両方 → 両スクリプトを実行
+
+各スクリプトの出力 JSON の `hasChanges: false`（差分なし）の場合は、その旨をユーザーに伝えて該当スコープの差分はテスト手順書生成に使用しない。
 
 **要件の取得**:
 
