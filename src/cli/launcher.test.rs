@@ -111,6 +111,23 @@ fn test_scripts_include_tool_bun_upgrade() {
 }
 
 #[test]
+fn test_scripts_include_herdr_workspace_template() {
+    let entries = script_entries();
+    let names: Vec<&str> = entries.iter().map(|s| s.name.as_str()).collect();
+    for expected in [
+        "herdr workspace duplicate",
+        "herdr workspace template create",
+        "herdr workspace template apply",
+        "herdr workspace template delete",
+    ] {
+        assert!(
+            names.contains(&expected),
+            "{expected} がランチャーに登録されているべき: {names:?}"
+        );
+    }
+}
+
+#[test]
 fn test_all_clap_leaves_are_registered_or_excluded() {
     let entries = script_entries();
     let entry_names: HashSet<&str> = entries.iter().map(|s| s.name.as_str()).collect();

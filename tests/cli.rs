@@ -225,3 +225,57 @@ fn test_mt_doctor_help() {
         .success()
         .stdout(predicate::str::contains("健全性"));
 }
+
+#[test]
+fn test_mt_herdr_workspace_template_create_help() {
+    let mut cmd = Command::cargo_bin("mt").unwrap();
+    cmd.args(["herdr", "workspace", "template", "create", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("名前付きテンプレートとして保存"));
+}
+
+#[test]
+fn test_mt_herdr_workspace_template_apply_help() {
+    let mut cmd = Command::cargo_bin("mt").unwrap();
+    cmd.args(["herdr", "workspace", "template", "apply", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("既存タブを置換"));
+}
+
+#[test]
+fn test_mt_herdr_workspace_template_delete_help() {
+    let mut cmd = Command::cargo_bin("mt").unwrap();
+    cmd.args(["herdr", "workspace", "template", "delete", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("一覧から選択して削除"));
+}
+
+#[test]
+fn test_mt_herdr_workspace_template_requires_workspace_id() {
+    // HERDR_WORKSPACE_ID 未設定では推測せずエラーになる
+    for sub in ["create", "apply", "delete"] {
+        let mut cmd = Command::cargo_bin("mt").unwrap();
+        cmd.args(["herdr", "workspace", "template", sub])
+            .env_remove("HERDR_WORKSPACE_ID")
+            .assert()
+            .failure()
+            .stderr(predicate::str::contains("HERDR_WORKSPACE_ID"))
+            .stderr(predicate::str::contains("推測"));
+    }
+}
+
+#[test]
+fn test_mt_herdr_workspace_template_requires_tty() {
+    // HERDR_WORKSPACE_ID が設定されていても非 TTY（パイプ）では対話不能エラーになる
+    for sub in ["create", "apply", "delete"] {
+        let mut cmd = Command::cargo_bin("mt").unwrap();
+        cmd.args(["herdr", "workspace", "template", sub])
+            .env("HERDR_WORKSPACE_ID", "w-test")
+            .assert()
+            .failure()
+            .stderr(predicate::str::contains("TTY"));
+    }
+}
