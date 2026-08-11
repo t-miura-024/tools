@@ -135,6 +135,10 @@ pub fn apply() -> anyhow::Result<()> {
     let workspace_id = resolve_workspace_id()?;
     require_tty("apply")?;
 
+    // 実行中の pane が対象ワークスペース内にある場合、反映の最後に自分のタブを
+    // 置換・削除する（途中でプロセスが終了して残りの反映が止まらないようにする）。
+    let self_tab_id = running_pane_tab_id(&workspace_id);
+
     let entries = list_templates()?;
     let selection = select_template(&entries, "反映するテンプレートを選択")?;
     let entry = &entries[selection];
@@ -168,13 +172,30 @@ pub fn apply() -> anyhow::Result<()> {
         count = template.tabs.len()
     ));
     style::warn("反映により既存 pane の実行中プロセス・スクロールバック・PTY は失われます");
+    if let Some(tab_id) = &self_tab_id {
+        style::warn(&format!(
+            "実行中の pane（タブ {tab_id}）も置換対象のため、このプロセスは反映の最後に終了します"
+        ));
+    }
     if !request_confirmation("この内容で反映を実行しますか?")? {
         style::outro("中止しました");
         return Ok(());
     }
 
-    let applied = apply_layouts(&socket, &workspace_id, &template, &cwd_str, &existing_tabs)?;
-    match close_surplus(&socket, &existing_tabs, template.tabs.len()) {
+    let applied = apply_layouts(
+        &socket,
+        &workspace_id,
+        &template,
+        &cwd_str,
+        &existing_tabs,
+        self_tab_id.as_deref(),
+    )?;
+    match close_surplus(
+        &socket,
+        &existing_tabs,
+        template.tabs.len(),
+        self_tab_id.as_deref(),
+    ) {
         Ok(_) => {}
         Err(e) => bail!("{e}（反映済み: {} タブ）", applied.len()),
     }
@@ -190,17 +211,45 @@ pub fn apply() -> anyhow::Result<()> {
     Ok(())
 }
 
+/// 実行中の pane が対象ワークスペース内にある場合、その pane のタブ ID を返す。
+/// herdr は pane 内プロセスに HERDR_ENV=1 / HERDR_WORKSPACE_ID / HERDR_TAB_ID を注入するため、
+/// これらが対象ワークスペースと一致するかで判定する。
+fn running_pane_tab_id(workspace_id: &str) -> Option<String> {
+    if std::env::var("HERDR_ENV").as_deref() != Ok("1") {
+        return None;
+    }
+    let env_ws = std::env::var("HERDR_WORKSPACE_ID").ok()?;
+    if env_ws.trim() != workspace_id {
+        return None;
+    }
+    std::env::var("HERDR_TAB_ID")
+        .ok()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+}
+
 /// テンプレートを正として既存タブを同順で置換し、不足分は新規作成する。
 /// 途中失敗はロールバックせず、適用済み件数付きのエラーを返す。
+/// `last_tab_id` が指定された場合、そのタブの置換を最後に実行する
+/// （実行中 pane が置換されてプロセスが終了しても、他の反映が完了済みになるように）。
 fn apply_layouts(
     socket: &HerdrSocket,
     workspace_id: &str,
     template: &Template,
     cwd: &str,
     existing_tabs: &[TabInfo],
+    last_tab_id: Option<&str>,
 ) -> anyhow::Result<Vec<String>> {
     let mut applied = Vec::with_capacity(template.tabs.len());
-    for (i, tab) in template.tabs.iter().enumerate() {
+    let mut order: Vec<usize> = (0..template.tabs.len()).collect();
+    if let Some(last) = last_tab_id
+        && let Some(pos) = existing_tabs.iter().position(|t| t.tab_id == last)
+    {
+        order.retain(|&i| i != pos);
+        order.push(pos);
+    }
+    for i in order {
+        let tab = &template.tabs[i];
         let root = inject_cwd(&tab.root, cwd);
         let result = match existing_tabs.get(i) {
             Some(existing) => socket.layout_apply_replace(&existing.tab_id, &root),
@@ -220,12 +269,18 @@ fn apply_layouts(
 }
 
 /// テンプレートより多い余剰タブを閉じる。
+/// `last_tab_id` が指定された場合、そのタブを最後に閉じる。
 fn close_surplus(
     socket: &HerdrSocket,
     existing_tabs: &[TabInfo],
     keep: usize,
+    last_tab_id: Option<&str>,
 ) -> anyhow::Result<()> {
-    for extra in existing_tabs.iter().skip(keep) {
+    let mut extras: Vec<&TabInfo> = existing_tabs.iter().skip(keep).collect();
+    if let Some(last) = last_tab_id {
+        extras.sort_by_key(|t| if t.tab_id == last { 1 } else { 0 });
+    }
+    for extra in extras {
         socket
             .tab_close(&extra.tab_id)
             .with_context(|| format!("余剰タブ {} を閉じるのに失敗しました", extra.tab_id))?;
@@ -562,7 +617,8 @@ mod tests {
 
         let cwd = std::env::current_dir().unwrap();
         let cwd_str = cwd.to_string_lossy().to_string();
-        let applied = apply_layouts(&mock.socket, "w1", &template, &cwd_str, &existing).unwrap();
+        let applied =
+            apply_layouts(&mock.socket, "w1", &template, &cwd_str, &existing, None).unwrap();
         assert_eq!(applied, vec!["w1:t1", "w1:t2", "w1:new-z"]);
 
         // 1・2 番目は tab_id 指定の置換、3 番目は tab_label 指定の新規作成
@@ -659,7 +715,7 @@ mod tests {
         });
 
         let cwd = "/cwd";
-        let err = apply_layouts(&mock.socket, "w1", &template, cwd, &existing).unwrap_err();
+        let err = apply_layouts(&mock.socket, "w1", &template, cwd, &existing, None).unwrap_err();
         let msg = err.to_string();
         assert!(msg.contains("タブ 3"), "失敗位置が含まれるべき: {msg}");
         assert!(
@@ -690,7 +746,7 @@ mod tests {
             respond(request, json!({ "type": "ok" }))
         });
 
-        close_surplus(&mock.socket, &existing, 2).unwrap();
+        close_surplus(&mock.socket, &existing, 2, None).unwrap();
         let closed: Vec<String> = mock
             .requests
             .lock()
@@ -860,5 +916,133 @@ mod tests {
         }
         let err = resolve_workspace_id().unwrap_err();
         assert!(err.to_string().contains("HERDR_WORKSPACE_ID"), "{err}");
+    }
+
+    // ---- running_pane_tab_id ----
+
+    #[test]
+    fn test_running_pane_tab_id_detects_self_in_target_workspace() {
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        unsafe {
+            std::env::set_var("HERDR_ENV", "1");
+            std::env::set_var("HERDR_WORKSPACE_ID", "w1");
+            std::env::set_var("HERDR_TAB_ID", "w1:t2");
+        }
+        assert_eq!(running_pane_tab_id("w1").as_deref(), Some("w1:t2"));
+
+        // 対象ワークスペースが異なる場合は検出しない
+        assert_eq!(running_pane_tab_id("w2"), None);
+
+        // pane 外（HERDR_ENV なし）では検出しない
+        unsafe {
+            std::env::remove_var("HERDR_ENV");
+        }
+        assert_eq!(running_pane_tab_id("w1"), None);
+
+        // タブ ID が未設定の場合も検出しない
+        unsafe {
+            std::env::set_var("HERDR_ENV", "1");
+            std::env::remove_var("HERDR_TAB_ID");
+        }
+        assert_eq!(running_pane_tab_id("w1"), None);
+
+        unsafe {
+            std::env::remove_var("HERDR_ENV");
+            std::env::remove_var("HERDR_WORKSPACE_ID");
+        }
+    }
+
+    #[test]
+    fn test_apply_layouts_replaces_self_tab_last() {
+        let existing = vec![tab("w1:t1", "w1", 1, "a"), tab("w1:t2", "w1", 2, "b")];
+        let template = Template {
+            tabs: vec![
+                TemplateTab {
+                    label: "x".to_string(),
+                    root: TemplateNode::Pane { label: None },
+                },
+                TemplateTab {
+                    label: "y".to_string(),
+                    root: TemplateNode::Pane { label: None },
+                },
+            ],
+            active_tab_index: 0,
+            active_pane_path: None,
+        };
+
+        let mock = mock_socket(|request| {
+            assert_eq!(request_method(request), "layout.apply");
+            let params = request.get("params").unwrap();
+            let tab_id = params
+                .get("tab_id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("new");
+            respond(
+                request,
+                json!({
+                    "type": "layout_apply",
+                    "layout": {
+                        "workspace_id": "w1",
+                        "tab_id": format!("w1:new-{tab_id}"),
+                        "zoomed": false,
+                        "focused_pane_id": "p",
+                        "root": {"type": "pane", "pane_id": "p"}
+                    }
+                }),
+            )
+        });
+
+        // 自分が w1:t1 にいる場合、置換順序は t2 → t1 になる
+        let cwd = "/cwd";
+        let applied =
+            apply_layouts(&mock.socket, "w1", &template, cwd, &existing, Some("w1:t1")).unwrap();
+        assert_eq!(applied, vec!["w1:new-w1:t2", "w1:new-w1:t1"]);
+
+        let requests = mock.requests.lock().unwrap();
+        let ids: Vec<String> = requests
+            .iter()
+            .map(|r| {
+                r.get("params")
+                    .unwrap()
+                    .get("tab_id")
+                    .unwrap()
+                    .as_str()
+                    .unwrap()
+                    .to_string()
+            })
+            .collect();
+        assert_eq!(ids, vec!["w1:t2", "w1:t1"]);
+    }
+
+    #[test]
+    fn test_close_surplus_closes_self_tab_last() {
+        let existing = vec![
+            tab("w1:t1", "w1", 1, "a"),
+            tab("w1:t2", "w1", 2, "b"),
+            tab("w1:t3", "w1", 3, "c"),
+        ];
+        let mock = mock_socket(|request| {
+            assert_eq!(request_method(request), "tab.close");
+            respond(request, json!({ "type": "ok" }))
+        });
+
+        // 自分が余剰タブ w1:t3 にいる場合、t2 → t3 の順で閉じる
+        close_surplus(&mock.socket, &existing, 1, Some("w1:t3")).unwrap();
+        let closed: Vec<String> = mock
+            .requests
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|r| {
+                r.get("params")
+                    .unwrap()
+                    .get("tab_id")
+                    .unwrap()
+                    .as_str()
+                    .unwrap()
+                    .to_string()
+            })
+            .collect();
+        assert_eq!(closed, vec!["w1:t2", "w1:t3"]);
     }
 }
