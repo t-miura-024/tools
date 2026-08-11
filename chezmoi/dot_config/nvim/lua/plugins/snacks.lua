@@ -4,10 +4,15 @@ return {
   {
     "folke/snacks.nvim",
     opts = {
-      explorer = {
-        hidden = true,
-        ignored = true,
-        exclude = { ".git/" },
+      picker = {
+        sources = {
+          explorer = {
+            hidden = true,
+            ignored = true,
+            exclude = { ".git", ".github" },
+            include = { ".gitignore" },
+          },
+        },
       },
     },
     keys = {
