@@ -1,0 +1,35 @@
+[package]
+name = "mt"
+version = "0.1.0"
+edition = "2024"
+description = "Personal CLI tools"
+
+[dependencies]
+clap = { version = "4", features = ["derive"] }
+clap_complete = "4"
+dialoguer = "0.12"
+duct = "0.13"
+anyhow = "1"
+thiserror = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+yaml_serde = "0.10"
+nix = { version = "0.29", features = ["signal", "process"] }
+indicatif = "0.17"
+console = "0.15"
+rand = "0.8"
+ureq = { version = "2.10", default-features = false, features = ["json"] }
+toml = "0.8"
+sha2 = "0.10"
+walkdir = "2"
+regex = "1"
+uuid = { version = "1", features = ["v4"] }
+zeroize = "1"
+ratatui = "0.29"
+crossterm = "0.28"
+tui-textarea = "0.7"
+
+[dev-dependencies]
+assert_cmd = "2"
+tempfile = "3"
+predicates = "3"
