@@ -244,6 +244,7 @@ fn apply_layouts(
     let mut order: Vec<usize> = (0..template.tabs.len()).collect();
     if let Some(last) = last_tab_id
         && let Some(pos) = existing_tabs.iter().position(|t| t.tab_id == last)
+        && pos < template.tabs.len()
     {
         order.retain(|&i| i != pos);
         order.push(pos);
@@ -1012,6 +1013,65 @@ mod tests {
             })
             .collect();
         assert_eq!(ids, vec!["w1:t2", "w1:t1"]);
+    }
+
+    #[test]
+    fn test_apply_layouts_self_tab_beyond_template_len_is_ignored() {
+        // 既存 2 タブ・テンプレート 1 タブで、自分が余剰タブ（t2）にいる場合。
+        // 自分のタブは置換対象外（close_surplus 側で最後に閉じられる）ため、
+        // 置換はテンプレートの 1 タブ分だけ行われる。
+        let existing = vec![tab("w1:t1", "w1", 1, "a"), tab("w1:t2", "w1", 2, "b")];
+        let template = Template {
+            tabs: vec![TemplateTab {
+                label: "x".to_string(),
+                root: TemplateNode::Pane { label: None },
+            }],
+            active_tab_index: 0,
+            active_pane_path: None,
+        };
+
+        let mock = mock_socket(|request| {
+            assert_eq!(request_method(request), "layout.apply");
+            respond(
+                request,
+                json!({
+                    "type": "layout_apply",
+                    "layout": {
+                        "workspace_id": "w1",
+                        "tab_id": "w1:new-x",
+                        "zoomed": false,
+                        "focused_pane_id": "p",
+                        "root": {"type": "pane", "pane_id": "p"}
+                    }
+                }),
+            )
+        });
+
+        let applied = apply_layouts(
+            &mock.socket,
+            "w1",
+            &template,
+            "/cwd",
+            &existing,
+            Some("w1:t2"),
+        )
+        .unwrap();
+        assert_eq!(applied, vec!["w1:new-x"]);
+
+        let requests = mock.requests.lock().unwrap();
+        let ids: Vec<String> = requests
+            .iter()
+            .map(|r| {
+                r.get("params")
+                    .unwrap()
+                    .get("tab_id")
+                    .unwrap()
+                    .as_str()
+                    .unwrap()
+                    .to_string()
+            })
+            .collect();
+        assert_eq!(ids, vec!["w1:t1"], "余剰タブ t2 は置換されない");
     }
 
     #[test]
