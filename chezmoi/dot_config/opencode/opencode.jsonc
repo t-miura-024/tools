@@ -12,9 +12,6 @@
   "permission": {
     "external_directory": {
       "*": "allow",
-      "~/.config/opencode/**": "deny",
-      "~/.cursor/**": "deny",
-      "~/.claude/**": "deny",
       "~/Documents/**": "deny",
       "~/Desktop/**": "deny",
       "~/Downloads/**": "deny",
