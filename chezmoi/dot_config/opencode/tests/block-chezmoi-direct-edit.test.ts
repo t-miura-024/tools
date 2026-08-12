@@ -5,7 +5,7 @@ import {
   isChezmoiSourceDir,
   isUnderHome,
   normalizePath,
-} from "../plugins/agent-hooks/block-cursor-config-direct-edit";
+} from "../plugins/agent-hooks/block-chezmoi-direct-edit";
 
 const HOME = "/Users/mt";
 const CWD = "/Users/mt/src/tools-wt-2";

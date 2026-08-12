@@ -3,6 +3,11 @@
  * ユーザーレベルの preToolUse hook。
  * chezmoi 管理下のホーム dotfile への直接編集をブロックし、canonical Source of Truth（chezmoi source）への編集を誘導する。
  *
+ * 動作保証: OpenCode のみ。
+ *   - OpenCode は `cursor-hook-bridge.ts` 経由で実機動作を検証済み。
+ *   - Cursor / Claude Code の hooks（`~/.cursor/hooks.json` / `~/.claude/settings.json`）からも
+ *     参照されるが、実機でのフック発火は未検証のため保証対象外。
+ *
  * ブロック対象:
  *   ホーム配下に存在する、`chezmoi source-path <path>` で管理下と判定される既存ファイル
  *   （`.zshrc`, `.gitconfig`, `.config/nvim/**`, `.config/opencode/**` 等、chezmoi 管理の全 dotfile）
@@ -12,7 +17,7 @@
  *   それ以外は `chezmoi source-path` で解決されるソースディレクトリ（デフォルト `~/src/tools/chezmoi`）。
  *
  * 配置場所:
- *   `chezmoi/dot_config/opencode/plugins/agent-hooks/block-cursor-config-direct-edit.ts` から
+ *   `chezmoi/dot_config/opencode/plugins/agent-hooks/block-chezmoi-direct-edit.ts` から
  *   `chezmoi apply` 経由で `~/.config/opencode/plugins/agent-hooks/` にデプロイされ、
  *   3 つの platform 設定ファイル（`~/.cursor/hooks.json` /
  *   `~/.claude/settings.json` / `cursor-hook-bridge.ts`）から共通参照される。

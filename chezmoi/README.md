@@ -36,7 +36,7 @@ chezmoi/
         │   ├── cmux-notify.ts     # cmux 通知プラグイン
         │   ├── cursor-hook-bridge.ts  # Cursor の hooks.json を opencode plugin に bridge
         │   └── agent-hooks/
-        │       └── block-cursor-config-direct-edit.ts  # 共通 hook スクリプト
+        │       └── block-chezmoi-direct-edit.ts  # 共通 hook スクリプト（動作保証: OpenCode のみ）
         └── config.json            # opencode 設定（plugin: cursor-hook-bridge）
 ```
 
@@ -175,7 +175,9 @@ chezmoi ネイティブ doctor に加え、以下を `mt` 固有チェックと�
 
 ## platform-native hook
 
-3 つの platform（Cursor / Claude / OpenCode）に対して chezmoi 経由で `block-cursor-config-direct-edit.ts` を共通配置し、保護ルート（`~/.cursor/`, `~/.claude/`, `~/.config/opencode/`, `tools/chezmoi/dot_claude/`, `tools/chezmoi/dot_config/opencode/`）配下への直接編集を deny します。canonical である `tools/chezmoi/dot_cursor/` への編集は許可されます。
+3 つの platform（Cursor / Claude / OpenCode）に対して chezmoi 経由で `block-chezmoi-direct-edit.ts` を共通配置し、chezmoi 管理下のホーム dotfile（`.zshrc`, `.gitconfig`, `.config/nvim/**`, `.config/opencode/**` 等）への直接編集を deny します。編集先は `chezmoi source-path` で解決した canonical（デフォルト `~/src/tools/chezmoi`、作業中ワークツリー配下の chezmoi を優先）へ誘導します。
+
+> 動作保証: **OpenCode のみ**。`cursor-hook-bridge.ts` 経由の実機動作を検証済み。Cursor / Claude Code の hooks からも参照されるが、実機でのフック発火は未検証のため保証対象外。
 
 - `~/.cursor/hooks.json` の `preToolUse` matcher → Cursor 用エントリ
 - `~/.claude/settings.json` の `PreToolUse` matcher → Claude Code 用エントリ

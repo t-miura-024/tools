@@ -5,7 +5,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bun \"$HOME/.config/opencode/plugins/agent-hooks/block-cursor-config-direct-edit.ts\""
+            "command": "bun \"$HOME/.config/opencode/plugins/agent-hooks/block-chezmoi-direct-edit.ts\""
           }
         ],
         "matcher": "^(write|edit|Write|Edit|StrReplace|MultiEdit|Delete|EditNotebook)$"
