@@ -294,13 +294,16 @@ impl HerdrSocket {
 
     /// layout.apply で既存タブを置換する。応答の layout に適用後のタブ ID が入る。
     /// tab_id と workspace_id を同時に指定できないため、置換は tab_id のみ送る。
+    /// tab_label を指定しないと herdr が旧タブ名を引き継ぐため、テンプレートのタブ名を渡す。
     pub fn layout_apply_replace(
         &self,
         tab_id: &str,
+        tab_label: &str,
         root: &WireNode,
     ) -> anyhow::Result<LayoutDescription> {
         self.layout_apply(json!({
             "tab_id": tab_id,
+            "tab_label": tab_label,
             "root": root,
             "focus": false,
         }))
@@ -548,7 +551,10 @@ mod tests {
             env: None,
             label: None,
         };
-        let layout = mock.socket.layout_apply_replace("w1:t1", &root).unwrap();
+        let layout = mock
+            .socket
+            .layout_apply_replace("w1:t1", "Agent", &root)
+            .unwrap();
         assert_eq!(layout.tab_id, "w1:t1");
 
         let requests = mock.requests.lock().unwrap();
@@ -559,7 +565,7 @@ mod tests {
             None,
             "置換時は workspace_id を送らない"
         );
-        assert_eq!(params.get("tab_label"), None);
+        assert_eq!(params.get("tab_label").unwrap(), "Agent");
         assert_eq!(params.get("focus"), Some(&json!(false)));
         let root = params.get("root").unwrap();
         assert_eq!(root.get("type").unwrap(), "pane");

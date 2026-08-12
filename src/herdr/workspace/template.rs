@@ -182,7 +182,10 @@ pub fn apply() -> anyhow::Result<()> {
         return Ok(());
     }
 
-    let applied = apply_layouts(
+    // 1. 自分のタブ以外の置換と不足タブの新規作成
+    // 2. 余剰タブの削除（自分のタブが余剰なら最後に閉じられ、そこでプロセスが終了する）
+    // 3. 自分のタブの置換（最後に実行。置換でプロセスが終了するため、以降の処理は行われない）
+    let applied = run_apply_sequence(
         &socket,
         &workspace_id,
         &template,
@@ -190,15 +193,6 @@ pub fn apply() -> anyhow::Result<()> {
         &existing_tabs,
         self_tab_id.as_deref(),
     )?;
-    match close_surplus(
-        &socket,
-        &existing_tabs,
-        template.tabs.len(),
-        self_tab_id.as_deref(),
-    ) {
-        Ok(_) => {}
-        Err(e) => bail!("{e}（反映済み: {} タブ）", applied.len()),
-    }
     if let Err(e) = restore_focus(&socket, &workspace_id, &template, &applied) {
         style::warn(&format!("active tab / pane の復元に失敗しました: {e}"));
     }
@@ -209,6 +203,45 @@ pub fn apply() -> anyhow::Result<()> {
         applied.len()
     ));
     Ok(())
+}
+
+/// テンプレートの反映シーケンスを実行する。
+/// 1. 自分のタブ以外の置換と不足タブの新規作成
+/// 2. 余剰タブの削除（自分のタブが余剰なら最後に閉じる）
+/// 3. 自分のタブの置換（`self_tab_id` が置換対象内にある場合のみ、最後に実行）
+///
+/// 自分のタブの置換・削除はプロセスが終了するため必ず最後に行い、
+/// それ以外の反映が先に完了するようにする。
+fn run_apply_sequence(
+    socket: &HerdrSocket,
+    workspace_id: &str,
+    template: &Template,
+    cwd: &str,
+    existing_tabs: &[TabInfo],
+    self_tab_id: Option<&str>,
+) -> anyhow::Result<Vec<String>> {
+    let mut applied = apply_layouts(
+        socket,
+        workspace_id,
+        template,
+        cwd,
+        existing_tabs,
+        self_tab_id,
+    )?;
+    match close_surplus(socket, existing_tabs, template.tabs.len(), self_tab_id) {
+        Ok(_) => {}
+        Err(e) => bail!("{e}（反映済み: {} タブ）", applied.len()),
+    }
+    if let Some(self_id) = self_tab_id
+        && let Some(pos) = existing_tabs.iter().position(|t| t.tab_id == self_id)
+        && pos < template.tabs.len()
+    {
+        let tab = &template.tabs[pos];
+        let root = inject_cwd(&tab.root, cwd);
+        let layout = socket.layout_apply_replace(self_id, &tab.label, &root)?;
+        applied.push(layout.tab_id);
+    }
+    Ok(applied)
 }
 
 /// 実行中の pane が対象ワークスペース内にある場合、その pane のタブ ID を返す。
@@ -230,30 +263,28 @@ fn running_pane_tab_id(workspace_id: &str) -> Option<String> {
 
 /// テンプレートを正として既存タブを同順で置換し、不足分は新規作成する。
 /// 途中失敗はロールバックせず、適用済み件数付きのエラーを返す。
-/// `last_tab_id` が指定された場合、そのタブの置換を最後に実行する
-/// （実行中 pane が置換されてプロセスが終了しても、他の反映が完了済みになるように）。
+/// `self_tab_id` が指定された場合、そのタブの置換はここでは行わない
+/// （実行中 pane が置換されてプロセスが終了するため、呼び出し側が最後に置換する）。
 fn apply_layouts(
     socket: &HerdrSocket,
     workspace_id: &str,
     template: &Template,
     cwd: &str,
     existing_tabs: &[TabInfo],
-    last_tab_id: Option<&str>,
+    self_tab_id: Option<&str>,
 ) -> anyhow::Result<Vec<String>> {
     let mut applied = Vec::with_capacity(template.tabs.len());
     let mut order: Vec<usize> = (0..template.tabs.len()).collect();
-    if let Some(last) = last_tab_id
-        && let Some(pos) = existing_tabs.iter().position(|t| t.tab_id == last)
-        && pos < template.tabs.len()
+    if let Some(self_id) = self_tab_id
+        && let Some(pos) = existing_tabs.iter().position(|t| t.tab_id == self_id)
     {
         order.retain(|&i| i != pos);
-        order.push(pos);
     }
     for i in order {
         let tab = &template.tabs[i];
         let root = inject_cwd(&tab.root, cwd);
         let result = match existing_tabs.get(i) {
-            Some(existing) => socket.layout_apply_replace(&existing.tab_id, &root),
+            Some(existing) => socket.layout_apply_replace(&existing.tab_id, &tab.label, &root),
             None => socket.layout_apply_create(workspace_id, &tab.label, &root),
         };
         match result {
@@ -635,11 +666,20 @@ mod tests {
             "置換時は workspace_id を送らない"
         );
         assert_eq!(
+            requests[0].get("params").unwrap().get("tab_label").unwrap(),
+            "x",
+            "置換時はテンプレートのタブ名を送る"
+        );
+        assert_eq!(
             requests[1].get("params").unwrap().get("tab_id").unwrap(),
             "w1:t2"
         );
         assert_eq!(requests[1].get("params").unwrap().get("workspace_id"), None);
-        assert_eq!(requests[1].get("params").unwrap().get("tab_label"), None);
+        assert_eq!(
+            requests[1].get("params").unwrap().get("tab_label").unwrap(),
+            "y",
+            "置換時はテンプレートのタブ名を送る"
+        );
         let third = requests[2].get("params").unwrap();
         assert_eq!(third.get("tab_id"), None);
         assert_eq!(third.get("tab_label").unwrap(), "z");
@@ -954,7 +994,7 @@ mod tests {
     }
 
     #[test]
-    fn test_apply_layouts_replaces_self_tab_last() {
+    fn test_apply_layouts_excludes_self_tab() {
         let existing = vec![tab("w1:t1", "w1", 1, "a"), tab("w1:t2", "w1", 2, "b")];
         let template = Template {
             tabs: vec![
@@ -993,11 +1033,12 @@ mod tests {
             )
         });
 
-        // 自分が w1:t1 にいる場合、置換順序は t2 → t1 になる
+        // 自分が w1:t1 にいる場合、w1:t1 の置換は apply_layouts では行わず
+        // t2 だけを置換する（自分のタブの置換は apply() 側で最後に実行される）
         let cwd = "/cwd";
         let applied =
             apply_layouts(&mock.socket, "w1", &template, cwd, &existing, Some("w1:t1")).unwrap();
-        assert_eq!(applied, vec!["w1:new-w1:t2", "w1:new-w1:t1"]);
+        assert_eq!(applied, vec!["w1:new-w1:t2"]);
 
         let requests = mock.requests.lock().unwrap();
         let ids: Vec<String> = requests
@@ -1012,7 +1053,7 @@ mod tests {
                     .to_string()
             })
             .collect();
-        assert_eq!(ids, vec!["w1:t2", "w1:t1"]);
+        assert_eq!(ids, vec!["w1:t2"]);
     }
 
     #[test]
@@ -1104,5 +1145,137 @@ mod tests {
             })
             .collect();
         assert_eq!(closed, vec!["w1:t2", "w1:t3"]);
+    }
+
+    #[test]
+    fn test_run_apply_sequence_closes_surplus_before_self_tab_replace() {
+        // 既存 2 タブ [t1, t2]・テンプレ 1 タブで、自分が置換対象の先頭タブ t1 にいる場合。
+        // 期待する順序: 余剰タブ t2 の削除 → 自分のタブ t1 の置換（最後）。
+        // これにより、自分のタブの置換でプロセスが終了しても余剰タブは確実に閉じられている。
+        let existing = vec![tab("w1:t1", "w1", 1, "a"), tab("w1:t2", "w1", 2, "b")];
+        let template = Template {
+            tabs: vec![TemplateTab {
+                label: "Agent".to_string(),
+                root: TemplateNode::Pane { label: None },
+            }],
+            active_tab_index: 0,
+            active_pane_path: None,
+        };
+
+        let mock = mock_socket(|request| match request_method(request).as_str() {
+            "layout.apply" => {
+                let params = request.get("params").unwrap();
+                assert_eq!(
+                    params.get("tab_label").unwrap(),
+                    "Agent",
+                    "置換時はテンプレートのタブ名を送る"
+                );
+                respond(
+                    request,
+                    json!({
+                        "type": "layout_apply",
+                        "layout": {
+                            "workspace_id": "w1",
+                            "tab_id": "w1:new-agent",
+                            "zoomed": false,
+                            "focused_pane_id": "p",
+                            "root": {"type": "pane", "pane_id": "p"}
+                        }
+                    }),
+                )
+            }
+            "tab.close" => respond(request, json!({ "type": "ok" })),
+            other => panic!("想定外の method: {other}"),
+        });
+
+        let applied = run_apply_sequence(
+            &mock.socket,
+            "w1",
+            &template,
+            "/cwd",
+            &existing,
+            Some("w1:t1"),
+        )
+        .unwrap();
+        assert_eq!(applied, vec!["w1:new-agent"]);
+
+        // リクエスト順: tab.close (t2) → layout.apply (t1)
+        let requests = mock.requests.lock().unwrap();
+        let calls: Vec<String> = requests
+            .iter()
+            .map(|r| {
+                let method = request_method(r);
+                let id = r
+                    .get("params")
+                    .and_then(|p| p.get("tab_id"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
+                format!("{method}({id})")
+            })
+            .collect();
+        assert_eq!(calls, vec!["tab.close(w1:t2)", "layout.apply(w1:t1)"]);
+    }
+
+    #[test]
+    fn test_run_apply_sequence_without_self_tab_keeps_original_order() {
+        // 実行中の pane が対象ワークスペース外（self_tab_id = None）の場合:
+        // 置換 → 余剰削除の順で、元の挙動を維持する。
+        let existing = vec![
+            tab("w1:t1", "w1", 1, "a"),
+            tab("w1:t2", "w1", 2, "b"),
+            tab("w1:t3", "w1", 3, "c"),
+        ];
+        let template = Template {
+            tabs: vec![TemplateTab {
+                label: "x".to_string(),
+                root: TemplateNode::Pane { label: None },
+            }],
+            active_tab_index: 0,
+            active_pane_path: None,
+        };
+
+        let mock = mock_socket(|request| match request_method(request).as_str() {
+            "layout.apply" => respond(
+                request,
+                json!({
+                    "type": "layout_apply",
+                    "layout": {
+                        "workspace_id": "w1",
+                        "tab_id": "w1:new-x",
+                        "zoomed": false,
+                        "focused_pane_id": "p",
+                        "root": {"type": "pane", "pane_id": "p"}
+                    }
+                }),
+            ),
+            "tab.close" => respond(request, json!({ "type": "ok" })),
+            other => panic!("想定外の method: {other}"),
+        });
+
+        let applied =
+            run_apply_sequence(&mock.socket, "w1", &template, "/cwd", &existing, None).unwrap();
+        assert_eq!(applied, vec!["w1:new-x"]);
+
+        let requests = mock.requests.lock().unwrap();
+        let calls: Vec<String> = requests
+            .iter()
+            .map(|r| {
+                let method = request_method(r);
+                let id = r
+                    .get("params")
+                    .and_then(|p| p.get("tab_id"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
+                format!("{method}({id})")
+            })
+            .collect();
+        assert_eq!(
+            calls,
+            vec![
+                "layout.apply(w1:t1)",
+                "tab.close(w1:t2)",
+                "tab.close(w1:t3)"
+            ]
+        );
     }
 }
