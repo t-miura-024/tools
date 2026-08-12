@@ -1,7 +1,7 @@
 onboarding = false
 
 [keys]
-prefix = "ctrl+a"
+prefix = "ctrl+b"
 
 [theme]
 name = "catppuccin"
