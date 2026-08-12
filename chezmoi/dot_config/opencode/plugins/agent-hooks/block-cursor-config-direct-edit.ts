@@ -1,14 +1,15 @@
 #!/usr/bin/env bun
 /**
  * ユーザーレベルの preToolUse hook。
- * 3 つの「直接編集禁止」領域への編集をブロックし、編集者を canonical Source of Truth に誘導する。
+ * chezmoi 管理下のホーム dotfile への直接編集をブロックし、canonical Source of Truth（chezmoi source）への編集を誘導する。
  *
- * 保護対象（deny）:
- *   - Deployed 側: `~/.cursor/{agents,skills,commands,rules}/`, `~/.claude/{agents,skills}/`,
- *     `~/.config/opencode/{agents,skills,plugins,commands}/`
- *   - Non-canonical source 側: `tools/chezmoi/dot_claude/`, `tools/chezmoi/dot_config/opencode/`
- * 許可（allow）:
- *   - Canonical source: `tools/chezmoi/dot_cursor/`
+ * ブロック対象:
+ *   ホーム配下に存在する、`chezmoi source-path <path>` で管理下と判定される既存ファイル
+ *   （`.zshrc`, `.gitconfig`, `.config/nvim/**`, `.config/opencode/**` 等、chezmoi 管理の全 dotfile）
+ *
+ * 誘導先（canonical）:
+ *   作業中ワークツリー（cwd の git toplevel 直下）に chezmoi source がある場合はその `chezmoi/`、
+ *   それ以外は `chezmoi source-path` で解決されるソースディレクトリ（デフォルト `~/src/tools/chezmoi`）。
  *
  * 配置場所:
  *   `chezmoi/dot_config/opencode/plugins/agent-hooks/block-cursor-config-direct-edit.ts` から
@@ -21,12 +22,8 @@
  */
 
 import * as fs from "node:fs";
-
-/** 保護対象のサブディレクトリ。複数ルートの各々に対してチェックされる。 */
-const PROTECTED_DIRS = ["skills", "rules", "commands", "agents"] as const;
-
-/** Canonical Source of Truth（chezmoi source 内）。deployed と 3 つの source 宛先は deny される。 */
-const CANONICAL_SOURCE_ROOT = "tools/chezmoi/dot_cursor";
+import * as path from "node:path";
+import { spawnSync } from "node:child_process";
 
 export interface ExtractedPaths {
   toolName: string;
@@ -99,21 +96,123 @@ export function normalizePath(
 }
 
 /**
- * 絶対パスが保護対象ルート群のいずれかの配下の
- * `skills/` / `rules/` / `commands/` / `agents/` に該当するか判定する。
- * 類似名（例: `skills_x/`）はマッチしない。
+ * 絶対パスがホームディレクトリ配下（またはホーム自身）かを判定する。
+ * chezmoi source（`~/src/tools/chezmoi`）もホーム配下にあるため、
+ * ブロック判定はこの後 `chezmoi source-path` の管理判定で絞る。
  */
-export function isProtected(
-  absPath: string,
-  protectedRoots: readonly string[],
-): boolean {
-  if (!absPath) return false;
-  for (const root of protectedRoots) {
-    for (const dir of PROTECTED_DIRS) {
-      if (absPath.startsWith(`${root}/${dir}/`)) return true;
-    }
+export function isUnderHome(absPath: string, home: string): boolean {
+  return absPath === home || absPath.startsWith(`${home}/`);
+}
+
+/**
+ * ディレクトリが chezmoi source として機能するか判定する。
+ * `.chezmoiignore` か `dot_config` の存在で判定する。
+ */
+export function isChezmoiSourceDir(dir: string): boolean {
+  return (
+    fs.existsSync(path.join(dir, ".chezmoiignore")) ||
+    fs.existsSync(path.join(dir, "dot_config"))
+  );
+}
+
+/**
+ * cwd が属する git リポジトリの toplevel（worktree root）を返す。
+ * git リポジトリ外なら null。
+ */
+export function gitToplevel(cwd: string): string | null {
+  const res = spawnSync("git", ["-C", cwd, "rev-parse", "--show-toplevel"], {
+    encoding: "utf8",
+  });
+  if (res.status !== 0) return null;
+  const out = res.stdout?.trim();
+  return out || null;
+}
+
+/**
+ * chezmoi のソースディレクトリを返す（`chezmoi source-path` の引数なし）。
+ * 取得失敗時は null。
+ */
+export function chezmoiSourceDir(): string | null {
+  const res = spawnSync("chezmoi", ["source-path"], { encoding: "utf8" });
+  if (res.status !== 0) return null;
+  const out = res.stdout?.trim();
+  return out || null;
+}
+
+/**
+ * 対象ホームパスが chezmoi 管理下かを判定し、管理下ならソースパスを返す。
+ * 非管理・取得失敗時は null。
+ */
+export function chezmoiSourcePath(targetAbs: string): string | null {
+  const res = spawnSync("chezmoi", ["source-path", targetAbs], {
+    encoding: "utf8",
+  });
+  if (res.status !== 0) return null;
+  const out = res.stdout?.trim();
+  return out || null;
+}
+
+/**
+ * 誘導先の canonical root を解決する。
+ * - cwd の git toplevel 直下に chezmoi source があれば、その `chezmoi/`（作業中ワークツリー優先）
+ * - それ以外は `chezmoi source-path` で解決されるソースディレクトリ
+ * - いずれも失敗時は `~/src/tools/chezmoi` にフォールバック
+ */
+export function resolveGuideRoot(home: string, cwd: string): string {
+  const toplevel = gitToplevel(cwd);
+  if (toplevel) {
+    const candidate = path.join(toplevel, "chezmoi");
+    if (isChezmoiSourceDir(candidate)) return candidate;
   }
-  return false;
+  return chezmoiSourceDir() || path.join(home, "src", "tools", "chezmoi");
+}
+
+/**
+ * 解決したソースパスを、誘導先 root 配下のパスへ置き換える。
+ * sourceDir が不明またはプレフィックス不一致の場合はソースパスをそのまま返す。
+ */
+export function buildGuidePath(
+  sourcePath: string,
+  sourceDir: string | null,
+  guideRoot: string,
+): string {
+  if (sourceDir && sourcePath.startsWith(`${sourceDir}/`)) {
+    const rel = sourcePath.slice(sourceDir.length + 1);
+    return path.join(guideRoot, rel);
+  }
+  return sourcePath;
+}
+
+export interface EvalResult {
+  matched?: string;
+  guidePath?: string;
+  toolName?: string;
+}
+
+/**
+ * 入力 JSON を受け取り、抽出 -> 正規化 -> chezmoi 管理判定 -> 誘導先解決までを
+ * まとめて行う。ホーム配下の chezmoi 管理ファイルの編集は deny 対象として返す。
+ */
+export function evaluateInput(
+  input: unknown,
+  env: { home: string; cwd: string },
+): EvalResult {
+  const { toolName, path1, path2 } = extractPaths(input);
+  const sourceDir = chezmoiSourceDir();
+  const guideRoot = resolveGuideRoot(env.home, env.cwd);
+
+  for (const p of [path1, path2]) {
+    const abs = normalizePath(p, env.home, env.cwd);
+    if (!abs || !isUnderHome(abs, env.home)) continue;
+    const sourcePath = chezmoiSourcePath(abs);
+    if (!sourcePath) continue;
+    return {
+      matched: abs,
+      guidePath: buildGuidePath(sourcePath, sourceDir, guideRoot),
+      toolName,
+    };
+  }
+  return { toolName };
 }
 
 export interface HookResponse {
@@ -122,160 +221,20 @@ export interface HookResponse {
   user_message?: string;
 }
 
-export interface ResponseConfig {
-  levelLabel: string;
-  sourceRoot: string;
-  destRoot: string;
-  syncDescription: string;
-  manualSync: string;
-}
-
-const CURSOR_USER_RESPONSE: ResponseConfig = {
-  levelLabel: "user-level",
-  sourceRoot: "tools/chezmoi/dot_cursor/",
-  destRoot: "~/.cursor/",
-  syncDescription: "chezmoi apply (via 'mt chezmoi apply')",
-  manualSync: "`mt chezmoi apply`",
-};
-
-const OPENCODE_USER_RESPONSE: ResponseConfig = {
-  levelLabel: "user-level",
-  sourceRoot: "tools/chezmoi/dot_cursor/",
-  destRoot: "~/.config/opencode/",
-  syncDescription: "chezmoi apply (via 'mt chezmoi apply')",
-  manualSync: "`mt chezmoi apply`",
-};
-
-const CLAUDE_USER_RESPONSE: ResponseConfig = {
-  levelLabel: "user-level Claude Code",
-  sourceRoot: "tools/chezmoi/dot_cursor/",
-  destRoot: "~/.claude/",
-  syncDescription: "chezmoi apply (via 'mt chezmoi apply')",
-  manualSync: "`mt chezmoi apply`",
-};
-
-const CLAUDE_PROJECT_RESPONSE: ResponseConfig = {
-  levelLabel: "project-level Claude Code",
-  sourceRoot: "tools/chezmoi/dot_cursor/",
-  destRoot: ".claude/",
-  syncDescription: "chezmoi apply (via 'mt chezmoi apply')",
-  manualSync: "`mt chezmoi apply`",
-};
-
-/**
- * 3 つの deployed ルート + 2 つの non-canonical source ルートを構築する。
- * canonical（`tools/chezmoi/dot_cursor/`）は allow するため含めない。
- *
- * tools ルートは `~/src/tools/chezmoi/dot_*` を直接指す。
- * ユーザー環境によって配置場所が違う場合は `CHEZMOI_SOURCE_DIR` 環境変数で上書き可能。
- */
-export function buildProtectedRoots(home: string, toolsRoot: string): string[] {
-  const chezmoiBase = `${toolsRoot}/chezmoi`;
-  return [
-    `${home}/.cursor`,
-    `${home}/.claude`,
-    `${home}/.config/opencode`,
-    `${chezmoiBase}/dot_claude`,
-    `${chezmoiBase}/dot_config/opencode`,
-  ];
-}
-
-/**
- * デフォルトの tools ルート（`~/src/tools`）。`CHEZMOI_SOURCE_DIR` 環境変数で上書き可能。
- */
-export function defaultToolsRoot(home: string): string {
-  return `${home}/src/tools`;
-}
-
 /**
  * 判定結果からフック応答 JSON を組み立てる。
  * deny 時は Agent / ユーザー向けメッセージに canonical Source of Truth への誘導文言を含める。
  */
-export function buildResponse(
-  matchedPath: string | null,
-  toolName: string,
-  config: ResponseConfig,
-): HookResponse {
-  if (!matchedPath) {
+export function buildResponse(result: EvalResult): HookResponse {
+  if (!result.matched) {
     return { permission: "allow" };
   }
+  const guidePath = result.guidePath ?? result.matched;
+  const tool = result.toolName ?? "unknown";
   return {
     permission: "deny",
-    agent_message: `Direct edit to ${matchedPath} is blocked by the ${config.levelLabel} hook (tool: ${toolName}). Settings are deployed from \`${config.sourceRoot}\` to \`${config.destRoot}\` by ${config.syncDescription}. Edit the canonical Source of Truth under \`${config.sourceRoot}\`. For manual deploy, run ${config.manualSync}.`,
-    user_message: `設定への直接編集がブロックされました: ${matchedPath}。\nこのディレクトリは \`tools/chezmoi/dot_cursor/\` から \`chezmoi apply\` 経由でデプロイされるため、直接編集すると次回 apply 時に上書きされます。\n代わりに \`tools/chezmoi/dot_cursor/agents/\` または \`tools/chezmoi/dot_cursor/skills/\` を編集してください。`,
-  };
-}
-
-/**
- * 入力 JSON を受け取り、抽出 -> 正規化 -> 保護判定 -> 応答生成までを
- * まとめて行うオーケストレーション関数。main() から呼び出される。
- */
-export function evaluateInput(
-  input: unknown,
-  env: {
-    home: string;
-    cwd: string;
-    protectedRoots: readonly string[];
-    responseConfig: ResponseConfig;
-  },
-): HookResponse {
-  // 1. 入力 JSON から対象パスと tool 名を抽出する。
-  const { toolName, path1, path2 } = extractPaths(input);
-
-  // 2. 2 種類のパス（file_path / path および target_notebook）を絶対パスに正規化する。
-  const abs1 = normalizePath(path1, env.home, env.cwd);
-  const abs2 = normalizePath(path2, env.home, env.cwd);
-
-  // 3. どちらかが保護ルート群のいずれかの配下にヒットしたらそのパスを記録する。
-  let matched: string | null = null;
-  if (isProtected(abs1, env.protectedRoots)) matched = abs1;
-  else if (isProtected(abs2, env.protectedRoots)) matched = abs2;
-
-  // 4. 判定結果から最終応答を組み立てて返す。
-  return buildResponse(matched, toolName, env.responseConfig);
-}
-
-interface MainConfig {
-  protectedRoots: string[];
-  responseConfig: ResponseConfig;
-}
-
-function buildMainConfig(home: string, cwd: string): MainConfig {
-  const scriptPath = __filename;
-
-  // tools ルート決定: 環境変数 > デフォルト（`~/src/tools`）
-  const toolsRoot = process.env.CHEZMOI_SOURCE_DIR
-    ? process.env.CHEZMOI_SOURCE_DIR.replace(/\/chezmoi$/, "")
-    : defaultToolsRoot(home);
-  const protectedRoots = buildProtectedRoots(home, toolsRoot);
-
-  // OpenCode user hook（`~/.config/opencode/plugins/agent-hooks/` で実行）
-  if (scriptPath.includes("/.config/opencode/plugins/agent-hooks/")) {
-    return {
-      protectedRoots,
-      responseConfig: OPENCODE_USER_RESPONSE,
-    };
-  }
-
-  // Claude Code hooks
-  const isClaudeHook = scriptPath.includes("/.claude/hooks/");
-  if (!isClaudeHook) {
-    return {
-      protectedRoots,
-      responseConfig: CURSOR_USER_RESPONSE,
-    };
-  }
-
-  if (home && scriptPath.startsWith(`${home}/.claude/`)) {
-    return {
-      protectedRoots,
-      responseConfig: CLAUDE_USER_RESPONSE,
-    };
-  }
-
-  return {
-    protectedRoots,
-    responseConfig: CLAUDE_PROJECT_RESPONSE,
+    agent_message: `Direct edit to ${result.matched} is blocked by the user-level chezmoi hook (tool: ${tool}). This file is managed by chezmoi. Edit the canonical source at \`${guidePath}\` instead, then deploy with \`mt chezmoi apply\`.`,
+    user_message: `chezmoi 管理下のファイルへの直接編集はブロックされました: ${result.matched}。\nこのファイルは \`chezmoi apply\` でデプロイされるため、直接編集すると次回 apply 時に上書きされます。\n代わりに \`${guidePath}\` を編集し、\`mt chezmoi apply\` で反映してください。`,
   };
 }
 
@@ -306,16 +265,11 @@ function main(): void {
     return;
   }
 
-  // 3. 環境情報を組み立てる（3 つの deployed ルート + 2 つの non-canonical source ルート）。
+  // 3. 環境情報を組み立てる。
   const home = process.env.HOME ?? "";
   const cwd = process.cwd();
-  const config = buildMainConfig(home, cwd);
-  const response = evaluateInput(parsed, {
-    home,
-    cwd,
-    protectedRoots: config.protectedRoots,
-    responseConfig: config.responseConfig,
-  });
+  const result = evaluateInput(parsed, { home, cwd });
+  const response = buildResponse(result);
 
   // 4. 応答 JSON を stdout に書き出す。
   process.stdout.write(`${JSON.stringify(response)}\n`);

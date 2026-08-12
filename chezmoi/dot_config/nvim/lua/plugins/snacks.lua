@@ -11,6 +11,10 @@ return {
             ignored = true,
             exclude = { ".git", ".github" },
             include = { ".gitignore" },
+            layout = {
+              preset = "sidebar",
+              layout = { width = 30, min_width = 30 },
+            },
           },
         },
       },
