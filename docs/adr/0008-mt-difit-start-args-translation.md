@@ -1,3 +1,7 @@
+---
+status: superseded by ADR-0013
+---
+
 # ADR-0008: mt difit start の引数変換によるコメント表示問題の根本解決
 
 - Status: Accepted

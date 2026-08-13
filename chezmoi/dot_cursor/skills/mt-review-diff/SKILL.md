@@ -1,11 +1,11 @@
 ---
 name: mt-review-diff
-description: 差分をマクロ（アーキテクチャ）とミクロ（コード）の2段階でレビューし、結果を difit のコメントとして表示する。ブランチ差分・コミットされていない差分の両方に対応する。ブランチレビュー、コードレビュー、PRレビュー、差分レビューと言われた時に使用する。
+description: 差分をマクロ（アーキテクチャ）とミクロ（コード）の2段階でレビューし、結果を hunk のコメントとして表示する。ブランチ差分・コミットされていない差分の両方に対応する。ブランチレビュー、コードレビュー、PRレビュー、差分レビューと言われた時に使用する。
 ---
 
 # 差分レビュー
 
-ブランチ差分やコミットされていない差分を、マクロ・ミクロの 2 段階でレビューし、結果を difit の comment import スキーマに直接変換して表示する。レビュー結果を Markdown のレポートとして出力したり、レビュー中に自動修正ループを実行したりしない。
+ブランチ差分やコミットされていない差分を、マクロ・ミクロの 2 段階でレビューし、結果を hunk の comment apply 形式に直接変換して表示する。レビュー結果を Markdown のレポートとして出力したり、レビュー中に自動修正ループを実行したりしない。
 
 ## 🧠 前提知識
 
@@ -16,48 +16,40 @@ description: 差分をマクロ（アーキテクチャ）とミクロ（コー�
 - レビュー前に背景（目的・制約・意図）を抽出する。抽出元はセッション文脈を基本とし、ブランチ差分レビュー時は既存 PR があればその内容も参照する。不十分な場合はユーザーに確認または提供を依頼する
 - 可能なら元 Issue / PRD / spec を特定し、仕様適合を Standards と分けて見る
 
-## 🧾 difit comment import 出力
+## 🧾 hunk コメント出力
 
-レビュー結果の最終成果物は、次の import スキーマに従う JSON 配列とする。JSON のコードフェンス、Markdown の総合レポート、別テンプレートは出力しない。
+レビュー結果の最終成果物は、次の hunk の comment apply 形式に従う JSON 配列とする。JSON のコードフェンス、Markdown の総合レポート、別テンプレートは出力しない。
 
 ```json
 [
   {
-    "type": "thread",
     "filePath": "src/example.ts",
-    "position": { "side": "new", "line": 42 },
-    "body": "[question] 🚨 Critical: この分岐では..."
+    "newLine": 42,
+    "summary": "[question] 🚨 Critical: この分岐では..."
   },
   {
-    "type": "thread",
     "filePath": "src/example.ts",
-    "body": "[question] 🌍 マクロ: ファイル全体の責務について..."
-  },
-  {
-    "type": "thread",
-    "filePath": "src/example.ts",
-    "body": "[context] この変更により..."
+    "summary": "[question] 🌍 マクロ: ファイル全体の責務について..."
   }
 ]
 ```
 
 各要素には以下を指定する：
 
-- `type`: 常に `"thread"`
-- `filePath`: リポジトリルートからの相対パス
-- `position`: コード上の特定箇所を指すミクロコメントでは必須。`{"side":"new","line": 行番号}` とする
-- `body`: taxonomy プレフィックスで始める本文。内容、重大度、観点、確認手順、修正案など必要な情報は本文内に記載する
+- `filePath`: リポジトリルートからの相対パス（必須）
+- `newLine` / `oldLine`: コード上の特定箇所を指すミクロコメントでは必須。`{"newLine": 行番号}`（変更後の側）または `{"oldLine": 行番号}`（変更前の側）とする
+- `summary`: taxonomy プレフィックスで始める本文。内容、重大度、観点、確認手順、修正案など必要な情報は本文内に記載する
 
-ファイル全体に対するマクロコメントは `filePath` のみを指定し、`position` キー自体を省略する。複数ファイルにまたがる指摘は、最も関係の深いファイルにファイルレベルコメントを付けるか、必要に応じて各ファイルに同じ判断を紐づける。`position: null` やダミーの行番号でファイルレベルコメントを表現しない。
+ファイル全体に対するマクロコメントは `filePath` のみを指定し、`newLine` / `oldLine` キー自体を省略する。行指定のないコメントは `mt hunk start` が `newLine: 1` に合成して hunk の必須スキーマを満たす。複数ファイルにまたがる指摘は、最も関係の深いファイルにファイルレベルコメントを付けるか、必要に応じて各ファイルに同じ判断を紐づける。`newLine: null` やダミーの行番号でファイルレベルコメントを表現しない。
 
 ### taxonomy
 
-taxonomy の意味を守り、本文の先頭に次のいずれかを付ける：
+taxonomy の意味を守り、本文の先頭に `[question]` を付ける：
 
 - `[question]`: AI が人間に判断・対応を求める指摘、確認事項、修正提案。旧来の「指摘」「提案」を含め、アクションが必要なレビューコメントはすべてこれに分類する
-- `[context]`: 人間向けの解説、背景、判断根拠、または非アクショナブルな良い点。対応を要求しない情報だけに使う
+- 重大度は本文内に `(must)` / `(should)` / `(want)` として記載する（例: `[question] (want) ...`）。`(want)` は任意の改善提案で、ゲート判定をブロックしない
 
-`[context]` で問題点や修正要求を隠さない。指摘を出す場合は必ず `[question]` にする。レビューコメントがない場合は空配列 `[]` を出力する。
+解説・背景・判断根拠など対応を要求しない情報はコメントとして出力しない（コメントの taxonomy は指摘の `[question]` のみ）。レビューコメントがない場合は空配列 `[]` を出力する。
 
 ## 🏃 ステップ
 
@@ -68,7 +60,7 @@ taxonomy の意味を守り、本文の先頭に次のいずれかを付ける�
 3. 差分の取得
 4. 変更規模の判定
 5. レビュー実施
-6. difit コメントの生成・表示
+6. hunk コメントの生成・適用
 7. 人間の確認後に review session を終了
 
 ### ステップ1: レビュー対象のヒアリング
@@ -175,68 +167,73 @@ taxonomy の意味を守り、本文の先頭に次のいずれかを付ける�
 
 - アーキテクチャ観点のレビュー（「背景目的との整合性」と「仕様適合」を必ず確認）
 - 横展開候補の検出（コードベースの類似実装を検索）
-- ファイル全体に紐づく指摘は `position` を付けずに記録する
+- ファイル全体に紐づく指摘は `newLine` / `oldLine` を付けずに記録する
 
 ##### Agent 2: ミクロレビュー
 
 - コード詳細のレビュー（背景要約を踏まえ、目的に沿った実装かを確認する）
-- 特定行への指摘は `position` に新しい側の行番号を記録する
+- 特定行への指摘は `newLine`（または `oldLine`）に新しい側の行番号を記録する
 
-### ステップ6: difit コメントの生成・表示
+### ステップ6: hunk コメントの生成・適用
 
 1. 全レビュー結果を集約し、重複を除く
-2. 対応が必要な指摘・確認事項・提案は `[question]`、解説や非アクショナブルな情報は `[context]` に分類する
-3. 各コメントを `type`・`filePath`・必要に応じた `position`・`body` を持つ import スキーマの要素に変換する
-4. JSON 配列をそのまま stdin に渡して、ベースブランチ名付きで difit を開始する。例：
+2. 対応が必要な指摘・確認事項・提案はすべて `[question]` に分類し、重大度（`(must)` / `(should)` / `(want)`）を本文に記載する
+3. 各コメントを `filePath`・必要に応じた `newLine` / `oldLine`・`summary` を持つ apply 形式の要素に変換する
+4. hunk TUI セッションがアクティブであることを確認する:
 
 ```bash
-mt difit start <base-branch> <<'JSON'
+mt hunk status
+```
+
+`hunk review session: active` でない場合、ユーザーにターミナルで `hunk diff <base-branch>` を開いてもらい、セッションが active になってから続行する。`<base-branch>` は `origin/HEAD` があればその参照名から `origin/` を除き、取得できなければ `main` を使う。
+
+5. JSON 配列をそのまま stdin に渡して `mt hunk start` を実行する。例：
+
+```bash
+mt hunk start <<'JSON'
 [
   {
-    "type": "thread",
     "filePath": "src/example.ts",
-    "position": { "side": "new", "line": 42 },
-    "body": "[question] ⚠️ Warning: ..."
+    "newLine": 42,
+    "summary": "[question] ⚠️ Warning: ..."
   },
   {
-    "type": "thread",
     "filePath": "src/example.ts",
-    "body": "[context] 🌍 マクロ: ..."
+    "summary": "[question] 🌍 マクロ: ..."
   }
 ]
 JSON
 ```
 
-5. `mt difit start` が出力した URL を案内し、ブラウザ上で人間が各 thread を確認・reply・resolve できる状態にする
+6. `mt hunk start` が出力した適用コメント数（`{"session": ..., "comments": N}`）を案内し、hunk TUI 上で人間が各コメントを確認・reply（user コメント追加）できる状態にする
 
-JSON 配列が空の場合も `mt difit start <base-branch>` に `[]` を渡す。コメントを Markdown ファイルや独自のレビュー形式に変換しない。
+JSON 配列が空の場合も `mt hunk start` に `[]` を渡す。コメントを Markdown ファイルや独自のレビュー形式に変換しない。
 
 ### ステップ7: review session の終了
 
-人間がブラウザでレビューを確認し終えたら、standalone の終了処理として必ず次を実行する：
+人間が hunk TUI でレビューを確認し終えたら、standalone の終了処理として必ず次を実行する：
 
 ```bash
-mt difit done
+mt hunk done
 ```
 
-これはゲートや自動修正ループを開始する処理ではない。`mt-review-diff` standalone は、コメントを表示し、人間の確認を待ち、`mt difit done` で review session を終了して完了する。
+これはゲートや自動修正ループを開始する処理ではない。`mt-review-diff` standalone は、コメントを適用・表示し、人間の確認を待ち、`mt hunk done` で review session を終了して完了する。hunk TUI 自体（`hunk diff`）は人間のターミナルに属するため、必要なら人間側で閉じる。
 
 ## ✅ 完了条件
 
 - レビュー開始前に背景要約が確定している（ステップ 2）
 - すべての差分ファイルがマクロ・ミクロの両観点でレビューされている
-- レビュー結果が difit comment import スキーマの JSON 配列として直接出力されている
-- 特定行へのコメントは `position` を持ち、ファイル全体へのマクロコメントは `position` を省略している
-- 指摘・確認事項・提案は `[question]`、解説や非アクショナブルな情報は `[context]` になっている
-- 人間の確認後、`mt difit done` で review session が終了している
+- レビュー結果が hunk comment apply 形式の JSON 配列として直接出力され、`mt hunk start` で適用されている
+- 特定行へのコメントは `newLine` / `oldLine` を持ち、ファイル全体へのマクロコメントは行指定を省略している
+- 指摘・確認事項・提案はすべて `[question]` で表現され、解説専用のコメントは生成されない
+- 人間の確認後、`mt hunk done` で review session が終了している
 
 ## 📦 アウトプット
 
-difit に渡す comment import スキーマの JSON 配列。各コメントには次を含める：
+hunk に適用する comment apply 形式の JSON 配列。各コメントには次を含める：
 
-- `type: "thread"`
 - `filePath`: リポジトリルートからの相対パス
-- 特定行へのコメントの場合のみ `position: { side: "new", line: number }`
-- taxonomy プレフィックス（指摘は `[question]`、解説は `[context]`）を先頭に持つ `body`
+- 特定行へのコメントの場合のみ `newLine: number`（または `oldLine: number`）
+- taxonomy プレフィックス（`[question]`）と重大度（`(must)` / `(should)` / `(want)`）を先頭に持つ `summary`
 
-レビュー終了時の終了コマンドは `mt difit done` とする。
+レビュー終了時の終了コマンドは `mt hunk done` とする。

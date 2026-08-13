@@ -1,3 +1,7 @@
+---
+status: superseded by ADR-0013
+---
+
 # ADR-0009: difit レビューで untracked ファイルを含める
 
 - Status: Accepted

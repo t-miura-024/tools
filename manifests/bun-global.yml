@@ -1,8 +1,6 @@
 packages:
   "@jackwener/opencli":
     version: latest
-  difit:
-    version: latest
   firecrawl:
     version: latest
   pnpm:
