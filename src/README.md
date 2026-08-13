@@ -19,6 +19,7 @@
 | `src/git.rs` | `git` サブコマンド定義と dispatch |
 | `src/opencode.rs` | `opencode` サブコマンド定義と dispatch |
 | `src/tool.rs` | `tool` サブコマンド定義と dispatch |
+| `src/hunk.rs` | `hunk` レビューセッション管理（`mt hunk`）のサブコマンド定義と dispatch |
 | `src/config.rs` | アプリ横断の設定（ホームディレクトリ解決、OAuth 設定型など） |
 
 サブコマンドの実装本体（処理ロジック）を `src` 直下のファイルに書いてはいけない。

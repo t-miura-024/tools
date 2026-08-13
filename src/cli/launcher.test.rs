@@ -46,7 +46,7 @@ fn test_script_categories_separated() {
     assert!(cats.contains(&"vector"));
     assert!(cats.contains(&"config"));
     assert!(cats.contains(&"dotfiles"));
-    assert!(cats.contains(&"difit"));
+    assert!(cats.contains(&"hunk"));
 }
 
 #[test]

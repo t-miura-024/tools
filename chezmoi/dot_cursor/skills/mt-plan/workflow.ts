@@ -12,7 +12,7 @@ import { loadConfig } from './init-config';
 
 type JsonRecord = Record<string, unknown>;
 
-interface DifitBlockingThread {
+interface HunkBlockingThread {
   id?: string;
   file?: string;
   line?: number | { start: number; end: number } | null;
@@ -21,16 +21,15 @@ interface DifitBlockingThread {
   replies?: string[];
 }
 
-interface DifitCheckOutput {
+interface HunkCheckOutput {
   passes: boolean;
-  blocking_threads: DifitBlockingThread[];
+  blocking_threads: HunkBlockingThread[];
 }
 
 const REVIEW_AXES = ['essentiality', 'acceptance', 'scope', 'alignment', 'quality'];
-const DIFIT_START_KEY = 'difit-start.json';
-const DIFIT_COMMENTS_KEY = 'difit-comments.json';
-const DIFIT_CHECK_KEY = 'difit-check.json';
-const CONTEXT_NOTES_KEY = 'context-notes.json';
+const HUNK_START_KEY = 'hunk-start.json';
+const HUNK_COMMENTS_KEY = 'hunk-comments.json';
+const HUNK_CHECK_KEY = 'hunk-check.json';
 
 function isRecord(value: unknown): value is JsonRecord {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -60,7 +59,7 @@ function findJsonObject(raw: string | undefined): JsonRecord | undefined {
 
   // Agents sometimes include the command output in a fenced block or around
   // a short explanation. Keep the task contract forgiving without accepting
-  // an arbitrary value as a successful difit result.
+  // an arbitrary value as a successful hunk result.
   if (!raw) return undefined;
   const start = raw.indexOf('{');
   const end = raw.lastIndexOf('}');
@@ -81,16 +80,29 @@ function optionalLocation(item: JsonRecord): { filePath?: string; position?: unk
   };
 }
 
-function commentImport(body: string, item: JsonRecord): JsonRecord {
+function commentImport(summary: string, item: JsonRecord): JsonRecord {
   const location = optionalLocation(item);
-  return {
-    type: 'thread',
-    ...location,
-    body,
-  };
+  const comment: JsonRecord = { summary };
+  if (typeof location.filePath === 'string' && location.filePath.trim()) {
+    comment.filePath = location.filePath;
+  }
+  const lines = positionToHunkLines(location.position);
+  if (lines) Object.assign(comment, lines);
+  return comment;
 }
 
-function buildDifitComments(reviewRaw: string | undefined, contextRaw: string | undefined): JsonRecord[] {
+/// agent-review.json の position（{side, line}）を hunk の apply 形式
+/// （newLine / oldLine）へ変換する。行指定のない指摘は newLine を省略し、
+/// mt hunk start 側の newLine: 1 合成に任せる。
+function positionToHunkLines(position: unknown): { newLine?: number; oldLine?: number } | undefined {
+  if (!isRecord(position)) return undefined;
+  const line = position.line;
+  if (typeof line !== 'number') return undefined;
+  if (position.side === 'old') return { oldLine: line };
+  return { newLine: line };
+}
+
+function buildHunkComments(reviewRaw: string | undefined): JsonRecord[] {
   const comments: JsonRecord[] = [];
   const review = findJsonObject(reviewRaw);
   const axes = isRecord(review?.axes) ? review.axes : undefined;
@@ -114,30 +126,16 @@ function buildDifitComments(reviewRaw: string | undefined, contextRaw: string | 
     }
   }
 
-  const contextValue = parseJson(contextRaw);
-  const contextNotes = Array.isArray(contextValue)
-    ? contextValue
-    : isRecord(contextValue) && Array.isArray(contextValue.contextNotes)
-      ? contextValue.contextNotes
-      : [];
-  for (const value of contextNotes) {
-    if (!isRecord(value) || typeof value.body !== 'string' || !value.body.trim()) continue;
-    const body = value.body.trim().startsWith('[context]')
-      ? value.body.trim()
-      : `[context] ${value.body.trim()}`;
-    comments.push(commentImport(body, value));
-  }
-
   return comments;
 }
 
-function parseDifitCheck(raw: string | undefined): DifitCheckOutput | undefined {
+function parseHunkCheck(raw: string | undefined): HunkCheckOutput | undefined {
   const parsed = findJsonObject(raw);
   if (!parsed || typeof parsed.passes !== 'boolean' || !Array.isArray(parsed.blocking_threads)) {
     return undefined;
   }
 
-  const blockingThreads: DifitBlockingThread[] = [];
+  const blockingThreads: HunkBlockingThread[] = [];
   for (const value of parsed.blocking_threads) {
     if (!isRecord(value) || typeof value.body !== 'string') return undefined;
     const replies = Array.isArray(value.replies)
@@ -146,7 +144,7 @@ function parseDifitCheck(raw: string | undefined): DifitCheckOutput | undefined 
     blockingThreads.push({
       ...(typeof value.id === 'string' ? { id: value.id } : {}),
       ...(typeof value.file === 'string' ? { file: value.file } : {}),
-      ...(typeof value.line === 'number' || isRecord(value.line) ? { line: value.line as DifitBlockingThread['line'] } : {}),
+      ...(typeof value.line === 'number' || isRecord(value.line) ? { line: value.line as HunkBlockingThread['line'] } : {}),
       ...(typeof value.taxonomy === 'string' ? { taxonomy: value.taxonomy } : {}),
       body: value.body,
       replies,
@@ -156,15 +154,15 @@ function parseDifitCheck(raw: string | undefined): DifitCheckOutput | undefined 
   return { passes: parsed.passes, blocking_threads: blockingThreads };
 }
 
-function formatDifitFeedback(ctx: PromptCtx): string | undefined {
-  const raw = findArtifactText(ctx.artifacts, DIFIT_CHECK_KEY) ?? readSessionFile(ctx.sessionDir, DIFIT_CHECK_KEY);
-  const result = parseDifitCheck(raw);
+function formatHunkFeedback(ctx: PromptCtx): string | undefined {
+  const raw = findArtifactText(ctx.artifacts, HUNK_CHECK_KEY) ?? readSessionFile(ctx.sessionDir, HUNK_CHECK_KEY);
+  const result = parseHunkCheck(raw);
   if (!result || result.passes || result.blocking_threads.length === 0) return undefined;
 
   const lines = [
-    '## difit の人間フィードバック（前回 check_difit の blocking_threads）',
+    '## hunk の人間フィードバック（前回 check_hunk の blocking_threads）',
     '',
-    '以下はブラウザ上の未解決スレッドと、そのスレッドに対する人間の reply です。担当スコープに該当するものを修正し、reply の意図を勝手に `[context]` に変換せず、指摘の taxonomy（`[question]` / `[issue]`）を保って扱ってください。',
+    '以下は hunk 上の未解決コメントと、そのコメントに対する人間のコメントです。担当スコープに該当するものを修正し、コメントの taxonomy（`[question]` / `[issue]`）を保って扱ってください。',
     '',
   ];
 
@@ -173,13 +171,19 @@ function formatDifitFeedback(ctx: PromptCtx): string | undefined {
       ? `${thread.file}${thread.line === undefined || thread.line === null ? '' : `:${typeof thread.line === 'number' ? thread.line : `${thread.line.start}-${thread.line.end}`}`}`
       : '(file-level)';
     lines.push(`### ${index + 1}. ${location} (${thread.taxonomy ?? 'unknown'})`);
-    lines.push(`指摘: ${thread.body}`);
-    if (thread.replies && thread.replies.length > 0) {
-      for (const reply of thread.replies) {
-        lines.push(`人間 reply（プレフィックスなしの原文）: ${reply}`);
-      }
+    if (thread.taxonomy === 'human') {
+      // hunk の人間コメント（source: user）は body がコメント本文そのもの。
+      // replies は hunk がフラット構造のため常に空。
+      lines.push(`人間コメント（原文）: ${thread.body}`);
     } else {
-      lines.push('人間 reply: (なし。未解決の指摘として確認する)');
+      lines.push(`指摘: ${thread.body}`);
+      if (thread.replies && thread.replies.length > 0) {
+        for (const reply of thread.replies) {
+          lines.push(`人間 reply: ${reply}`);
+        }
+      } else {
+        lines.push('人間 reply: (なし。未解決の指摘として確認する)');
+      }
     }
     lines.push('');
   }
@@ -189,9 +193,9 @@ function formatDifitFeedback(ctx: PromptCtx): string | undefined {
 
 /**
  * tado の task goto は失敗元だけを再キューするため、最後の
- * check_difit から execute_work に戻る際は、間にある review steps も
- * pending に戻しておく。これがないと、修正後に check_difit だけが再実行
- * され、execute_work → review_work → difit のサイクルにならない。
+ * check_hunk から execute_work に戻る際は、間にある review steps も
+ * pending に戻しておく。これがないと、修正後に check_hunk だけが再実行
+ * され、execute_work → review_work → hunk のサイクルにならない。
  *
  * tado のセッション DB は共有の ~/.tado/workflow.db（TADO_HOME で上書き可）に
  * あり、セッションディレクトリには置かれない（countReviewRounds と同じ）。
@@ -250,27 +254,6 @@ function validateReviewJson(raw: string | undefined): { valid: boolean; mustCoun
   if (totalMust !== c.must) return { valid: false, mustCount: c.must, error: `must count mismatch: counts.must=${c.must}, actual=${totalMust}` };
 
   return { valid: true, mustCount: c.must };
-}
-
-function validateContextNotes(raw: string | undefined): { valid: boolean; error?: string } {
-  const parsed = parseJson(raw);
-  if (!Array.isArray(parsed)) {
-    return { valid: false, error: `${CONTEXT_NOTES_KEY} must be a JSON array` };
-  }
-
-  for (const [index, value] of parsed.entries()) {
-    if (!isRecord(value) || typeof value.filePath !== 'string' || !value.filePath.trim()) {
-      return { valid: false, error: `${CONTEXT_NOTES_KEY}[${index}] is missing filePath` };
-    }
-    if (typeof value.body !== 'string' || !value.body.trim()) {
-      return { valid: false, error: `${CONTEXT_NOTES_KEY}[${index}] is missing body` };
-    }
-    if (value.position !== undefined && !isRecord(value.position)) {
-      return { valid: false, error: `${CONTEXT_NOTES_KEY}[${index}].position must be an object` };
-    }
-  }
-
-  return { valid: true };
 }
 
 /**
@@ -494,34 +477,44 @@ const def: WorkflowDef = {
       task: {
         action: 'orchestrate',
         buildPrompt: (ctx: PromptCtx) => {
-          const difitFeedback = formatDifitFeedback(ctx);
+          const hunkFeedback = formatHunkFeedback(ctx);
           return [
             '## 目的',
             '',
             '計画 Issue の `## ✅ 完了条件`、`## 📦 アウトプット`、`## 🧭 方針` に従って作業を実行する。',
-            '作業の実施は必ず `mt-plan-work-executor` SubAgent に委譲する。オーケストレーター自身はリポジトリのファイル編集を行わず、ミッションの割り振り・進行管理・Issue body 更新に専念する（ただし、完了報告からセッション成果物の `context-notes.json` を作成・報告する処理は行う）。',
+            '作業の実施は必ず `mt-plan-work-executor` SubAgent に委譲する。オーケストレーター自身はリポジトリのファイル編集を行わず、ミッションの割り振り・進行管理・Issue body 更新に専念する。',
             '',
             '## 修正ソース（再実行時に適用）',
             '',
             'execute_work に戻ってきた場合、以下のソースから修正指示を統合して executor SubAgent に渡す:',
             '',
             '1. **agent-review.json の must 指摘**（review_work の SubAgent レビューで検出された必須修正）',
-            '2. **agent-review.json の should / want 指摘**（start_difit_review で `[question]` として提示されたもの）',
-            '3. **difit の blocking_threads**（人間がブラウザで追加した reply を含む `difit-check.json`）',
-            '4. **human-feedback.json の items**（旧セッションや互換入力に残っている場合のみ）',
+            '2. **agent-review.json の should 指摘**（start_hunk_review で `[question]` として提示されたもの）',
+            '3. **agent-review.json の want 指摘のうち人間コメントが付いたもの**（hunk コメント一覧で同一 newLine に user コメントが存在する want のみ）',
+            '4. **hunk の blocking_threads**（人間が hunk TUI で追加した user コメントを含む `hunk-check.json`）',
             '',
             '各ソースの存在確認:',
             '- セッションディレクトリの `agent-review.json` を読み、must / should / want の全指摘を抽出する',
-            '- セッションディレクトリの `difit-check.json` を読み、`blocking_threads[].body` と `blocking_threads[].replies[]` を抽出する',
-            '- セッションディレクトリの `human-feedback.json` を読み、`items` 配列の指摘を抽出する',
+            '- セッションディレクトリの `hunk-check.json` を読み、`blocking_threads[].body` と `blocking_threads[].replies[]` を抽出する',
             '- 存在しないファイルは無視する（初回実行時は修正ソースなし）',
+            '',
+            'want 指摘の修正対象判定:',
+            '- リポジトリルートで `hunk session comment list --repo "$(git rev-parse --show-toplevel)" --type all --json` を実行し、コメント一覧を取得する（source: "agent" = AI 適用、source: "user" = 人間）',
+            '- want 指摘（`[question] (want)`）のうち、同一ファイルの同一行（newRange / oldRange の開始行が一致）に `source: "user"` の人間コメントが存在するものだけを修正対象にする',
+            '- 無視された want（rm されず人間コメントなし）は修正対象にしない',
             '',
             '修正指示の仕分け:',
             '- 指摘を該当ミッションのスコープで仕分けし、担当の executor SubAgent に修正指示として渡す',
-            '- 4 ソースの指摘は優先度なく統一的に扱う（すべて対応対象）',
-            '- difit の人間 reply はテキスト原文として executor に渡し、要約・省略・taxonomy の変更をしない',
+            '- must / should はすべて対応対象。want は人間コメントが付いたもののみ対応対象',
+            '- hunk の人間コメントはテキスト原文として executor に渡し、要約・省略・taxonomy の変更をしない',
             '',
-            ...(difitFeedback ? [difitFeedback, ''] : []),
+            '対応完了時のコメント削除（rm）:',
+            '- executor は対応したコメントを `hunk session comment rm --repo "$(git rev-parse --show-toplevel)" <noteId>` で削除する',
+            '- must / should: 対応した AI コメント（source: "agent"）を rm する',
+            '- 人間コメントが付いた want: 対応後に AI コメントと人間コメント（source: "user"）の両方を rm する',
+            '- 人間コメントが付いていない want: 修正対象外のため rm しない',
+            '',
+            ...(hunkFeedback ? [hunkFeedback, ''] : []),
             '## 手順',
             '',
             '### 1. ミッションの読み取り',
@@ -540,32 +533,18 @@ const def: WorkflowDef = {
             '- 各 SubAgent に渡す情報:',
             '  - 計画 Issue body 全文（完了条件・方針・アウトプットの判断に必要）',
             '  - 担当ミッション定義（ID・名前・スコープ・完了条件番号・Wave 所属）',
-            '  - 修正指示（再実行時のみ: agent-review.json、difit-check.json の human reply、human-feedback.json の該当指摘）',
+            '  - 修正指示（再実行時のみ: agent-review.json、hunk-check.json の blocking_threads / user コメントの該当指摘）',
             '',
             '### executor の完了報告契約',
             '',
-            '各 executor は、作業結果を次の構造化 JSON オブジェクトとして必ず返す。`contextNotes` は省略・null 禁止であり、補足がない場合も必ず空配列 `[]` を返すこと:',
+            '各 executor は、作業結果を次の構造化 JSON オブジェクトとして必ず返す:',
             '```json',
             '{',
             '  "changedFiles": ["<repository-relative-path>"],',
             '  "checks": [{"command": "<command>", "result": "<result>"}],',
-            '  "unresolvedIssues": [],',
-            '  "contextNotes": [',
-            '    {"filePath": "<repository-relative-path>", "position": {"side": "new", "line": 42}, "body": "<implementation context>"}',
-            '  ]',
+            '  "unresolvedIssues": []',
             '}',
             '```',
-            '- `contextNotes` の各要素は `{filePath, position?, body}` とする。`filePath` と `body` は必須、`position` は特定行に紐づく場合だけ含め、ファイルレベル補足では省略する。',
-            '- 補足がない場合の該当フィールドは正確に `"contextNotes": []` とする（フィールド自体を省略しない）。',
-            '- `position` が指定された場合はその値を保持する。`body` は実装判断やレビュー補足の解説だけにし、指摘を `[context]` に偽装しない。既存の taxonomy プレフィックスは保持する。',
-            '',
-            '### contextNotes の集約と report',
-            '',
-            '全 executor の完了報告から `contextNotes` 配列を集約し、executor が返した順序を保った 1 つの JSON 配列として保存する。',
-            `contextNotes が全件空でも、必ず ${ctx.sessionDir}/${CONTEXT_NOTES_KEY} を作成し、内容を正確に [] とする。`,
-            `保存後、report の artifacts に必ず以下を含める（contextNotes の有無に関係なく必須）:`,
-            `{"key":"${CONTEXT_NOTES_KEY}","path":"${ctx.sessionDir}/${CONTEXT_NOTES_KEY}"}`,
-            'report 前にファイルが存在し、JSON 配列として読み戻せることを確認する。',
             '',
             '### 3. 完了報告の集約',
             '',
@@ -597,7 +576,7 @@ const def: WorkflowDef = {
             '',
             '## 禁止事項',
             '',
-            '- オーケストレーター自身がリポジトリのファイルを編集しない（作業は必ず executor SubAgent へ委譲。ただしセッション成果物の `context-notes.json` は集約して作成・報告する）',
+            '- オーケストレーター自身がリポジトリのファイルを編集しない（作業は必ず executor SubAgent へ委譲）',
             '- 計画外のファイル編集や状態遷移が必要になった場合は実行を止め、計画修正を提案する',
             '- ユーザー承認前に `done` 化しない',
             '- 全ミッションの完了前に次のステップへ進まない',
@@ -605,19 +584,10 @@ const def: WorkflowDef = {
         },
       },
       check: (ctx: CheckCtx): CheckResult => {
-        const expectedPath = join(ctx.sessionDir, CONTEXT_NOTES_KEY);
-        const artifact = ctx.artifacts.find(
-          (item) => item.artifactKey === CONTEXT_NOTES_KEY && item.filePath === expectedPath,
-        );
-        if (!artifact) {
-          return { status: 'error', reasons: [`missing required ${CONTEXT_NOTES_KEY} artifact`] };
+        if (ctx.attemptResult.status !== 'completed') {
+          return { status: 'error', reasons: [ctx.attemptResult.errors ?? 'execute_work failed'] };
         }
-
-        const validation = validateContextNotes(readSessionFile(ctx.sessionDir, CONTEXT_NOTES_KEY));
-        if (!validation.valid) {
-          return { status: 'error', reasons: [validation.error ?? `${CONTEXT_NOTES_KEY} validation failed`] };
-        }
-        return { status: 'pass', reasons: [`${CONTEXT_NOTES_KEY} persisted`] };
+        return { status: 'pass', reasons: ['execution completed'] };
       },
     },
 
@@ -716,11 +686,11 @@ const def: WorkflowDef = {
     },
 
     // -------------------------------------------------------------------
-    // Step 5: difit レビュー起動
+    // Step 5: hunk レビュー起動
     // -------------------------------------------------------------------
     {
-      key: 'start_difit_review',
-      phase: 'difit レビュー起動',
+      key: 'start_hunk_review',
+      phase: 'hunk レビュー起動',
       type: 'task',
       maxRetries: 1,
       onFail: { action: 'escalate' },
@@ -728,32 +698,29 @@ const def: WorkflowDef = {
         action: 'orchestrate',
         buildPrompt: (ctx: PromptCtx) => {
           const reviewRaw = findArtifactText(ctx.artifacts, REVIEW_JSON_KEY) ?? readSessionFile(ctx.sessionDir, REVIEW_JSON_KEY);
-          const contextRaw = findArtifactText(ctx.artifacts, CONTEXT_NOTES_KEY) ?? readSessionFile(ctx.sessionDir, CONTEXT_NOTES_KEY);
-          const comments = buildDifitComments(reviewRaw, contextRaw);
-          const commentsPath = join(ctx.sessionDir, DIFIT_COMMENTS_KEY);
-          const startPath = join(ctx.sessionDir, DIFIT_START_KEY);
+          const comments = buildHunkComments(reviewRaw);
+          const commentsPath = join(ctx.sessionDir, HUNK_COMMENTS_KEY);
+          const startPath = join(ctx.sessionDir, HUNK_START_KEY);
 
           return [
             '## 目的',
             '',
-            'レビュー結果を difit comment import スキーマへ変換し、ブラウザで確認できるレビューセッションを起動する。',
+            'レビュー結果を hunk の comment apply 形式へ変換し、アクティブな hunk セッションに注入する。',
             'このステップは起動とコメント注入だけを担当し、レビューの待機・ゲート判定・修正は行わない。',
             '',
             '## 入力からコメントへの変換',
             '',
-            `agent-review.json（${join(ctx.sessionDir, REVIEW_JSON_KEY)}）の axes を読み、各項目を thread として次の taxonomy で変換する:`,
+            `agent-review.json（${join(ctx.sessionDir, REVIEW_JSON_KEY)}）の axes を読み、各項目を hunk の comment apply 形式（{filePath, newLine|oldLine, summary}）に変換する:`,
             '- must: `[issue] (must) [<axis>] <detail>`（AI が発見したブロッキング指摘）',
             '- should: `[question] (should) [<axis>] <detail>`（人間に判断を仰ぐ指摘）',
-            '- want: `[question] (want) [<axis>] <detail>`（人間に判断を仰ぐ指摘）',
+            '- want: `[question] (want) [<axis>] <detail>`（人間に判断を仰ぐ指摘。ゲートをブロックしない）',
             '',
-            `executor の ${CONTEXT_NOTES_KEY}（各要素は {filePath, position?, body}）も thread として注入する。`,
-            '- contextNotes の body は必ず `[context]` で始める（既に付いていれば二重付与しない）',
-            '- contextNotes は解説であり、指摘を `[context]` に偽装しない',
-            '- `filePath` は difit 5.0.8 の import スキーマで必須のため必ず含める。ファイルに紐づかない指摘（want 等）はファイルレベル指摘として代表ファイル（例: CONTEXT.md）に紐づける',
-            '- `position` は difit 5.0.8 の import スキーマでは必須（side + line）だが、省略時は mt difit 側が `{"side":"new","line":1}` に合成する。ファイルレベル指摘は position を省略した形で表現する',
-            '- `type` は全件 `thread`、reply は生成しない',
+            '- `filePath` はリポジトリルートからの相対パスで必ず含める。ファイルに紐づかない指摘はファイルレベル指摘として代表ファイル（例: CONTEXT.md）に紐づける',
+            '- 特定行への指摘は `position`（{side: "new"|"old", line}）を `newLine` / `oldLine` に変換して含める',
+            '- 行指定のない指摘は `newLine` を省略する（`mt hunk start` が `newLine: 1` に合成する）',
+            '- `type` や reply は生成しない',
             '',
-            '今回生成する import 配列（変換後の正確な JSON）:',
+            '今回生成する apply 配列（変換後の正確な JSON）:',
             '```json',
             JSON.stringify(comments, null, 2),
             '```',
@@ -761,22 +728,28 @@ const def: WorkflowDef = {
             '## 手順',
             '',
             `1. 上記の配列を ${commentsPath} に JSON として保存する（空配列でも保存する）。`,
-            '2. ベースブランチを検出する。`origin/HEAD` があればその参照名から `origin/` を除き、取得できなければ `main` を使う:',
+            '2. アクティブな hunk セッションを確認する:',
+            '```bash',
+            'mt hunk status',
+            '```',
+            '- "hunk review session: active" なら次へ進む。',
+            '- "none" または "stale" なら hunk TUI セッションがない。ユーザーにターミナルで `hunk diff <base-branch>` を開いてもらい、セッションが active になってからこのステップを再実行する。',
+            '- ベースブランチは `origin/HEAD` があればその参照名から `origin/` を除き、取得できなければ `main` を使う:',
             '```bash',
             `BASE_BRANCH="$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's#^origin/##')"`,
             'BASE_BRANCH="${BASE_BRANCH:-main}"',
             '```',
-            '3. stdin からコメント JSON を渡し、必ず `mt difit start <base-branch>` の形式で起動する:',
+            '3. stdin からコメント JSON を渡し、`mt hunk start` を実行する:',
             '```bash',
-            `cat "${commentsPath}" | mt difit start "$BASE_BRANCH" | tee "${startPath}"`,
+            `cat "${commentsPath}" | mt hunk start | tee "${startPath}"`,
             '```',
-            '4. start の stdout（`port` と `url`）を確認し、ブラウザで開く URL として報告する。',
+            '4. start の stdout（`session` と `comments`）を確認し、hunk TUI に表示されたコメント数として報告する。',
             '',
             '## report',
             '',
             '成功時は `status: "completed"` とし、artifacts に以下を含める:',
             '```json',
-            `[{"key":"${DIFIT_COMMENTS_KEY}","path":"${commentsPath}"},{"key":"${DIFIT_START_KEY}","path":"${startPath}"}]`,
+            `[{"key":"${HUNK_COMMENTS_KEY}","path":"${commentsPath}"},{"key":"${HUNK_START_KEY}","path":"${startPath}"}]`,
             '```',
             '',
             'レビューセッションの終了処理や standalone レビューの実行はこのステップの責務外とする。',
@@ -789,25 +762,25 @@ const def: WorkflowDef = {
       },
       check: (ctx: CheckCtx): CheckResult => {
         if (ctx.attemptResult.status !== 'completed') {
-          return { status: 'error', reasons: [ctx.attemptResult.errors ?? 'difit start failed'] };
+          return { status: 'error', reasons: [ctx.attemptResult.errors ?? 'hunk start failed'] };
         }
-        return { status: 'pass', reasons: ['difit review started'] };
+        return { status: 'pass', reasons: ['hunk review started'] };
       },
     },
 
     // -------------------------------------------------------------------
-    // Step 6: ブラウザレビュー待機
+    // Step 6: hunk レビュー待機
     // -------------------------------------------------------------------
     {
       key: 'await_review',
-      phase: 'ブラウザレビュー待機',
+      phase: 'hunk レビュー待機',
       type: 'human_gate',
       maxRetries: 1,
       onFail: { action: 'escalate' },
       humanGate: {
-        presentArtifacts: [DIFIT_START_KEY, DIFIT_COMMENTS_KEY, REVIEW_JSON_KEY],
+        presentArtifacts: [HUNK_START_KEY, HUNK_COMMENTS_KEY, REVIEW_JSON_KEY],
         choices: [
-          { value: 'approve', label: 'レビュー完了', desc: 'ブラウザで difit の確認・reply・resolve を終え、ゲート判定へ進む' },
+          { value: 'approve', label: 'レビュー完了', desc: 'hunk TUI でコメントの確認・user コメントの追加を終え、ゲート判定へ進む' },
           { value: 'abort', label: '中断' },
         ],
       },
@@ -815,35 +788,35 @@ const def: WorkflowDef = {
     },
 
     // -------------------------------------------------------------------
-    // Step 7: difit ゲート判定
+    // Step 7: hunk ゲート判定
     // -------------------------------------------------------------------
     {
-      key: 'check_difit',
-      phase: 'difit ゲート判定',
+      key: 'check_hunk',
+      phase: 'hunk ゲート判定',
       type: 'task',
       maxRetries: 0,
       onFail: { action: 'goto', target: 'execute_work', requeueSource: true },
       task: {
         action: 'orchestrate',
         buildPrompt: (ctx: PromptCtx) => {
-          const checkPath = join(ctx.sessionDir, DIFIT_CHECK_KEY);
+          const checkPath = join(ctx.sessionDir, HUNK_CHECK_KEY);
           return [
             '## 目的',
             '',
-            'ブラウザ上の difit レビューを機械的に判定し、未解決の指摘があれば execute_work に修正ソースとして渡す。',
+            'hunk 上のレビューを機械的に判定し、未解決のコメントがあれば execute_work に修正ソースとして渡す。',
             'このステップではゲート判定コマンドだけを呼び、standalone レビューや終了処理は行わない。',
             '',
             '## 手順',
             '',
-            '1. `mt difit check` を実行する。exit 1 は未解決スレッドによる通常のブロックなので、コマンド失敗として握り潰さず stdout JSON を取得する。',
-            '2. stdout の passes / blocking_threads JSON（例: {"passes":..., "blocking_threads":[...]}）をそのまま保存する。blocking thread の `body` は `[issue]` / `[question]` の taxonomy を保持し、`replies` の人間テキストも一字一句保持する。',
+            '1. `mt hunk check` を実行する。exit 0 = 通過、exit 1 = ブロック。exit 1 は未解決コメントによる通常のブロックなので、コマンド失敗として握り潰さず stdout JSON を取得する。',
+            '2. stdout の passes / blocking_threads JSON（例: {"passes":..., "blocking_threads":[...]}）をそのまま保存する。blocking thread の `body` は原文（人間コメントを含む）のまま一字一句保持し、taxonomy（"issue" / "question" / "human"）も変更しない。`replies` は hunk がフラット構造のため常に空配列になる。',
             `3. JSON を ${checkPath} に保存し、同じ JSON を report の subagentOutput として返す。`,
             '',
             '```json',
-            '{"passes":false,"blocking_threads":[{"id":"...","file":"...","line":1,"taxonomy":"question","body":"[question] ...","replies":["人間の reply"]}]}',
+            '{"passes":false,"blocking_threads":[{"id":"...","file":"...","line":1,"taxonomy":"question","body":"[question] ...","replies":[]}]}',
             '```',
             '',
-            'passes が false の場合も task 自体は実行成功として report する。workflow の check 関数が blocking_threads を確認して execute_work → review_work → start_difit_review → await_review → check_difit の修正ループへ戻す。passes が true の場合だけ finalize_done へ進む。',
+            'passes が false の場合も task 自体は実行成功として report する。workflow の check 関数が blocking_threads を確認して execute_work → review_work → start_hunk_review → await_review → check_hunk の修正ループへ戻す。passes が true の場合だけ finalize_done へ進む。',
             '',
             '## セッション情報',
             '',
@@ -853,29 +826,29 @@ const def: WorkflowDef = {
       },
       check: (ctx: CheckCtx): CheckResult => {
         const raw = ctx.attemptResult.subagentOutput;
-        const result = parseDifitCheck(raw);
+        const result = parseHunkCheck(raw);
         if (!result) {
-          return { status: 'error', reasons: ['mt difit check output is not valid gate JSON'] };
+          return { status: 'error', reasons: ['mt hunk check output is not valid gate JSON'] };
         }
 
         const fs = require('node:fs');
         try {
-          fs.writeFileSync(join(ctx.sessionDir, DIFIT_CHECK_KEY), `${JSON.stringify(result, null, 2)}\n`, 'utf-8');
+          fs.writeFileSync(join(ctx.sessionDir, HUNK_CHECK_KEY), `${JSON.stringify(result, null, 2)}\n`, 'utf-8');
         } catch (error) {
-          return { status: 'error', reasons: [`failed to persist difit check output: ${String(error)}`] };
+          return { status: 'error', reasons: [`failed to persist hunk check output: ${String(error)}`] };
         }
 
-        if (result.passes) return { status: 'pass', reasons: ['difit gate passes'] };
+        if (result.passes) return { status: 'pass', reasons: ['hunk gate passes'] };
         try {
           resetReviewCycle(ctx.sessionDir);
         } catch (error) {
-          return { status: 'error', reasons: [`failed to reset difit review cycle: ${String(error)}`] };
+          return { status: 'error', reasons: [`failed to reset hunk review cycle: ${String(error)}`] };
         }
         const reasons = result.blocking_threads.map((thread) => {
           const replies = thread.replies && thread.replies.length > 0 ? `; replies: ${thread.replies.join(' | ')}` : '';
           return `${thread.taxonomy ?? 'blocking'} ${thread.file ?? '(file-level)'}: ${thread.body}${replies}`;
         });
-        return { status: 'fail', reasons: reasons.length > 0 ? reasons : ['difit gate is blocked'] };
+        return { status: 'fail', reasons: reasons.length > 0 ? reasons : ['hunk gate is blocked'] };
       },
     },
 

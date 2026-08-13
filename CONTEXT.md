@@ -1,44 +1,36 @@
 # mt CLI
 
-個人用 CLI ツール群。Git / chezmoi / ツール管理 / ベクトル検索 / difit レビュー等のサブコマンドを持つ。
+個人用 CLI ツール群。Git / chezmoi / ツール管理 / ベクトル検索 / hunk レビュー等のサブコマンドを持つ。
 
 ## Language
 
 **review session**:
-`mt difit start` で始まり `mt difit check` または `mt difit done` で終わる、1 つの difit サーバライフサイクル。
-_Avoid_: review, difit session
+`mt hunk start` で始まり `mt hunk check` または `mt hunk done` で終わる、1 つの hunk セッションライフサイクル。
+_Avoid_: review, hunk session
 
 **gate**:
-`mt difit check` による通過/ブロック判定。exit 0 = 通過、exit 1 = ブロック。
+`mt hunk check` による通過/ブロック判定。exit 0 = 通過、exit 1 = ブロック。
 _Avoid_: check, validation
 
 **taxonomy**:
-コメントの分類プレフィックス。`[issue]`（AI 発見の問題点）、`[question]`（AI が人間に判断を仰ぐ）、`[context]`（人間向け解説）、プレフィックスなし（人間のコメント）。
+コメントの分類プレフィックス。`[issue]`（AI 発見の問題点）、`[question]`（AI が人間に判断を仰ぐ）、プレフィックスなし（人間のコメント）。
 _Avoid_: category, label, type
 
-**thread**:
-difit のコメントスレッド（親メッセージ + reply 群）。ゲート判定はスレッド親の body で行う。
-_Avoid_: comment, conversation
+**コメント**:
+hunk セッション内の行紐づきインラインコメント。AI コメントと人間コメント（user タイプ）がある。ゲート判定は AI コメント（want を除く）と人間コメントの残存で行う。
+_Avoid_: annotation, note
+
+**解決**:
+人間が AI コメントを hunk の UI で削除（rm）することで、そのコメントを解決済みとみなす動作。ゲートは解決されていない AI コメントと人間コメントの残存で判定する。
+_Avoid_: resolve, 対応済み
+
+**want コメント**:
+agent-review.json の want 指摘（`[question] (want)` で表示）。ゲートをブロックしない。同一行に人間コメントが付いた場合のみ修正対象となり、無視されても修正しない。
+_Avoid_: 任意指摘, suggestion
 
 **stale state**:
-`difit-review.json` が存在するがサーバプロセスが死んでいる状態。`start` / `check` が自己修復する。
+`hunk-review.json` が存在するが対応する hunk セッションを検出できない状態。`start` / `check` が自己修復する。
 _Avoid_: orphan, zombie
-
-**contextNotes**:
-executor SubAgent が実装判断根拠やレビュー補足を `[context]` として残す構造化データ。difit import スキーマ準拠（`{filePath, position?, body}`）。
-_Avoid_: notes, remarks, annotations
-
-**選択キー**:
-difit がコメントセッションを識別するためのキー。baseCommitish + targetCommitish + baseMode の組み合わせ。
-_Avoid_: session key, diff key
-
-**commentImports**:
-difit サーバーが /api/diff レスポンスに含める起動時コメント。選択キーが一致する場合のみ配信される。
-_Avoid_: imported comments, initial comments
-
-**merge-base 解決**:
-git merge-base <base> HEAD でベースコミットを解決し、3-way diff を行うモード。
-_Avoid_: merge base mode, three-way mode
 
 **手動見直し**:
 人間が既存の AI エージェント設定（Rule・Skill・SubAgent・Hook）に対して行う削除・内容変更の作業。AI は関与しない。
@@ -69,11 +61,11 @@ _Avoid_: git エントリ, GitHub パッケージエントリ
 _Avoid_: npm エントリ, registry エントリ
 
 **ファイルレベル指摘**:
-position を持たない thread。ファイル全体に紐づく指摘・補足。difit スキーマに表現がなく、`mt difit start` の position 合成で line:1 に変換される。
+行紐づけを持たない指摘。hunk のコメントは行紐づけ必須のため、`mt hunk start` が newLine: 1 に合成して表現する。
 _Avoid_: ファイル全体コメント, ファイルスコープ指摘
 
 **position 合成**:
-`mt difit start` が position なしの import エントリに `{"side":"new","line":1}` を付与して difit の必須スキーマを満たす動作。
+`mt hunk start` が行指定なしのコメントに `{"newLine": 1}` を付与して hunk の必須スキーマを満たす動作。
 _Avoid_: 正規化, フォールバック
 
 **OpenCLI**:
