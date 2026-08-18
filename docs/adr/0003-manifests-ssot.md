@@ -21,7 +21,7 @@ PC にインストールする開発ツールは `manifests/Brewfile`、`manifes
 - `manifests/bun-global.yml` — bun global パッケージの存在管理（version: latest で最新を追従）
 - ツールの追加・削除・バージョン変更は必ず manifest を編集し、`mt tool install` で反映する
 - 検証は `mt tool verify` で行う（不足ツールをインストールせず報告のみ）
-- Homebrew の一斉更新は `mt tool brew upgrade` で行う（mise の自動更新はしない）
+- Homebrew の一斉更新は `mt tool brew upgrade`、mise の更新は `mt tool mise upgrade` で行う（mise.toml の指定範囲内で更新し、mise.toml は書き換えない）
 
 ## Consequences
 

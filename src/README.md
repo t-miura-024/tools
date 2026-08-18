@@ -52,6 +52,8 @@
 | `src/tool/` | `tool install` | `install.rs` |
 | `src/tool/` | `tool verify` | `verify.rs` |
 | `src/tool/` | `tool brew`（→ `upgrade`） | `brew.rs` |
+| `src/tool/` | `tool mise`（→ `upgrade`） | `mise.rs` |
+| `src/tool/` | `tool bun`（→ `upgrade`） | `bun.rs` |
 
 ## 例外
 
@@ -64,7 +66,7 @@
 
 - 命名は `shared.rs` に統一する。
 - スコープはそのグループ内に閉じる（`pub(super)` などでグループ外へ公開しない）。
-- 例: `src/tool/shared.rs` は `install` / `verify` / `brew` が共有する
+- 例: `src/tool/shared.rs` は `install` / `verify` / `brew` / `mise` / `bun` が共有する
   `Manifests`・`ToolCommandSpec`・コマンド実行ヘルパーを持つ。
 
 ### 例外 2: `cli/` はアプリ基盤＋横断共通ディレクトリ

@@ -111,6 +111,16 @@ fn test_scripts_include_tool_bun_upgrade() {
 }
 
 #[test]
+fn test_scripts_include_tool_mise_upgrade() {
+    let entries = script_entries();
+    let names: Vec<&str> = entries.iter().map(|s| s.name.as_str()).collect();
+    assert!(
+        names.contains(&"tool mise upgrade"),
+        "tool mise upgrade が clap から自動登録されているべき: {names:?}"
+    );
+}
+
+#[test]
 fn test_scripts_include_herdr_workspace_template() {
     let entries = script_entries();
     let names: Vec<&str> = entries.iter().map(|s| s.name.as_str()).collect();
