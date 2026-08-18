@@ -131,6 +131,15 @@ fn test_mt_tool_bun_upgrade_help() {
 }
 
 #[test]
+fn test_mt_tool_mise_upgrade_help() {
+    let mut cmd = Command::cargo_bin("mt").unwrap();
+    cmd.args(["tool", "mise", "upgrade", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("mise ツール"));
+}
+
+#[test]
 fn test_mt_self_install_help() {
     let mut cmd = Command::cargo_bin("mt").unwrap();
     cmd.args(["self", "install", "--help"])

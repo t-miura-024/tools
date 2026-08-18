@@ -68,6 +68,14 @@ mt tool bun upgrade
 
 `manifests/bun-global.yml` に記載された package を一括更新します。registry パッケージ（`version:` エントリ）は最新版に、GitHub ホストパッケージ（`repo:` エントリ）はデフォルトブランチの最新コミットに更新されます。bun global のみを対象にし、Homebrew / mise は更新しません。
 
+### mise ツールの更新
+
+```bash
+mt tool mise upgrade
+```
+
+`manifests/mise.toml` の指定範囲内で更新します。`latest` / `stable` などの追従エントリは最新に更新され、固定バージョン（例: `node = "26.1.0"`）はそのまま維持されます。mise.toml は書き換えず、Homebrew / bun global は更新しません。
+
 ### ツールの追加・変更
 
 - Homebrew パッケージの追加: `manifests/Brewfile` を編集して `mt tool install`

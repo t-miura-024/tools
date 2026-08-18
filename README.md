@@ -47,6 +47,7 @@ cargo install --path .
 | `mt tool install`              | manifest からツールをインストール      |
 | `mt tool verify`               | Homebrew、mise、bun global の管理状態を検証 |
 | `mt tool brew upgrade`         | Homebrew パッケージを更新              |
+| `mt tool mise upgrade`         | mise 管理のツールを更新                 |
 | `mt vector ingest`             | Markdown 群を Qdrant に投入（設定ファイル駆動）|
 | `mt vector search`             | Qdrant コレクションをベクトル検索        |
 | `mt agent sync`                | agents / skills を cursor canonical から Claude / OpenCode へ同期 |

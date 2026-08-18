@@ -71,6 +71,10 @@ impl Manifests {
     pub(super) fn ensure_brewfile(&self) -> anyhow::Result<()> {
         ensure_file(&self.brewfile, "Brewfile")
     }
+
+    pub(super) fn ensure_mise_toml(&self) -> anyhow::Result<()> {
+        ensure_file(&self.mise_toml, "mise.toml")
+    }
 }
 
 fn ensure_file(path: &Path, name: &str) -> anyhow::Result<()> {
