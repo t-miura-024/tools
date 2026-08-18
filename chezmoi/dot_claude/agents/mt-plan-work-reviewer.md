@@ -45,7 +45,7 @@ tools:
 {
   "round": <number>,
   "axes": {
-    "essentiality": [{"severity": "must|should|want", "detail": "..."}],
+    "essentiality": [{"severity": "must|should|want", "detail": "...", "filePath": "...", "position": {"side": "new", "line": 42}}],
     "acceptance": [...],
     "scope": [...],
     "alignment": [...],
@@ -55,11 +55,20 @@ tools:
 }
 ```
 
+## 位置情報
+
+各指摘には、可能な場合は以下を含める（hunk の行紐づきコメントのソースになる）:
+
+- `filePath`: 指摘対象のリポジトリルートからの相対パス
+- `position`: 特定行への指摘の場合のみ `{"side": "new" | "old", "line": 行番号}`。ファイル全体への指摘では省略する
+
+want 指摘が行紐づきで提示されると、hunk 上で同一行に人間コメントが付いた場合の修正対象判定（新挙動）に使われる。
+
 ## 深刻度
 
 - **must:** 必ず修正しなければならない重大な問題
 - **should:** 必須ではないが修正すべき問題
-- **want:** 任意の改善提案
+- **want:** 任意の改善提案（ゲートをブロックしない。人間コメントが同一行に付いた場合のみ修正対象になる）
 
 ## 🚫 制約・禁止事項
 

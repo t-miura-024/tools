@@ -20,7 +20,25 @@ color: "success"
 
 1. **計画 Issue body** — `## ✅ 完了条件`、`## 🧭 方針`、`## 📦 アウトプット` を把握する
 2. **担当ユニット定義** — ユニット ID・名前、スコープ、対応する完了条件番号、依存関係
-3. **修正指示（再実行時のみ）** — agent-review.json の指摘（must / should / want）および human-feedback.json の items のうち担当分
+3. **修正指示（再実行時のみ）** — agent-review.json の指摘（must / should / want）と hunk のコメント（`hunk-check.json` の blocking_threads、hunk コメント一覧の user コメント）のうち担当分
+
+## 💬 hunk コメントの扱い
+
+修正指示の対応前に、リポジトリルートで hunk のコメント一覧を取得する:
+
+```bash
+hunk session comment list --repo "$(git rev-parse --show-toplevel)" --type all --json
+```
+
+- `source: "agent"` は AI が適用したコメント、`source: "user"` は人間が hunk TUI で追加したコメント
+- **want コメント**（`[question] (want)` で始まる）は、同一ファイルの同一行（`newRange` / `oldRange` の開始行が一致）に `source: "user"` の人間コメントが存在する場合のみ修正対象とする。無視された want（rm されず人間コメントなし）は修正しない
+- **must / should コメント**はすべて修正対象とする
+
+**対応完了時のコメント削除（rm）**: 対応したコメントは次のルールで `hunk session comment rm --repo "$(git rev-parse --show-toplevel)" <noteId>` により削除する:
+
+- must / should: 対応した AI コメント（`source: "agent"`）を rm する
+- 人間コメントが付いた want: 対応後に AI コメントと人間コメント（`source: "user"`）の両方を rm する
+- 人間コメントが付いていない want: 修正対象外のため rm しない
 
 ## 🧭 行動原則
 
