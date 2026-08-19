@@ -1,13 +1,11 @@
 ---
 name: mt-plan-run
 description: >
-  Cursor Plan モードに依存せず、GitHub Issue ベースの計画を選び、方針に基づき実行し履歴を更新する。
-  ユーザーが「mt-plan-run」「計画を進める」などを入力した時に使う。
+  GitHub Issue ベースの計画を選び、方針に基づき実行し履歴を更新する。
+  ユーザーが「mt-plan-run」「run plan」「計画を進める」などを入力した時に使う。プロンプトにIssue番号が含まれた形で実行される前提。
 ---
 
 # mt-plan-run
-
-GitHub Issue ベースの計画を選び、方針に基づき実行し履歴を更新する。計画の新規作成・リファインメントは扱わない。
 
 ## 実行
 
