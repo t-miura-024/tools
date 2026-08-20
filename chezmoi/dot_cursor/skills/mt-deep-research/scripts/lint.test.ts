@@ -56,7 +56,9 @@ describe("mermaid syntax check", () => {
     const out = JSON.parse(r.stdout);
     expect(out.success).toBe(false);
     const mm = out.files[0].mermaid_errors;
-    expect(mm.some((e: { message: string }) => e.message.includes("unknown diagram type"))).toBe(true);
+    expect(mm.some((e: { message: string }) => e.message.includes("unknown diagram type"))).toBe(
+      true,
+    );
   });
 
   it("accepts a valid flowchart", async () => {

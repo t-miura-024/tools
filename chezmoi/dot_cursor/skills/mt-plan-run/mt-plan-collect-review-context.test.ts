@@ -131,7 +131,7 @@ describe("collect-review-context", () => {
 
   describe("runCommand", () => {
     it("returns stdout on success", async () => {
-      const _result = await runCommand("echo", ["hello"]);
+      const result = await runCommand("echo", ["hello"]);
       expect(result.stdout.trim()).toBe("hello");
       expect(result.stderr).toBe("");
     });

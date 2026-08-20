@@ -63,7 +63,9 @@ function expandPaths(flags: FlagMap): string[] {
     return (files as string[]).map((f) => (isAbsolute(f) ? f : resolve(process.cwd(), f)));
   }
   if (flags.dir) {
-    const root = isAbsolute(flags.dir as string) ? (flags.dir as string) : resolve(process.cwd(), flags.dir as string);
+    const root = isAbsolute(flags.dir as string)
+      ? (flags.dir as string)
+      : resolve(process.cwd(), flags.dir as string);
     if (!existsSync(root)) fail(`Directory not found: ${root}`);
     const md: string[] = [];
     const walk = (dir: string) => {
@@ -115,7 +117,9 @@ const MERMAID_DIAGRAM_TYPES = new Set([
 
 type MermaidError = { block_index: number; line: number; message: string };
 
-function extractMermaidBlocks(content: string): { body: string; startLine: number; blockIndex: number }[] {
+function extractMermaidBlocks(
+  content: string,
+): { body: string; startLine: number; blockIndex: number }[] {
   const blocks: { body: string; startLine: number; blockIndex: number }[] = [];
   const lines = content.split("\n");
   let i = 0;
@@ -161,7 +165,8 @@ function checkBrackets(s: string): string | null {
       if (!top || top.ch !== pairs[c]) return `unbalanced '${c}' at offset ${i}`;
     }
   }
-  if (stack.length > 0) return `unclosed '${stack[stack.length - 1].ch}' from offset ${stack[stack.length - 1].pos}`;
+  if (stack.length > 0)
+    return `unclosed '${stack[stack.length - 1].ch}' from offset ${stack[stack.length - 1].pos}`;
   return null;
 }
 

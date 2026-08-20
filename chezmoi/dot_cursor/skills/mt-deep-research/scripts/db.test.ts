@@ -92,11 +92,7 @@ describe("question", () => {
     expect(created.status).toBe("draft");
     expect(created.display_order).toBe(1);
 
-    const c2 = await run([
-      "question",
-      "create",
-      ...dbArgs(["--content", "Q2?"]),
-    ]);
+    const c2 = await run(["question", "create", ...dbArgs(["--content", "Q2?"])]);
     expect(c2.exitCode).toBe(0);
     expect(JSON.parse(c2.stdout).question.display_order).toBe(2);
 
@@ -112,11 +108,7 @@ describe("question", () => {
     ]);
     expect(JSON.parse(upd.stdout).question.status).toBe("approved");
 
-    const filt = await run([
-      "question",
-      "list",
-      ...dbArgs(["--status", "approved"]),
-    ]);
+    const filt = await run(["question", "list", ...dbArgs(["--status", "approved"])]);
     const filtOut = JSON.parse(filt.stdout);
     expect(filtOut.questions).toHaveLength(1);
   });
@@ -134,11 +126,7 @@ describe("evidence save", () => {
   });
 
   it("saves a round with sources, facts, and off_topic questions atomically", async () => {
-    const c = await run([
-      "question",
-      "create",
-      ...dbArgs(["--content", "Q?", "--order", "1"]),
-    ]);
+    const c = await run(["question", "create", ...dbArgs(["--content", "Q?", "--order", "1"])]);
     const qid = JSON.parse(c.stdout).question.id;
 
     const payload = {
@@ -147,22 +135,22 @@ describe("evidence save", () => {
       summary: "first round",
       self_evaluation: { coverage: 0.6, gaps: ["x"] },
       sources: [
-        { number: 1, title: "Doc", url: "https://example.com", kind: "blog", accessed_at: "2026-06-19" },
+        {
+          number: 1,
+          title: "Doc",
+          url: "https://example.com",
+          kind: "blog",
+          accessed_at: "2026-06-19",
+        },
         { number: 2, title: "Other", url: "https://example.org", kind: "official" },
       ],
       facts: [
         { source_number: 1, fact_number: 1, content: "Fact 1" },
         { source_number: 2, fact_number: 1, content: "Fact 2" },
       ],
-      off_topic_questions: [
-        { content: "Off Q?", reason: "tangential" },
-      ],
+      off_topic_questions: [{ content: "Off Q?", reason: "tangential" }],
     };
-    const r = await run([
-      "evidence",
-      "save",
-      ...dbArgs(["--data", JSON.stringify(payload)]),
-    ]);
+    const r = await run(["evidence", "save", ...dbArgs(["--data", JSON.stringify(payload)])]);
     expect(r.exitCode).toBe(0);
     const out = JSON.parse(r.stdout);
     expect(out.success).toBe(true);
@@ -171,11 +159,7 @@ describe("evidence save", () => {
   });
 
   it("fails when data is not valid JSON", async () => {
-    const r = await run([
-      "evidence",
-      "save",
-      ...dbArgs(["--data", "not json"]),
-    ]);
+    const r = await run(["evidence", "save", ...dbArgs(["--data", "not json"])]);
     expect(r.exitCode).toBe(1);
     expect(JSON.parse(r.stdout).error).toMatch(/Invalid JSON/);
   });
@@ -243,11 +227,7 @@ describe("snapshot", () => {
   });
 
   it("emits a research-cycle snapshot", async () => {
-    const c = await run([
-      "question",
-      "create",
-      ...dbArgs(["--content", "Q?", "--order", "1"]),
-    ]);
+    const c = await run(["question", "create", ...dbArgs(["--content", "Q?", "--order", "1"])]);
     const qid = JSON.parse(c.stdout).question.id;
     await run([
       "evidence",

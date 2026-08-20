@@ -23,7 +23,11 @@ import { checkMermaid } from "./lint";
 // -----------------------------------------------------------------------------
 
 type FlagMap = Record<string, string | boolean>;
-export type AuditCheck = { check_name: string; status: "pass" | "fail" | "error" | "skip"; detail: string };
+export type AuditCheck = {
+  check_name: string;
+  status: "pass" | "fail" | "error" | "skip";
+  detail: string;
+};
 
 function parseArgs(argv: string[]): { positional: string[]; flags: FlagMap } {
   const positional: string[] = [];
@@ -134,9 +138,8 @@ function deriveDefaultPath(dbPath: string, filename: string): string {
 
 export function auditPlanner(db: Database, planPath: string): AuditCheck[] {
   const checks: AuditCheck[] = [];
-  const questionCount = db
-    .query<{ c: number }, []>("SELECT COUNT(*) AS c FROM questions")
-    .get()?.c ?? 0;
+  const questionCount =
+    db.query<{ c: number }, []>("SELECT COUNT(*) AS c FROM questions").get()?.c ?? 0;
   checks.push({
     check_name: "questions_table_has_rows",
     status: questionCount > 0 ? "pass" : "fail",
@@ -153,13 +156,17 @@ export function auditPlanner(db: Database, planPath: string): AuditCheck[] {
     checks.push({
       check_name: "plan_md_required_sections",
       status: missing.length === 0 ? "pass" : "fail",
-      detail: missing.length === 0 ? "all required sections present" : `missing: ${missing.join(", ")}`,
+      detail:
+        missing.length === 0 ? "all required sections present" : `missing: ${missing.join(", ")}`,
     });
     const mermaidErrors = checkMermaid(planContent);
     checks.push({
       check_name: "plan_md_has_mermaid",
       status: mermaidErrors.length === 0 ? "pass" : "fail",
-      detail: mermaidErrors.length === 0 ? "mermaid block found" : `mermaid errors: ${mermaidErrors.map((e) => e.message).join("; ")}`,
+      detail:
+        mermaidErrors.length === 0
+          ? "mermaid block found"
+          : `mermaid errors: ${mermaidErrors.map((e) => e.message).join("; ")}`,
     });
   } else {
     checks.push({
@@ -187,10 +194,7 @@ export function auditPlanner(db: Database, planPath: string): AuditCheck[] {
   return checks;
 }
 
-export function auditResearcher(
-  db: Database,
-  questionId?: number,
-): AuditCheck[] {
+export function auditResearcher(db: Database, questionId?: number): AuditCheck[] {
   const checks: AuditCheck[] = [];
   const targetQuestion = questionId
     ? db
@@ -214,10 +218,9 @@ export function auditResearcher(
         )
         .all(questionId)
     : db
-        .query<
-          { id: number; question_id: number; round_number: number },
-          []
-        >("SELECT * FROM evidence_rounds")
+        .query<{ id: number; question_id: number; round_number: number }, []>(
+          "SELECT * FROM evidence_rounds",
+        )
         .all();
   checks.push({
     check_name: "evidence_rounds_exist",
@@ -227,18 +230,21 @@ export function auditResearcher(
   if (rounds.length === 0) return checks;
   const noSource: string[] = [];
   for (const r of rounds) {
-    const srcCount = db
-      .query<{ c: number }, [number]>(
-        "SELECT COUNT(*) AS c FROM sources WHERE evidence_round_id = ?",
-      )
-      .get(r.id)?.c ?? 0;
+    const srcCount =
+      db
+        .query<{ c: number }, [number]>(
+          "SELECT COUNT(*) AS c FROM sources WHERE evidence_round_id = ?",
+        )
+        .get(r.id)?.c ?? 0;
     if (srcCount === 0) noSource.push(`round ${r.id} (q=${r.question_id} #${r.round_number})`);
   }
   checks.push({
     check_name: "sources_present",
     status: noSource.length === 0 ? "pass" : "fail",
     detail:
-      noSource.length === 0 ? "every round has at least one source" : `rounds without sources: ${noSource.join(", ")}`,
+      noSource.length === 0
+        ? "every round has at least one source"
+        : `rounds without sources: ${noSource.join(", ")}`,
   });
   return checks;
 }
@@ -273,7 +279,8 @@ export function auditWriter(db: Database, reportPath: string): AuditCheck[] {
   checks.push({
     check_name: "report_md_required_sections",
     status: missing.length === 0 ? "pass" : "fail",
-    detail: missing.length === 0 ? "all required sections present" : `missing: ${missing.join(", ")}`,
+    detail:
+      missing.length === 0 ? "all required sections present" : `missing: ${missing.join(", ")}`,
   });
   const citationCount = countCitationNumbers(content);
   checks.push({
@@ -285,7 +292,10 @@ export function auditWriter(db: Database, reportPath: string): AuditCheck[] {
   checks.push({
     check_name: "report_md_has_mermaid",
     status: mermaidErrors.length === 0 ? "pass" : "fail",
-    detail: mermaidErrors.length === 0 ? "mermaid block found" : `mermaid errors: ${mermaidErrors.map((e) => e.message).join("; ")}`,
+    detail:
+      mermaidErrors.length === 0
+        ? "mermaid block found"
+        : `mermaid errors: ${mermaidErrors.map((e) => e.message).join("; ")}`,
   });
   return checks;
 }
@@ -310,15 +320,14 @@ export function auditReviewer(db: Database): AuditCheck[] {
   });
   const reviewsWithoutFindings: string[] = [];
   for (const r of db
-    .query<{ id: number; aspect: string; round_number: number }, []>(
-      "SELECT * FROM reviews",
-    )
+    .query<{ id: number; aspect: string; round_number: number }, []>("SELECT * FROM reviews")
     .all()) {
-    const c = db
-      .query<{ c: number }, [number]>(
-        "SELECT COUNT(*) AS c FROM review_findings WHERE review_id = ?",
-      )
-      .get(r.id)?.c ?? 0;
+    const c =
+      db
+        .query<{ c: number }, [number]>(
+          "SELECT COUNT(*) AS c FROM review_findings WHERE review_id = ?",
+        )
+        .get(r.id)?.c ?? 0;
     if (c === 0) reviewsWithoutFindings.push(`${r.aspect}#${r.round_number}`);
   }
   checks.push({
@@ -353,11 +362,12 @@ export function auditResearchCycle(db: Database): AuditCheck[] {
   }
   const uncovered: number[] = [];
   for (const q of approved) {
-    const c = db
-      .query<{ c: number }, [number]>(
-        "SELECT COUNT(*) AS c FROM evidence_rounds WHERE question_id = ?",
-      )
-      .get(q.id)?.c ?? 0;
+    const c =
+      db
+        .query<{ c: number }, [number]>(
+          "SELECT COUNT(*) AS c FROM evidence_rounds WHERE question_id = ?",
+        )
+        .get(q.id)?.c ?? 0;
     if (c === 0) uncovered.push(q.id);
   }
   checks.push({
@@ -386,11 +396,12 @@ export function auditResearchCycle(db: Database): AuditCheck[] {
 
 export function auditWriterReviewerCycle(db: Database, reportPath: string): AuditCheck[] {
   const checks: AuditCheck[] = [...auditWriter(db, reportPath), ...auditReviewer(db)];
-  const mustFix = db
-    .query<{ c: number }, []>(
-      `SELECT COUNT(*) AS c FROM review_findings WHERE category = 'must_fix'`,
-    )
-    .get()?.c ?? 0;
+  const mustFix =
+    db
+      .query<{ c: number }, []>(
+        `SELECT COUNT(*) AS c FROM review_findings WHERE category = 'must_fix'`,
+      )
+      .get()?.c ?? 0;
   checks.push({
     check_name: "no_unresolved_must_fix",
     status: mustFix === 0 ? "pass" : "fail",
@@ -418,11 +429,12 @@ export function auditWriterReviewerCycle(db: Database, reportPath: string): Audi
       unaddressed.push(-1);
       continue;
     }
-    const extra = db
-      .query<{ c: number }, [number]>(
-        "SELECT COUNT(*) AS c FROM evidence_rounds WHERE question_id = ? AND round_number > 1",
-      )
-      .get(rn.target_question_id)?.c ?? 0;
+    const extra =
+      db
+        .query<{ c: number }, [number]>(
+          "SELECT COUNT(*) AS c FROM evidence_rounds WHERE question_id = ? AND round_number > 1",
+        )
+        .get(rn.target_question_id)?.c ?? 0;
     if (extra === 0) unaddressed.push(rn.target_question_id);
   }
   checks.push({
