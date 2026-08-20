@@ -1,6 +1,6 @@
 ---
 name: mt-grill-me
-description: 計画・決定・アイデアについて一度に 1 問ずつ容赦なく深掘りする、手動専用の一問一答ヒアリング。
+description: 計画・決定・アイデアについて一度に 1 問ずつ容赦なく深掘りする、手動専用の一問一答ヒアリング。「grill me」と指示された場合に実行する。
 disable-model-invocation: true
 ---
 
