@@ -51,6 +51,7 @@ chezmoi/
 | `dot_Raycast.rayconfig` | Raycast 暗号化 | Raycast Export 全データ（passphrase で暗号化、git 追跡） |
 | `dot_raycast_passphrase.age` | age 暗号化 | Raycast 暗号化 passphrase（age 公開鍵で暗号化） |
 | `.chezmoiignore` | chezmoi | この README を chezmoi apply の対象外にする |
+| `.chezmoiremove.tmpl` | chezmoi | ホームに残留した obsolete skill（`mt-*`）を動的に削除。`.chezmoiignore` の ignore 対象（`bun.lock`等）は除外 |
 | `README.md` | doc | このファイル（chezmoi ソースの doc であって dotfile ではない） |
 
 ## 初回セットアップ
