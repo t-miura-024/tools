@@ -16,8 +16,8 @@
  */
 
 import { Database } from "bun:sqlite";
-import { readFileSync, existsSync, mkdirSync, readdirSync } from "node:fs";
-import { dirname, join, resolve, isAbsolute } from "node:path";
+import { readFileSync, existsSync, mkdirSync } from "node:fs";
+import { dirname, resolve, isAbsolute } from "node:path";
 
 // -----------------------------------------------------------------------------
 // CLI plumbing

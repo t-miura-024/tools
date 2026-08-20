@@ -21,9 +21,7 @@ import {
   type MtPlanConfig,
 } from "../_shared/mt-plan-init-config";
 
-function makeConfig(
-  overrides: Partial<MtPlanConfig> = {},
-): MtPlanConfig {
+function makeConfig(overrides: Partial<MtPlanConfig> = {}): MtPlanConfig {
   return {
     owner: "t-miura-024",
     projectNumber: 4,
@@ -122,9 +120,27 @@ describe("mt-plan-list-plans (Project version)", () => {
     it("指定された status の plan だけを残し、createdAt desc に sort", () => {
       const config = makeConfig();
       const items: ProjectItem[] = [
-        makeItem({ itemId: "i1", number: 1, title: "old", createdAt: "2026-06-20T00:00:00Z", optionId: "opt_refined" }),
-        makeItem({ itemId: "i2", number: 2, title: "new", createdAt: "2026-06-25T00:00:00Z", optionId: "opt_refined" }),
-        makeItem({ itemId: "i3", number: 3, title: "draft", createdAt: "2026-06-22T00:00:00Z", optionId: "opt_draft" }),
+        makeItem({
+          itemId: "i1",
+          number: 1,
+          title: "old",
+          createdAt: "2026-06-20T00:00:00Z",
+          optionId: "opt_refined",
+        }),
+        makeItem({
+          itemId: "i2",
+          number: 2,
+          title: "new",
+          createdAt: "2026-06-25T00:00:00Z",
+          optionId: "opt_refined",
+        }),
+        makeItem({
+          itemId: "i3",
+          number: 3,
+          title: "draft",
+          createdAt: "2026-06-22T00:00:00Z",
+          optionId: "opt_draft",
+        }),
       ];
 
       const result = filterAndSort(items, config, ["refined"]);
@@ -150,9 +166,33 @@ describe("mt-plan-list-plans (Project version)", () => {
   describe("sortByCreatedAtDesc", () => {
     it("createdAt の降順で sort する", () => {
       const plans: ListedPlan[] = [
-        { itemId: "a", number: 1, title: "a", url: "u", status: "refined", state: "OPEN", createdAt: "2026-06-20T00:00:00Z" },
-        { itemId: "b", number: 2, title: "b", url: "u", status: "refined", state: "OPEN", createdAt: "2026-06-25T00:00:00Z" },
-        { itemId: "c", number: 3, title: "c", url: "u", status: "refined", state: "OPEN", createdAt: "2026-06-22T00:00:00Z" },
+        {
+          itemId: "a",
+          number: 1,
+          title: "a",
+          url: "u",
+          status: "refined",
+          state: "OPEN",
+          createdAt: "2026-06-20T00:00:00Z",
+        },
+        {
+          itemId: "b",
+          number: 2,
+          title: "b",
+          url: "u",
+          status: "refined",
+          state: "OPEN",
+          createdAt: "2026-06-25T00:00:00Z",
+        },
+        {
+          itemId: "c",
+          number: 3,
+          title: "c",
+          url: "u",
+          status: "refined",
+          state: "OPEN",
+          createdAt: "2026-06-22T00:00:00Z",
+        },
       ];
 
       const sorted = sortByCreatedAtDesc(plans);
@@ -175,7 +215,15 @@ describe("mt-plan-list-plans (Project version)", () => {
         config,
         statuses: ["refined", "in-progress"] as const,
         plans: [
-          { itemId: "i1", number: 123, title: "サンプル計画", url: "u", status: "refined" as const, state: "OPEN" as const, createdAt: "2026-06-25T10:00:00Z" },
+          {
+            itemId: "i1",
+            number: 123,
+            title: "サンプル計画",
+            url: "u",
+            status: "refined" as const,
+            state: "OPEN" as const,
+            createdAt: "2026-06-25T10:00:00Z",
+          },
         ],
       };
 
@@ -225,9 +273,24 @@ describe("mt-plan-list-plans (Project version)", () => {
     it("mock fetchItems で filter + sort まで実行", async () => {
       const config = makeConfig();
       const mockItems: ProjectItem[] = [
-        makeItem({ itemId: "i1", number: 1, createdAt: "2026-06-25T00:00:00Z", optionId: "opt_refined" }),
-        makeItem({ itemId: "i2", number: 2, createdAt: "2026-06-20T00:00:00Z", optionId: "opt_in_progress" }),
-        makeItem({ itemId: "i3", number: 3, createdAt: "2026-06-22T00:00:00Z", optionId: "opt_draft" }),
+        makeItem({
+          itemId: "i1",
+          number: 1,
+          createdAt: "2026-06-25T00:00:00Z",
+          optionId: "opt_refined",
+        }),
+        makeItem({
+          itemId: "i2",
+          number: 2,
+          createdAt: "2026-06-20T00:00:00Z",
+          optionId: "opt_in_progress",
+        }),
+        makeItem({
+          itemId: "i3",
+          number: 3,
+          createdAt: "2026-06-22T00:00:00Z",
+          optionId: "opt_draft",
+        }),
       ];
 
       const result = await listPlans({
@@ -264,9 +327,7 @@ describe("mt-plan-list-plans (Project version)", () => {
       saveConfig(config, configPath);
 
       const loaded = loadConfig(configPath);
-      const mockItems: ProjectItem[] = [
-        makeItem({ itemId: "i1", optionId: "opt_refined" }),
-      ];
+      const mockItems: ProjectItem[] = [makeItem({ itemId: "i1", optionId: "opt_refined" })];
 
       const result = await listPlans({
         config: loaded,
@@ -277,9 +338,7 @@ describe("mt-plan-list-plans (Project version)", () => {
     });
 
     it("config が存在しない場合は InitConfigError", () => {
-      expect(() => loadConfig(path.join(tmp, "missing.json"))).toThrowError(
-        InitConfigError,
-      );
+      expect(() => loadConfig(path.join(tmp, "missing.json"))).toThrowError(InitConfigError);
     });
   });
 });

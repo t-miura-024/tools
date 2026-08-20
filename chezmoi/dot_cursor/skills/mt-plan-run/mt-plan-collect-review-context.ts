@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { writeFile, mkdir } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { _dirname, join } from "node:path";
 
 export class CollectError extends Error {
   constructor(message: string) {
@@ -11,24 +11,25 @@ export class CollectError extends Error {
 
 type RunResult = { stdout: string; stderr: string };
 
-export async function runCommand(
-  command: string,
-  args: string[],
-): Promise<RunResult> {
+export async function runCommand(command: string, args: string[]): Promise<RunResult> {
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, { stdio: ["ignore", "pipe", "pipe"] });
     let stdout = "";
     let stderr = "";
-    child.stdout.on("data", (chunk) => { stdout += chunk.toString("utf8"); });
-    child.stderr.on("data", (chunk) => { stderr += chunk.toString("utf8"); });
+    child.stdout.on("data", (chunk) => {
+      stdout += chunk.toString("utf8");
+    });
+    child.stderr.on("data", (chunk) => {
+      stderr += chunk.toString("utf8");
+    });
     child.on("error", (err) => {
       reject(new CollectError(`${command} ${args.join(" ")}: ${err.message}`));
     });
     child.on("close", (code) => {
       if (code !== 0) {
-        reject(new CollectError(
-          `${command} ${args.join(" ")} exited with ${code}: ${stderr.trim()}`,
-        ));
+        reject(
+          new CollectError(`${command} ${args.join(" ")} exited with ${code}: ${stderr.trim()}`),
+        );
         return;
       }
       resolve({ stdout, stderr });
@@ -60,12 +61,11 @@ async function getMergeBase(baseBranch: string): Promise<string> {
   }
 }
 
-async function collectIssueBody(
-  planNumber: number,
-  repo?: string,
-): Promise<string> {
+async function collectIssueBody(planNumber: number, repo?: string): Promise<string> {
   const args = ["issue", "view", String(planNumber), "--json", "body"];
-  if (repo) { args.push("--repo", repo); }
+  if (repo) {
+    args.push("--repo", repo);
+  }
   const result = await runCommand("gh", args);
   const parsed = JSON.parse(result.stdout) as { body: string };
   return parsed.body ?? "";
@@ -74,9 +74,7 @@ async function collectIssueBody(
 async function collectGitBranchDiff(baseBranch: string): Promise<string> {
   try {
     const mergeBase = await getMergeBase(baseBranch);
-    const revRange = mergeBase
-      ? `${mergeBase}..HEAD`
-      : `origin/${baseBranch}..HEAD`;
+    const revRange = mergeBase ? `${mergeBase}..HEAD` : `origin/${baseBranch}..HEAD`;
     const result = await runCommand("git", ["diff", revRange]);
     return result.stdout;
   } catch {
@@ -97,9 +95,7 @@ async function collectGitUnstagedDiff(): Promise<string> {
 // hunk は untracked をデフォルトでレビュー対象にするが、証拠ファイル側も
 // 同じく diff に含める必要がある（git add --intent-to-add 機構）。
 export async function markUntrackedIntentToAdd(): Promise<string[]> {
-  const result = await runCommand("git", [
-    "ls-files", "--others", "--exclude-standard", "-z",
-  ]);
+  const result = await runCommand("git", ["ls-files", "--others", "--exclude-standard", "-z"]);
   const files = result.stdout.split("\0").filter((f) => f.length > 0);
   if (files.length > 0) {
     await runCommand("git", ["add", "--intent-to-add", "--", ...files]);
@@ -120,9 +116,7 @@ export interface CollectResult {
   unstagedDiffPath: string;
 }
 
-export async function collectReviewContext(
-  input: CollectInput,
-): Promise<CollectResult> {
+export async function collectReviewContext(input: CollectInput): Promise<CollectResult> {
   await mkdir(input.sessionDir, { recursive: true });
 
   const baseBranch = input.baseBranch ?? (await detectBaseBranch());

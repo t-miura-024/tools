@@ -103,11 +103,7 @@ function computeGitShortstat(): Promise<string | null> {
   });
 }
 
-async function setStatusWithDiff(
-  label: string,
-  icon: string,
-  color: string,
-): Promise<void> {
+async function setStatusWithDiff(label: string, icon: string, color: string): Promise<void> {
   const diff = await computeGitShortstat();
   const fullLabel = diff ? `${label} ${diff}` : label;
   await setCmuxStatus(fullLabel, icon, color);
@@ -138,10 +134,7 @@ function summarizeError(error: unknown, fallback: string): string {
   return fallback;
 }
 
-async function isMainSession(
-  client: PluginInput["client"],
-  sessionID: string,
-): Promise<boolean> {
+async function isMainSession(client: PluginInput["client"], sessionID: string): Promise<boolean> {
   try {
     const res = await client.session.get({ path: { id: sessionID } });
     const session = res.data as { parentID?: string } | undefined;
@@ -180,10 +173,7 @@ export const CmuxNotifyPlugin: Plugin = async ({ client }) => {
         await enqueue(() => setStatusWithDiff("Idle", "checkmark.circle.fill", COLOR_IDLE));
         await enqueue(() => setWorkspaceColor(WORKSPACE_COLOR_IDLE));
         if (await isMainSession(client, sessionID)) {
-          await notifyCmux(
-            "Task complete",
-            `Session ${sessionID} is waiting for input`,
-          );
+          await notifyCmux("Task complete", `Session ${sessionID} is waiting for input`);
         }
         return;
       }
@@ -192,10 +182,7 @@ export const CmuxNotifyPlugin: Plugin = async ({ client }) => {
         await enqueue(() => setWorkspaceColor(WORKSPACE_COLOR_ERROR));
         const sessionID = event.properties.sessionID;
         if (sessionID && (await isMainSession(client, sessionID))) {
-          const detail = summarizeError(
-            event.properties.error,
-            "see opencode logs",
-          );
+          const detail = summarizeError(event.properties.error, "see opencode logs");
           await notifyCmux("Error", `Session ${sessionID} failed: ${detail}`);
         }
         return;

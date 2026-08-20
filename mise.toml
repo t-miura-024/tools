@@ -10,6 +10,22 @@ run = "scripts/docker.sh down"
 description = "Docker サービス群のログを表示"
 run = "scripts/docker.sh logs"
 
-[tasks.test-bun]
+[tasks.ts-test]
 description = "TS テストを bun:test で実行"
 run = "bun test"
+
+[tasks.ts-typecheck]
+description = "TS 型チェックを tsc --noEmit で実行"
+run = "bunx tsc --noEmit --skipLibCheck --target ESNext --module ESNext --moduleResolution bundler --allowImportingTsExtensions --types bun-types,node $(find chezmoi -name '*.ts' -type f)"
+
+[tasks.ts-lint]
+description = "TS lint を oxlint --deny-warnings で実行"
+run = "bunx oxlint --deny-warnings chezmoi"
+
+[tasks.ts-fmt-check]
+description = "TS format を oxfmt --check で実行"
+run = "bunx oxfmt --check chezmoi/**/*.ts"
+
+[tasks.ts-fmt]
+description = "TS format を oxfmt で実行"
+run = "bunx oxfmt chezmoi/**/*.ts"

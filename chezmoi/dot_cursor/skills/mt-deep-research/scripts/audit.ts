@@ -24,7 +24,6 @@ import { checkMermaid } from "./lint";
 
 type FlagMap = Record<string, string | boolean>;
 export type AuditCheck = { check_name: string; status: "pass" | "fail" | "error" | "skip"; detail: string };
-type CheckResult = AuditCheck & { check_name: string };
 
 function parseArgs(argv: string[]): { positional: string[]; flags: FlagMap } {
   const positional: string[] = [];
@@ -493,7 +492,7 @@ function runPhase(flags: FlagMap): never {
 function runCycle(flags: FlagMap): never {
   const cycle = requireFlag(flags, "cycle");
   const dbPath = resolveDbPath(flags);
-  const planPath = optionalFlag(flags, "plan-path") ?? deriveDefaultPath(dbPath, "plan.md");
+  const _planPath = optionalFlag(flags, "plan-path") ?? deriveDefaultPath(dbPath, "plan.md");
   const reportPath = optionalFlag(flags, "report-path") ?? deriveDefaultPath(dbPath, "report.md");
   const db = openDb(dbPath);
   let checks: AuditCheck[];

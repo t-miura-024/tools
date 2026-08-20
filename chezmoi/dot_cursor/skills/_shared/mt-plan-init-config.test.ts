@@ -20,10 +20,7 @@ import {
   type ProjectV2Field,
 } from "./mt-plan-init-config";
 
-function makeProject(
-  fields: ProjectV2Field[],
-  overrides: Partial<ProjectV2> = {},
-): ProjectV2 {
+function makeProject(fields: ProjectV2Field[], overrides: Partial<ProjectV2> = {}): ProjectV2 {
   return {
     id: "PVT_test",
     number: 4,
@@ -35,7 +32,11 @@ function makeProject(
 }
 
 function makeStatusField(
-  overrides: Partial<{ id: string; name: string; options: Array<{ id: string; name: string }> }> = {},
+  overrides: Partial<{
+    id: string;
+    name: string;
+    options: Array<{ id: string; name: string }>;
+  }> = {},
 ): ProjectV2Field {
   return {
     id: "PVTF_status",
@@ -63,10 +64,7 @@ describe("mt-plan-init-config", () => {
 
   describe("findStatusField", () => {
     it("Status 名の single select field を返す", () => {
-      const fields: ProjectV2Field[] = [
-        makeStatusField(),
-        { id: "PVTF_other", name: "Assignees" },
-      ];
+      const fields: ProjectV2Field[] = [makeStatusField(), { id: "PVTF_other", name: "Assignees" }];
 
       const result = findStatusField(fields);
 
@@ -75,25 +73,19 @@ describe("mt-plan-init-config", () => {
     });
 
     it("Status field が見つからない場合は null を返す", () => {
-      const fields: ProjectV2Field[] = [
-        { id: "PVTF_other", name: "Assignees" },
-      ];
+      const fields: ProjectV2Field[] = [{ id: "PVTF_other", name: "Assignees" }];
 
       expect(findStatusField(fields)).toBeNull();
     });
 
     it("Status field が options を持たない場合は null を返す", () => {
-      const fields: ProjectV2Field[] = [
-        { id: "PVTF_status", name: "Status" },
-      ];
+      const fields: ProjectV2Field[] = [{ id: "PVTF_status", name: "Status" }];
 
       expect(findStatusField(fields)).toBeNull();
     });
 
     it("fieldName オプションで別名も検索できる", () => {
-      const fields: ProjectV2Field[] = [
-        makeStatusField({ name: "PlanStatus" }),
-      ];
+      const fields: ProjectV2Field[] = [makeStatusField({ name: "PlanStatus" })];
 
       const result = findStatusField(fields, "PlanStatus");
 
@@ -149,9 +141,7 @@ describe("mt-plan-init-config", () => {
     });
 
     it("Status field がない Project ではエラー", () => {
-      const project = makeProject([
-        { id: "PVTF_other", name: "Assignees" },
-      ]);
+      const project = makeProject([{ id: "PVTF_other", name: "Assignees" }]);
 
       expect(() => buildConfig(project)).toThrowError(InitConfigError);
       expect(() => buildConfig(project)).toThrowError(
@@ -186,9 +176,7 @@ describe("mt-plan-init-config", () => {
     });
 
     it("必須フィールドが欠けるとエラー", () => {
-      expect(() => parseConfig('{"owner":"x"}')).toThrowError(
-        /missing required field/,
-      );
+      expect(() => parseConfig('{"owner":"x"}')).toThrowError(/missing required field/);
     });
 
     it("statusOptions に必要な status が欠けるとエラー", () => {
@@ -200,9 +188,7 @@ describe("mt-plan-init-config", () => {
         statusOptions: { draft: "d", refined: "r", done: "dn" },
       });
 
-      expect(() => parseConfig(incomplete)).toThrowError(
-        /statusOptions\.in-progress/,
-      );
+      expect(() => parseConfig(incomplete)).toThrowError(/statusOptions\.in-progress/);
     });
   });
 
@@ -273,9 +259,7 @@ describe("mt-plan-init-config", () => {
     });
 
     it("--config に値がない場合はエラー", () => {
-      expect(() => parseInitConfigCli(["--config"])).toThrowError(
-        /--config requires/,
-      );
+      expect(() => parseInitConfigCli(["--config"])).toThrowError(/--config requires/);
     });
   });
 

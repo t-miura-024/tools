@@ -58,7 +58,8 @@ describe("mt-plan-transition-plan (Project version)", () => {
     });
 
     it("## 🐢 履歴 セクションがある場合はその直下に追記", () => {
-      const body = "## 💭 背景\n\nこれはテストです。\n\n## 🐢 履歴\n\n- 2026-06-25 10:00 [refined] previous";
+      const body =
+        "## 💭 背景\n\nこれはテストです。\n\n## 🐢 履歴\n\n- 2026-06-25 10:00 [refined] previous";
       const result = appendHistoryEntry(body, "refined", "in-progress");
 
       expect(result).toContain("## 🐢 履歴");
@@ -137,7 +138,13 @@ describe("mt-plan-transition-plan (Project version)", () => {
     });
     it("executionTransition=true で UUID マーカーが埋め込まれる", () => {
       const body = "## 🐢 履歴\n";
-      const result = appendHistoryEntry(body, "refined", "in-progress", true, "550e8400-e29b-41d4-a716-446655440000");
+      const result = appendHistoryEntry(
+        body,
+        "refined",
+        "in-progress",
+        true,
+        "550e8400-e29b-41d4-a716-446655440000",
+      );
       expect(result).toContain("(mt-run-plan)");
       expect(result).toContain("<!-- mt-run-plan-marker: 550e8400-e29b-41d4-a716-446655440000 -->");
     });
@@ -181,9 +188,7 @@ describe("mt-plan-transition-plan (Project version)", () => {
     });
 
     it("未対応 status はエラー", () => {
-      expect(() => parseTransitionPlanCli(["7", "archived"])).toThrowError(
-        TransitionPlanError,
-      );
+      expect(() => parseTransitionPlanCli(["7", "archived"])).toThrowError(TransitionPlanError);
     });
 
     it("引数が多すぎる場合はエラー", () => {
@@ -390,7 +395,7 @@ describe("mt-plan-transition-plan (Project version)", () => {
             parentFindCount += 1;
             return {
               itemId: "PVTI_10",
-              currentStatus: parentFindCount === 1 ? "refined" : (statuses.get(10)!),
+              currentStatus: parentFindCount === 1 ? "refined" : statuses.get(10)!,
               repo: "t-miura-024/tools",
             };
           }
@@ -403,7 +408,9 @@ describe("mt-plan-transition-plan (Project version)", () => {
         updateItemStatus: async ({ itemId, optionId }) => {
           statusUpdates.push({ itemId, optionId });
           const number = Number(itemId.replace("PVTI_", ""));
-          const status = Object.entries(config.statusOptions).find(([, id]) => id === optionId)?.[0];
+          const status = Object.entries(config.statusOptions).find(
+            ([, id]) => id === optionId,
+          )?.[0];
           statuses.set(number, status as "refined" | "in-progress" | "done");
         },
         updateIssueState: async () => undefined,
@@ -412,7 +419,7 @@ describe("mt-plan-transition-plan (Project version)", () => {
           bodies.set(number, body);
         },
         getParentIssueNumber: async () => 10,
-        listSubIssueNumbers: async ({ number }) => number === 10 ? [11, 12] : [],
+        listSubIssueNumbers: async ({ number }) => (number === 10 ? [11, 12] : []),
       });
 
       expect(result.parentTransition).toMatchObject({
@@ -437,7 +444,10 @@ describe("mt-plan-transition-plan (Project version)", () => {
         [12, "in-progress"],
       ]);
       const bodies = new Map<number, string>([
-        [11, "## 🐢 履歴\n- 2026-07-15 02:00 [done] in-progress から遷移 (mt-run-plan) <!-- mt-run-plan-marker: 550e8400-e29b-41d4-a716-446655440000 -->"],
+        [
+          11,
+          "## 🐢 履歴\n- 2026-07-15 02:00 [done] in-progress から遷移 (mt-run-plan) <!-- mt-run-plan-marker: 550e8400-e29b-41d4-a716-446655440000 -->",
+        ],
       ]);
       let parentFindCount = 0;
 
@@ -450,7 +460,7 @@ describe("mt-plan-transition-plan (Project version)", () => {
             parentFindCount += 1;
             return {
               itemId: "PVTI_10",
-              currentStatus: parentFindCount === 1 ? "in-progress" : (statuses.get(10)!),
+              currentStatus: parentFindCount === 1 ? "in-progress" : statuses.get(10)!,
               repo: "t-miura-024/tools",
             };
           }
@@ -462,7 +472,9 @@ describe("mt-plan-transition-plan (Project version)", () => {
         },
         updateItemStatus: async ({ itemId, optionId }) => {
           const number = Number(itemId.replace("PVTI_", ""));
-          const status = Object.entries(config.statusOptions).find(([, id]) => id === optionId)?.[0];
+          const status = Object.entries(config.statusOptions).find(
+            ([, id]) => id === optionId,
+          )?.[0];
           statuses.set(number, status as "in-progress" | "done");
         },
         updateIssueState: async () => undefined,
@@ -471,7 +483,7 @@ describe("mt-plan-transition-plan (Project version)", () => {
           bodies.set(number, body);
         },
         getParentIssueNumber: async () => 10,
-        listSubIssueNumbers: async ({ number }) => number === 10 ? [11, 12] : [],
+        listSubIssueNumbers: async ({ number }) => (number === 10 ? [11, 12] : []),
       });
 
       expect(result.parentTransition).toMatchObject({
@@ -503,7 +515,7 @@ describe("mt-plan-transition-plan (Project version)", () => {
             parentFindCount += 1;
             return {
               itemId: "PVTI_10",
-              currentStatus: parentFindCount === 1 ? "in-progress" : (statuses.get(10)!),
+              currentStatus: parentFindCount === 1 ? "in-progress" : statuses.get(10)!,
               repo: "t-miura-024/tools",
             };
           }
@@ -515,7 +527,9 @@ describe("mt-plan-transition-plan (Project version)", () => {
         },
         updateItemStatus: async ({ itemId, optionId }) => {
           const number = Number(itemId.replace("PVTI_", ""));
-          const status = Object.entries(config.statusOptions).find(([, id]) => id === optionId)?.[0];
+          const status = Object.entries(config.statusOptions).find(
+            ([, id]) => id === optionId,
+          )?.[0];
           statuses.set(number, status as "in-progress" | "done");
         },
         updateIssueState: async () => undefined,
@@ -524,7 +538,7 @@ describe("mt-plan-transition-plan (Project version)", () => {
           bodies.set(number, body);
         },
         getParentIssueNumber: async () => 10,
-        listSubIssueNumbers: async ({ number }) => number === 10 ? [11, 12] : [],
+        listSubIssueNumbers: async ({ number }) => (number === 10 ? [11, 12] : []),
       });
 
       expect(result.parentTransition).toBeUndefined();
@@ -538,7 +552,10 @@ describe("mt-plan-transition-plan (Project version)", () => {
         [12, "refined"],
       ]);
       const bodies = new Map<number, string>([
-        [11, "## 🐢 履歴\n- 2026-07-15 02:00 [in-progress] refined から遷移 (mt-run-plan) <!-- mt-run-plan-marker: 550e8400-e29b-41d4-a716-446655440000 -->"],
+        [
+          11,
+          "## 🐢 履歴\n- 2026-07-15 02:00 [in-progress] refined から遷移 (mt-run-plan) <!-- mt-run-plan-marker: 550e8400-e29b-41d4-a716-446655440000 -->",
+        ],
       ]);
       let parentFindCount = 0;
 
@@ -551,7 +568,7 @@ describe("mt-plan-transition-plan (Project version)", () => {
             parentFindCount += 1;
             return {
               itemId: "PVTI_10",
-              currentStatus: parentFindCount === 1 ? "in-progress" : (statuses.get(10)!),
+              currentStatus: parentFindCount === 1 ? "in-progress" : statuses.get(10)!,
               repo: "t-miura-024/tools",
             };
           }
@@ -563,7 +580,9 @@ describe("mt-plan-transition-plan (Project version)", () => {
         },
         updateItemStatus: async ({ itemId, optionId }) => {
           const number = Number(itemId.replace("PVTI_", ""));
-          const status = Object.entries(config.statusOptions).find(([, id]) => id === optionId)?.[0];
+          const status = Object.entries(config.statusOptions).find(
+            ([, id]) => id === optionId,
+          )?.[0];
           statuses.set(number, status as "refined" | "in-progress");
         },
         updateIssueState: async () => undefined,
@@ -572,7 +591,7 @@ describe("mt-plan-transition-plan (Project version)", () => {
           bodies.set(number, body);
         },
         getParentIssueNumber: async () => 10,
-        listSubIssueNumbers: async ({ number }) => number === 10 ? [11, 12] : [],
+        listSubIssueNumbers: async ({ number }) => (number === 10 ? [11, 12] : []),
       });
 
       expect(result.parentTransition).toBeUndefined();
@@ -587,7 +606,10 @@ describe("mt-plan-transition-plan (Project version)", () => {
         [13, "in-progress"],
       ]);
       const bodies = new Map<number, string>([
-        [11, "## 🐢 履歴\n- 2026-07-15 02:00 [done] in-progress から遷移 (mt-run-plan) <!-- mt-run-plan-marker: 550e8400-e29b-41d4-a716-446655440000 -->"],
+        [
+          11,
+          "## 🐢 履歴\n- 2026-07-15 02:00 [done] in-progress から遷移 (mt-run-plan) <!-- mt-run-plan-marker: 550e8400-e29b-41d4-a716-446655440000 -->",
+        ],
       ]);
       let parentFindCount = 0;
 
@@ -600,7 +622,7 @@ describe("mt-plan-transition-plan (Project version)", () => {
             parentFindCount += 1;
             return {
               itemId: "PVTI_10",
-              currentStatus: parentFindCount === 1 ? "in-progress" : (statuses.get(10)!),
+              currentStatus: parentFindCount === 1 ? "in-progress" : statuses.get(10)!,
               repo: "t-miura-024/tools",
             };
           }
@@ -612,7 +634,9 @@ describe("mt-plan-transition-plan (Project version)", () => {
         },
         updateItemStatus: async ({ itemId, optionId }) => {
           const number = Number(itemId.replace("PVTI_", ""));
-          const status = Object.entries(config.statusOptions).find(([, id]) => id === optionId)?.[0];
+          const status = Object.entries(config.statusOptions).find(
+            ([, id]) => id === optionId,
+          )?.[0];
           statuses.set(number, status as "in-progress" | "done");
         },
         updateIssueState: async () => undefined,
@@ -621,7 +645,7 @@ describe("mt-plan-transition-plan (Project version)", () => {
           bodies.set(number, body);
         },
         getParentIssueNumber: async () => 10,
-        listSubIssueNumbers: async ({ number }) => number === 10 ? [11, 12, 13] : [],
+        listSubIssueNumbers: async ({ number }) => (number === 10 ? [11, 12, 13] : []),
       });
 
       expect(result.parentTransition).toBeUndefined();
@@ -646,7 +670,9 @@ describe("mt-plan-transition-plan (Project version)", () => {
         }),
         updateItemStatus: async ({ itemId, optionId }) => {
           const number = Number(itemId.replace("PVTI_", ""));
-          const status = Object.entries(config.statusOptions).find(([, id]) => id === optionId)?.[0];
+          const status = Object.entries(config.statusOptions).find(
+            ([, id]) => id === optionId,
+          )?.[0];
           statuses.set(number, status as PlanStatus);
         },
         updateIssueState: async () => undefined,
@@ -655,7 +681,7 @@ describe("mt-plan-transition-plan (Project version)", () => {
           bodies.set(number, body);
         },
         getParentIssueNumber: async () => 10,
-        listSubIssueNumbers: async ({ number }) => number === 10 ? [11] : [],
+        listSubIssueNumbers: async ({ number }) => (number === 10 ? [11] : []),
       });
 
       expect(result.parentTransition).toBeUndefined();
@@ -759,9 +785,7 @@ describe("mt-plan-transition-plan (Project version)", () => {
     });
 
     it("存在しない config はエラー", () => {
-      expect(() => loadConfig(path.join(tmp, "missing.json"))).toThrowError(
-        InitConfigError,
-      );
+      expect(() => loadConfig(path.join(tmp, "missing.json"))).toThrowError(InitConfigError);
     });
   });
 });

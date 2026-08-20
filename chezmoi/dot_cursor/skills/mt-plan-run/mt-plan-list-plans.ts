@@ -1,4 +1,10 @@
-import { loadConfig, type MtPlanConfig, type PlanStatus, PLAN_STATUSES, InitConfigError } from "../_shared/mt-plan-init-config";
+import {
+  loadConfig,
+  type MtPlanConfig,
+  type PlanStatus,
+  PLAN_STATUSES,
+  InitConfigError,
+} from "../_shared/mt-plan-init-config";
 import { runCommand, GitCommandError } from "../_shared/mt-plan-init-config-gh";
 
 export class ListPlansError extends Error {
@@ -51,9 +57,7 @@ function parsePlanStatus(value: string): PlanStatus {
   return value;
 }
 
-function reverseOptionLookup(
-  config: MtPlanConfig,
-): Map<string, PlanStatus> {
+function reverseOptionLookup(config: MtPlanConfig): Map<string, PlanStatus> {
   const map = new Map<string, PlanStatus>();
   for (const status of PLAN_STATUSES) {
     map.set(config.statusOptions[status], status);
@@ -61,10 +65,7 @@ function reverseOptionLookup(
   return map;
 }
 
-export function extractPlanStatus(
-  item: ProjectItem,
-  config: MtPlanConfig,
-): PlanStatus | null {
+export function extractPlanStatus(item: ProjectItem, config: MtPlanConfig): PlanStatus | null {
   const field = item.fieldValueByName?.["Status"];
   if (!field || !field.optionId) {
     return null;
@@ -167,9 +168,7 @@ type GhListResponse = {
   errors?: Array<{ message: string }>;
 };
 
-export async function fetchProjectItems(
-  config: MtPlanConfig,
-): Promise<ProjectItem[]> {
+export async function fetchProjectItems(config: MtPlanConfig): Promise<ProjectItem[]> {
   const query = buildListQuery();
   const allNodes: ProjectItem[] = [];
   let after: string | null = null;
@@ -241,9 +240,7 @@ export type ListPlansOptions = {
   fetchItems?: (config: MtPlanConfig) => Promise<ProjectItem[]>;
 };
 
-export async function listPlans(
-  options: ListPlansOptions,
-): Promise<ListPlansResult> {
+export async function listPlans(options: ListPlansOptions): Promise<ListPlansResult> {
   const statuses = options.statuses ?? ["refined", "in-progress"];
   const fetch = options.fetchItems ?? fetchProjectItems;
   const items = await fetch(options.config);
@@ -329,8 +326,7 @@ if (require.main === module) {
         return;
       }
       const config = loadConfig(options.configPath);
-      const statuses =
-        options.statuses.length > 0 ? options.statuses : ["refined", "in-progress"];
+      const statuses = options.statuses.length > 0 ? options.statuses : ["refined", "in-progress"];
       const result = await listPlans({ config, statuses });
       process.stdout.write(`${formatListPlansResult(result)}\n`);
     } catch (error) {

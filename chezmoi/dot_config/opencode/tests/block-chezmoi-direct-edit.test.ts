@@ -12,9 +12,11 @@ const CWD = "/Users/mt/src/tools-wt-2";
 
 describe("extractPaths", () => {
   test("opencode 形式 (tool/args)", () => {
-    expect(
-      extractPaths({ tool: "edit", args: { filePath: "~/.zshrc" } }),
-    ).toEqual({ toolName: "edit", path1: "~/.zshrc", path2: "" });
+    expect(extractPaths({ tool: "edit", args: { filePath: "~/.zshrc" } })).toEqual({
+      toolName: "edit",
+      path1: "~/.zshrc",
+      path2: "",
+    });
   });
 
   test("cursor 形式 (tool_name/tool_input)", () => {
@@ -80,11 +82,7 @@ describe("buildGuidePath", () => {
 
   test("sourceDir 配下は guideRoot に置換", () => {
     expect(
-      buildGuidePath(
-        `${SOURCE_DIR}/dot_gitconfig`,
-        SOURCE_DIR,
-        "/Users/mt/src/tools-wt-2/chezmoi",
-      ),
+      buildGuidePath(`${SOURCE_DIR}/dot_gitconfig`, SOURCE_DIR, "/Users/mt/src/tools-wt-2/chezmoi"),
     ).toBe("/Users/mt/src/tools-wt-2/chezmoi/dot_gitconfig");
   });
 

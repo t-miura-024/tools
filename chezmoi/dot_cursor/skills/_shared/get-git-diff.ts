@@ -38,15 +38,15 @@ interface Section {
 }
 
 const STATUS_MAP: Record<string, string> = {
-  A: 'add',
-  M: 'modify',
-  D: 'delete',
-  R: 'rename',
-  C: 'copy',
+  A: "add",
+  M: "modify",
+  D: "delete",
+  R: "rename",
+  C: "copy",
 };
 
 function git(...args: string[]): GitResult {
-  const result = Bun.spawnSync(['git', ...args], { stdout: 'pipe', stderr: 'pipe' });
+  const result = Bun.spawnSync(["git", ...args], { stdout: "pipe", stderr: "pipe" });
   return {
     code: result.exitCode ?? -1,
     stdout: result.stdout.toString(),
@@ -65,12 +65,12 @@ function mapStatus(code: string): string {
 
 /** `-z --name-status` の NUL 区切り出力を変更一覧へ変換する。 */
 function parseNameStatus(raw: string): FileChange[] {
-  const parts = raw.split('\0').filter((part) => part.length > 0);
+  const parts = raw.split("\0").filter((part) => part.length > 0);
   const files: FileChange[] = [];
-  for (let i = 0; i < parts.length; ) {
+  for (let i = 0; i < parts.length;) {
     const token = parts[i++];
     const code = token[0];
-    if (code === 'R' || code === 'C') {
+    if (code === "R" || code === "C") {
       const oldPath = parts[i++];
       const newPath = parts[i++];
       if (oldPath === undefined || newPath === undefined) break;
@@ -86,11 +86,11 @@ function parseNameStatus(raw: string): FileChange[] {
 
 /** `--numstat` の出力から統計を集計する。バイナリは '-' で行数不明のため数えない（推測で補完しない）。 */
 function parseNumstat(raw: string): Stat {
-  const lines = raw.trim() ? raw.trim().split('\n') : [];
+  const lines = raw.trim() ? raw.trim().split("\n") : [];
   let insertions = 0;
   let deletions = 0;
   for (const line of lines) {
-    const [ins, del] = line.split('\t');
+    const [ins, del] = line.split("\t");
     const insNum = Number(ins);
     const delNum = Number(del);
     if (Number.isInteger(insNum)) insertions += insNum;
@@ -101,13 +101,13 @@ function parseNumstat(raw: string): Stat {
 
 /** 追跡済み変更（staged / unstaged）のセクションを組み立てる。 */
 function buildSection(gitArgs: string[]): Section {
-  const ns = git('diff', ...gitArgs, '-z', '-M', '--name-status');
+  const ns = git("diff", ...gitArgs, "-z", "-M", "--name-status");
   if (ns.code !== 0) fail(`差分一覧を取得できません: ${ns.stderr.trim()}`);
 
-  const numstat = git('diff', ...gitArgs, '--numstat', '-M');
+  const numstat = git("diff", ...gitArgs, "--numstat", "-M");
   if (numstat.code !== 0) fail(`変更統計を取得できません: ${numstat.stderr.trim()}`);
 
-  const diff = git('diff', ...gitArgs, '-M', '--no-ext-diff', '--full-index');
+  const diff = git("diff", ...gitArgs, "-M", "--no-ext-diff", "--full-index");
   if (diff.code !== 0) fail(`詳細内容を取得できません: ${diff.stderr.trim()}`);
 
   return {
@@ -118,30 +118,34 @@ function buildSection(gitArgs: string[]): Section {
 }
 
 // --- Git リポジトリの判定。git は親ディレクトリを遡るため、サブディレクトリからも実行できる ---
-const top = git('rev-parse', '--show-toplevel');
+const top = git("rev-parse", "--show-toplevel");
 if (top.code !== 0) {
-  fail(`Git リポジトリのルートを解決できません: ${top.stderr.trim() || 'Git リポジトリ外で実行されました'}`);
+  fail(
+    `Git リポジトリのルートを解決できません: ${top.stderr.trim() || "Git リポジトリ外で実行されました"}`,
+  );
 }
 const repoRoot = top.stdout.trim();
 
 // --- ステージ済み / 未ステージの取得 ---
-const staged = buildSection(['--cached']);
+const staged = buildSection(["--cached"]);
 const unstaged = buildSection([]);
 
 // --- 未追跡の取得（git diff では取得できないため ls-files で一覧を得る） ---
 // ls-files は cwd 配下のみを対象としパスも cwd 相対で返すため、
 // サブディレクトリからの実行に備えてリポジトリルート基準で実行する。
-const untrackedOut = git('-C', repoRoot, 'ls-files', '--others', '--exclude-standard', '-z');
-if (untrackedOut.code !== 0) fail(`未追跡ファイル一覧を取得できません: ${untrackedOut.stderr.trim()}`);
+const untrackedOut = git("-C", repoRoot, "ls-files", "--others", "--exclude-standard", "-z");
+if (untrackedOut.code !== 0)
+  fail(`未追跡ファイル一覧を取得できません: ${untrackedOut.stderr.trim()}`);
 
-const untrackedPaths = untrackedOut.stdout.split('\0').filter((path) => path.length > 0);
+const untrackedPaths = untrackedOut.stdout.split("\0").filter((path) => path.length > 0);
 const untracked: Section = {
-  files: untrackedPaths.map((path) => ({ path, status: 'untracked', oldPath: null })),
+  files: untrackedPaths.map((path) => ({ path, status: "untracked", oldPath: null })),
   stat: { files: untrackedPaths.length, insertions: null, deletions: null },
   diff: null,
 };
 
-const hasChanges = staged.files.length > 0 || unstaged.files.length > 0 || untracked.files.length > 0;
+const hasChanges =
+  staged.files.length > 0 || unstaged.files.length > 0 || untracked.files.length > 0;
 
 console.log(
   JSON.stringify({

@@ -2,12 +2,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 
-export const PLAN_STATUSES = [
-  "draft",
-  "refined",
-  "in-progress",
-  "done",
-] as const;
+export const PLAN_STATUSES = ["draft", "refined", "in-progress", "done"] as const;
 
 export type PlanStatus = (typeof PLAN_STATUSES)[number];
 
@@ -73,17 +68,12 @@ export type InitConfigResultFull = {
   project: ProjectV2;
 };
 
-async function defaultFetchProject(
-  owner: string,
-  projectNumber: number,
-): Promise<ProjectV2> {
+async function defaultFetchProject(owner: string, projectNumber: number): Promise<ProjectV2> {
   const { fetchProject } = await import("./mt-plan-init-config-gh");
   return fetchProject(owner, projectNumber);
 }
 
-export async function initConfig(
-  options: InitConfigOptions,
-): Promise<InitConfigResultFull> {
+export async function initConfig(options: InitConfigOptions): Promise<InitConfigResultFull> {
   const fetch = options.fetchProject ?? defaultFetchProject;
   const project = await fetch(options.owner, options.projectNumber);
   const config = buildConfig(project, {
@@ -114,9 +104,7 @@ export function findStatusField(
   };
 }
 
-export function buildStatusOptionMap(
-  statusField: ProjectV2SingleSelectField,
-): StatusOptionMap {
+export function buildStatusOptionMap(statusField: ProjectV2SingleSelectField): StatusOptionMap {
   const map = {} as StatusOptionMap;
   const missing: PlanStatus[] = [];
 
@@ -143,10 +131,7 @@ export function buildConfig(
   project: ProjectV2,
   options: { statusFieldName?: string } = {},
 ): MtPlanConfig {
-  const statusField = findStatusField(
-    project.fields.nodes,
-    options.statusFieldName ?? "Status",
-  );
+  const statusField = findStatusField(project.fields.nodes, options.statusFieldName ?? "Status");
 
   if (!statusField) {
     throw new InitConfigError(
@@ -182,13 +167,7 @@ export function parseConfig(input: string): MtPlanConfig {
   }
 
   const obj = parsed as Record<string, unknown>;
-  const required = [
-    "owner",
-    "projectNumber",
-    "projectId",
-    "statusFieldId",
-    "statusOptions",
-  ];
+  const required = ["owner", "projectNumber", "projectId", "statusFieldId", "statusOptions"];
   for (const key of required) {
     if (!(key in obj)) {
       throw new InitConfigError(`Config is missing required field: ${key}`);
@@ -214,9 +193,7 @@ export function parseConfig(input: string): MtPlanConfig {
   const options = obj.statusOptions as Record<string, unknown>;
   for (const status of PLAN_STATUSES) {
     if (typeof options[status] !== "string") {
-      throw new InitConfigError(
-        `Config field 'statusOptions.${status}' must be a string.`,
-      );
+      throw new InitConfigError(`Config field 'statusOptions.${status}' must be a string.`);
     }
   }
 
@@ -244,10 +221,7 @@ export function loadConfig(configPath: string = defaultConfigPath()): MtPlanConf
   return parseConfig(raw);
 }
 
-export function saveConfig(
-  config: MtPlanConfig,
-  configPath: string = defaultConfigPath(),
-): void {
+export function saveConfig(config: MtPlanConfig, configPath: string = defaultConfigPath()): void {
   fs.mkdirSync(path.dirname(configPath), { recursive: true });
   fs.writeFileSync(configPath, serializeConfig(config), "utf8");
 }
@@ -325,10 +299,7 @@ export function parseInitConfigCli(argv: readonly string[]): InitConfigCliOption
   return options;
 }
 
-export function formatInitConfigResult(
-  config: MtPlanConfig,
-  configPath: string,
-): string {
+export function formatInitConfigResult(config: MtPlanConfig, configPath: string): string {
   return [
     "mt-plan config initialized.",
     `config: ${configPath}`,
@@ -336,9 +307,7 @@ export function formatInitConfigResult(
     `project: ${config.projectNumber} (${config.projectId})`,
     `statusField: ${config.statusFieldId}`,
     "status options:",
-    ...PLAN_STATUSES.map(
-      (status) => `  - ${status}: ${config.statusOptions[status]}`,
-    ),
+    ...PLAN_STATUSES.map((status) => `  - ${status}: ${config.statusOptions[status]}`),
   ].join("\n");
 }
 
@@ -351,9 +320,7 @@ if (require.main === module) {
         return;
       }
       if (!options.owner || options.projectNumber === undefined) {
-        process.stderr.write(
-          "Both --owner and --project are required.\n\n" + usage() + "\n",
-        );
+        process.stderr.write("Both --owner and --project are required.\n\n" + usage() + "\n");
         process.exitCode = 1;
         return;
       }
@@ -362,9 +329,7 @@ if (require.main === module) {
         projectNumber: options.projectNumber,
         configPath: options.configPath,
       });
-      process.stdout.write(
-        `${formatInitConfigResult(result.config, result.configPath)}\n`,
-      );
+      process.stdout.write(`${formatInitConfigResult(result.config, result.configPath)}\n`);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       process.stderr.write(`${message}\n`);

@@ -5,6 +5,26 @@ pre-commit:
       run: cargo fmt --check
     clippy:
       run: cargo clippy --all-targets -- -D warnings
+    ts-lint:
+      run: >-
+        env -u GIT_DIR
+        -u GIT_WORK_TREE
+        -u GIT_COMMON_DIR
+        -u GIT_INDEX_FILE
+        -u GIT_OBJECT_DIRECTORY
+        -u GIT_ALTERNATE_OBJECT_DIRECTORIES
+        -u GIT_PREFIX
+        bunx oxlint --deny-warnings chezmoi
+    ts-fmt-check:
+      run: >-
+        env -u GIT_DIR
+        -u GIT_WORK_TREE
+        -u GIT_COMMON_DIR
+        -u GIT_INDEX_FILE
+        -u GIT_OBJECT_DIRECTORY
+        -u GIT_ALTERNATE_OBJECT_DIRECTORIES
+        -u GIT_PREFIX
+        bunx oxfmt --check chezmoi/**/*.ts
 
 pre-push:
   parallel: true
@@ -19,7 +39,7 @@ pre-push:
         -u GIT_ALTERNATE_OBJECT_DIRECTORIES
         -u GIT_PREFIX
         cargo test
-    bun-test:
+    ts-test:
       run: >-
         env -u GIT_DIR
         -u GIT_WORK_TREE

@@ -186,7 +186,7 @@ function checkMermaidBlock(body: string, blockIndex: number, startLine: number):
   }
   // Check for HTML-like tags (e.g. <br/>) inside mermaid node labels
   // These can cause render failures depending on the Mermaid client
-  const htmlTagRE = /<[a-zA-Z\/][^>]*>/g;
+  const htmlTagRE = /<[a-zA-Z/][^>]*>/g;
   let htmlMatch: RegExpExecArray | null;
   while ((htmlMatch = htmlTagRE.exec(body)) !== null) {
     const lineNo = startLine + body.slice(0, htmlMatch.index).split("\n").length - 1;

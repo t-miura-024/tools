@@ -1,4 +1,10 @@
-import { loadConfig, PLAN_STATUSES, type MtPlanConfig, type PlanStatus, InitConfigError } from "./mt-plan-init-config";
+import {
+  loadConfig,
+  PLAN_STATUSES,
+  type MtPlanConfig,
+  type PlanStatus,
+  InitConfigError,
+} from "./mt-plan-init-config";
 import { runCommand, GitCommandError } from "./mt-plan-init-config-gh";
 import * as fsp from "node:fs/promises";
 import * as os from "node:os";
@@ -62,22 +68,21 @@ export function appendHistoryEntry(
   executionTransition = false,
   executionMarker: string | null = null,
 ): string {
-  const entry = formatHistoryEntry(sourceStatus, targetStatus, executionTransition, executionMarker);
+  const entry = formatHistoryEntry(
+    sourceStatus,
+    targetStatus,
+    executionTransition,
+    executionMarker,
+  );
 
   const sectionMatch = body.match(/## 🐢 履歴[ \t]*\n([\s\S]*?)(?=\n## |\s*$)/);
 
   if (sectionMatch) {
     const existingContent = sectionMatch[1].trim();
     if (existingContent.length > 0) {
-      return body.replace(
-        /(## 🐢 履歴[ \t]*\n)/,
-        `$1${entry}\n`,
-      );
+      return body.replace(/(## 🐢 履歴[ \t]*\n)/, `$1${entry}\n`);
     }
-    return body.replace(
-      /(## 🐢 履歴[ \t]*\n)/,
-      `$1\n${entry}\n`,
-    );
+    return body.replace(/(## 🐢 履歴[ \t]*\n)/, `$1\n${entry}\n`);
   }
 
   if (body.includes("## 🐢 履歴")) {
@@ -123,7 +128,6 @@ export type TransitionPlanOptions = {
   readIssueBody?: (params: { repo: string; number: number }) => Promise<string>;
   updateIssueBody?: UpdateIssueBodyFn;
   skipHistoryAppend?: boolean;
-
 } & IssueRelationFns;
 
 export type TransitionPlanResult = TransitionSideEffect & {
@@ -177,9 +181,9 @@ export async function transitionPlan(
     readIssueBody: options.readIssueBody ?? defaultReadIssueBody,
     updateIssueBody: options.updateIssueBody ?? defaultUpdateIssueBody,
     skipHistoryAppend: options.skipHistoryAppend ?? false,
-    executionTransition: parentNumber !== null && (
-      options.targetStatus === "in-progress" || options.targetStatus === "done"
-    ),
+    executionTransition:
+      parentNumber !== null &&
+      (options.targetStatus === "in-progress" || options.targetStatus === "done"),
   });
 
   const parentTransition = await aggregateParentStatus({
@@ -298,26 +302,35 @@ async function aggregateParentStatus(
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    process.stderr.write(`[mt-plan] failed to list sub-issues for parent #${options.parentNumber}: ${message}\n`);
+    process.stderr.write(
+      `[mt-plan] failed to list sub-issues for parent #${options.parentNumber}: ${message}\n`,
+    );
     return undefined;
   }
   if (subIssueNumbers.length === 0) return undefined;
 
   const [parent, children] = await Promise.all([
-    options.findPlanItem({ config: options.config, number: options.parentNumber, repo: options.repo }),
-    Promise.all(subIssueNumbers.map((number) => (
-      options.findPlanItem({ config: options.config, number, repo: options.repo })
-        .then((plan) => ({ number, currentStatus: plan.currentStatus }))
-    ))),
+    options.findPlanItem({
+      config: options.config,
+      number: options.parentNumber,
+      repo: options.repo,
+    }),
+    Promise.all(
+      subIssueNumbers.map((number) =>
+        options
+          .findPlanItem({ config: options.config, number, repo: options.repo })
+          .then((plan) => ({ number, currentStatus: plan.currentStatus })),
+      ),
+    ),
   ]);
-  const targetStatus = options.childTargetStatus === "in-progress" && await isLatestTransitionRecorded(
-    options,
-    options.childNumber,
-  )
-    ? "in-progress"
-    : options.childTargetStatus === "done" && await allChildrenDoneThroughTransition(options, children)
-      ? "done"
-      : undefined;
+  const targetStatus =
+    options.childTargetStatus === "in-progress" &&
+    (await isLatestTransitionRecorded(options, options.childNumber))
+      ? "in-progress"
+      : options.childTargetStatus === "done" &&
+          (await allChildrenDoneThroughTransition(options, children))
+        ? "done"
+        : undefined;
 
   if (!targetStatus) return undefined;
 
@@ -350,9 +363,9 @@ async function allChildrenDoneThroughTransition(
 ): Promise<boolean> {
   if (!children.every((child) => child.currentStatus === "done")) return false;
 
-  return Promise.all(children.map((child) => (
-    isLatestTransitionRecorded(options, child.number)
-  ))).then((recorded) => recorded.every(Boolean));
+  return Promise.all(
+    children.map((child) => isLatestTransitionRecorded(options, child.number)),
+  ).then((recorded) => recorded.every(Boolean));
 }
 
 async function isLatestTransitionRecorded(
@@ -475,9 +488,7 @@ async function defaultFindPlanItem(params: {
 
   let found: ItemNode | undefined;
   if (params.repo) {
-    found = candidates.find(
-      (node) => node.content!.repository.nameWithOwner === params.repo,
-    );
+    found = candidates.find((node) => node.content!.repository.nameWithOwner === params.repo);
     if (!found) {
       throw new TransitionPlanError(
         `Plan #${params.number} not found in repo '${params.repo}'. Available repos: ${[...new Set(candidates.map((c) => c.content!.repository.nameWithOwner))].join(", ")}.`,
@@ -486,9 +497,7 @@ async function defaultFindPlanItem(params: {
   } else if (candidates.length === 1) {
     found = candidates[0];
   } else {
-    const repos = [
-      ...new Set(candidates.map((c) => c.content!.repository.nameWithOwner)),
-    ];
+    const repos = [...new Set(candidates.map((c) => c.content!.repository.nameWithOwner))];
     throw new TransitionPlanError(
       `Plan #${params.number} exists in multiple repos: ${repos.join(", ")}. ` +
         `Re-run with --repo <owner/repo> to disambiguate.`,
@@ -503,9 +512,7 @@ async function defaultFindPlanItem(params: {
 
   const optionId = found.fieldValueByName?.optionId;
   if (!optionId) {
-    throw new TransitionPlanError(
-      `Plan #${params.number} has no Status value in the Project.`,
-    );
+    throw new TransitionPlanError(`Plan #${params.number} has no Status value in the Project.`);
   }
 
   const reverseLookup = new Map<string, PlanStatus>();
@@ -580,13 +587,7 @@ async function defaultUpdateIssueState(params: {
 }): Promise<void> {
   const action = params.state === "closed" ? "close" : "reopen";
   try {
-    await runCommand("gh", [
-      "issue",
-      action,
-      String(params.number),
-      "--repo",
-      params.repo,
-    ]);
+    await runCommand("gh", ["issue", action, String(params.number), "--repo", params.repo]);
   } catch (error) {
     if (error instanceof GitCommandError) {
       if (error.exitCode === 1 && /already (closed|open)/.test(error.stderr)) {
@@ -598,10 +599,7 @@ async function defaultUpdateIssueState(params: {
   }
 }
 
-async function defaultReadIssueBody(params: {
-  repo: string;
-  number: number;
-}): Promise<string> {
+async function defaultReadIssueBody(params: { repo: string; number: number }): Promise<string> {
   try {
     const { stdout } = await runCommand("gh", [
       "issue",
@@ -665,7 +663,11 @@ async function defaultGetParentIssueNumber(params: {
     const response = JSON.parse(stdout) as { number?: number };
     return typeof response.number === "number" ? response.number : null;
   } catch (error) {
-    if (error instanceof GitCommandError && error.exitCode === 1 && /No parent issue found/.test(error.stderr)) {
+    if (
+      error instanceof GitCommandError &&
+      error.exitCode === 1 &&
+      /No parent issue found/.test(error.stderr)
+    ) {
       return null;
     }
     if (error instanceof GitCommandError) throw new TransitionPlanError(error.message);
@@ -686,9 +688,7 @@ async function defaultListSubIssueNumbers(params: {
     ]);
     const pages = JSON.parse(stdout) as Array<Array<{ number?: number }>>;
     const issues = pages.flat();
-    return issues.flatMap((issue) => (
-      typeof issue.number === "number" ? [issue.number] : []
-    ));
+    return issues.flatMap((issue) => (typeof issue.number === "number" ? [issue.number] : []));
   } catch (error) {
     if (error instanceof GitCommandError) throw new TransitionPlanError(error.message);
     throw error;
@@ -720,9 +720,7 @@ export type TransitionPlanCliOptions = {
   help?: boolean;
 };
 
-export function parseTransitionPlanCli(
-  argv: readonly string[],
-): TransitionPlanCliOptions {
+export function parseTransitionPlanCli(argv: readonly string[]): TransitionPlanCliOptions {
   const options: TransitionPlanCliOptions = {};
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -756,9 +754,7 @@ export function parseTransitionPlanCli(
     if (options.number === undefined) {
       const parsed = Number.parseInt(arg, 10);
       if (Number.isNaN(parsed) || String(parsed) !== arg) {
-        throw new TransitionPlanError(
-          `First argument must be an issue number, got '${arg}'.`,
-        );
+        throw new TransitionPlanError(`First argument must be an issue number, got '${arg}'.`);
       }
       options.number = parsed;
       continue;
