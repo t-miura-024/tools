@@ -529,7 +529,8 @@ const def: WorkflowDef = {
       },
       task: {
         action: 'run_subagent',
-        buildPrompt: (_ctx: PromptCtx) => buildStepPrompt({ purpose: [], criteria: [], approach: [] }),
+        // parallel 親タスクは実行されないダミー（parallel subtasks が実処理）
+        buildPrompt: (_ctx: PromptCtx) => buildStepPrompt({ purpose: ['並列レビュー親タスク（実行されない）'], criteria: [], approach: [] }),
       },
       check: (ctx: CheckCtx): CheckResult => {
         if (!ctx.artifactDbPath) return { status: 'error', reasons: ['No artifact DB path'] };

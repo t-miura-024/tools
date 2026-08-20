@@ -161,7 +161,7 @@ function formatHunkFeedback(ctx: PromptCtx): string | undefined {
   if (!result || result.passes || result.blocking_threads.length === 0) return undefined;
 
   const lines = [
-    '## hunk の人間フィードバック（前回 check_hunk の blocking_threads）',
+    '### hunk の人間フィードバック（前回 check_hunk の blocking_threads）',
     '',
     '以下は hunk 上の未解決コメントと、そのコメントに対する人間のコメントです。担当スコープに該当するものを修正し、コメントの taxonomy（`[question]` / `[issue]`）を保って扱ってください。',
     '',
@@ -512,7 +512,7 @@ const def: WorkflowDef = {
               '- ミッションがスコープ外変更の必要を報告した場合は、作業を止めてユーザーに計画修正を提案する',
               '- いずれかのミッションが失敗した場合は report を `status: "failed"` とし、失敗内容を errors に含める',
               '',
-              '## Issue body 更新（オーケストレーターが実施）',
+              '### Issue body 更新（オーケストレーターが実施）',
               '',
               '以下のタイミングで更新する:',
               '- 実行開始時: `## 🐢 履歴` へ開始を追記（`transition-plan.ts` が自動実行済み）',
@@ -531,16 +531,8 @@ const def: WorkflowDef = {
               '```bash',
               'gh issue edit <number> --repo <repo> --body-file <tmpfile>',
               '```',
-            ],
-            output: ['全ミッションの完了報告（変更ファイル一覧・検証結果・未解決事項）の集約と Issue body 更新'],
-            policy: [
-              '- オーケストレーター自身がリポジトリのファイルを編集しない（作業は必ず executor SubAgent へ委譲）',
-              '- 計画外のファイル編集や状態遷移が必要になった場合は実行を止め、計画修正を提案する',
-              '- ユーザー承認前に `done` 化しない',
-              '- 全ミッションの完了前に次のステップへ進まない',
-            ],
-            input: [
-              '## 修正ソース（再実行時に適用）',
+              '',
+              '### 修正ソース（再実行時に適用）',
               '',
               'execute_work に戻ってきた場合、以下のソースから修正指示を統合して executor SubAgent に渡す:',
               '',
@@ -569,7 +561,16 @@ const def: WorkflowDef = {
               '- must / should: 対応した AI コメント（source: "agent"）を rm する',
               '- 人間コメントが付いた want: 対応後に AI コメントと人間コメント（source: "user"）の両方を rm する',
               '- 人間コメントが付いていない want: 修正対象外のため rm しない',
-              ...(hunkFeedback ? ['', hunkFeedback] : []),
+            ],
+            output: ['全ミッションの完了報告（変更ファイル一覧・検証結果・未解決事項）の集約と Issue body 更新'],
+            policy: [
+              '- オーケストレーター自身がリポジトリのファイルを編集しない（作業は必ず executor SubAgent へ委譲）',
+              '- 計画外のファイル編集や状態遷移が必要になった場合は実行を止め、計画修正を提案する',
+              '- ユーザー承認前に `done` 化しない',
+              '- 全ミッションの完了前に次のステップへ進まない',
+            ],
+            input: [
+              ...(hunkFeedback ? [hunkFeedback] : []),
             ],
           });
         },
@@ -635,7 +636,7 @@ const def: WorkflowDef = {
               '```',
             ],
             output: [
-              '## レビュー観点（SubAgent に委譲）',
+              '### レビュー観点（SubAgent に委譲）',
               '',
               '1. **本質性・効率性 (essentiality):** 目的に対して本質的で効率的な解決となっているか',
               '2. **完了条件の充足 (acceptance):** `## ✅ 完了条件` は完全に満たせているか',
@@ -643,7 +644,7 @@ const def: WorkflowDef = {
               '4. **方針との整合 (alignment):** `## 🧭 方針` から大きく外れた対応はしていないか',
               '5. **アウトプットの品質 (quality):** `## 📦 アウトプット` の品質は問題ないか',
               '',
-              '## 出力スキーマ',
+              '### 出力スキーマ',
               '',
               '```json',
               '{',
@@ -706,7 +707,7 @@ const def: WorkflowDef = {
             ],
             criteria: [],
             approach: [
-              '## 入力からコメントへの変換',
+              '### 入力からコメントへの変換',
               '',
               `agent-review.json（${join(ctx.sessionDir, REVIEW_JSON_KEY)}）の axes を読み、各項目を hunk の comment apply 形式（{filePath, newLine|oldLine, summary}）に変換する:`,
               '- must: `[issue] (must) [<axis>] <detail>`（AI が発見したブロッキング指摘）',
@@ -723,7 +724,7 @@ const def: WorkflowDef = {
               JSON.stringify(comments, null, 2),
               '```',
               '',
-              '## 手順',
+              '### 手順',
               '',
               `1. 上記の配列を ${commentsPath} に JSON として保存する（空配列でも保存する）。`,
               '2. アクティブな hunk セッションを確認する:',
