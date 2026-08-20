@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -11,14 +11,12 @@ use crate::config;
 use crate::git::common::{ensure_fzf_available, run_fzf};
 use crate::git::repo::repo_discover::parse_repo_selection;
 use crate::herdr::client;
+use crate::herdr::socket::{HerdrSocket, WireNode};
 
 #[derive(Deserialize)]
 struct Snapshot {
     focused_workspace_id: Option<String>,
     workspaces: Vec<WorkspaceInfo>,
-    tabs: Vec<TabInfo>,
-    panes: Vec<PaneInfo>,
-    layouts: Vec<TabLayout>,
 }
 
 #[derive(Deserialize)]
@@ -28,76 +26,15 @@ struct WorkspaceInfo {
     active_tab_id: Option<String>,
 }
 
-#[derive(Deserialize)]
-struct TabInfo {
-    tab_id: String,
-    workspace_id: String,
-    label: String,
-    number: u32,
-}
-
-#[derive(Deserialize)]
-struct PaneInfo {
-    pane_id: String,
-    workspace_id: String,
-    tab_id: String,
-    cwd: String,
-}
-
-#[derive(Deserialize)]
-struct TabLayout {
-    workspace_id: String,
-    tab_id: String,
-    area: Rect,
-    panes: Vec<LayoutPane>,
-    splits: Vec<SplitInfo>,
-}
-
-#[derive(Deserialize)]
-struct LayoutPane {
-    pane_id: String,
-    rect: Rect,
-}
-
-#[derive(Deserialize)]
-struct SplitInfo {
-    id: String,
-    direction: String,
-    ratio: f64,
-    rect: Rect,
-}
-
-#[derive(Deserialize, Clone, Copy, PartialEq, Eq, Debug)]
-struct Rect {
-    x: u32,
-    y: u32,
-    width: u32,
-    height: u32,
-}
-
-impl Rect {
-    fn contains(&self, x: u32, y: u32) -> bool {
-        x >= self.x && x < self.x + self.width && y >= self.y && y < self.y + self.height
-    }
-
-    /// other を完全に包含するか（辺が一致する場合を含む）
-    fn encloses(&self, other: &Rect) -> bool {
-        self.x <= other.x
-            && self.y <= other.y
-            && self.x + self.width >= other.x + other.width
-            && self.y + self.height >= other.y + other.height
-    }
-
-    fn intersects(&self, other: &Rect) -> bool {
-        self.x < other.x + other.width
-            && other.x < self.x + self.width
-            && self.y < other.y + other.height
-            && other.y < self.y + self.height
-    }
-}
-
 pub fn duplicate(target: Option<String>) -> anyhow::Result<()> {
     style::intro("herdr ワークスペース複製");
+
+    let socket = HerdrSocket::resolve()?;
+    let pong = socket.ensure_capabilities()?;
+    style::info(&format!(
+        "herdr v{} (protocol {}) に接続しました",
+        pong.version, pong.protocol
+    ));
 
     let snapshot_value = client::api_snapshot()?;
     let snapshot: Snapshot =
@@ -114,7 +51,23 @@ pub fn duplicate(target: Option<String>) -> anyhow::Result<()> {
         .find(|w| w.workspace_id == source_ws_id)
         .context("フォーカス中ワークスペースが snapshot に見つかりません")?;
 
-    let source_root = find_source_root(&snapshot, &source_ws_id)?;
+    // socket 経由でタブとレイアウトを取得（pane label を含む portable tree）
+    let tabs = socket
+        .tab_list(&source_ws_id)
+        .with_context(|| format!("ワークスペース {source_ws_id} のタブ一覧を取得できません"))?;
+    if tabs.is_empty() {
+        bail!("複製元ワークスペースにタブがありません");
+    }
+
+    let mut layouts = Vec::with_capacity(tabs.len());
+    for tab in &tabs {
+        let layout = socket
+            .layout_export(&source_ws_id, &tab.tab_id)
+            .with_context(|| format!("タブ {} のレイアウト取得に失敗しました", tab.label))?;
+        layouts.push(layout);
+    }
+
+    let source_root = find_source_root_from_layouts(&layouts)?;
 
     let target_dir = resolve_target_dir(target, &source_root)?;
     let target_label = target_dir
@@ -124,17 +77,7 @@ pub fn duplicate(target: Option<String>) -> anyhow::Result<()> {
         .to_string();
 
     // ---- 確認 ----
-    let mut source_tabs = snapshot
-        .tabs
-        .iter()
-        .filter(|t| t.workspace_id == source_ws_id)
-        .collect::<Vec<_>>();
-    source_tabs.sort_by_key(|t| t.number);
-    let source_pane_count = snapshot
-        .panes
-        .iter()
-        .filter(|p| p.workspace_id == source_ws_id)
-        .count();
+    let pane_count: usize = layouts.iter().map(|l| wire_pane_count(&l.root)).sum();
 
     style::info(&format!("複製元: {} ({})", source_ws.label, source_ws_id));
     style::info(&format!(
@@ -144,8 +87,8 @@ pub fn duplicate(target: Option<String>) -> anyhow::Result<()> {
     ));
     style::info(&format!(
         "タブ {} 個 / ペーン {} 個を再構成します",
-        source_tabs.len(),
-        source_pane_count
+        tabs.len(),
+        pane_count
     ));
 
     if !Confirm::new()
@@ -158,54 +101,76 @@ pub fn duplicate(target: Option<String>) -> anyhow::Result<()> {
         return Ok(());
     }
 
-    // ---- 複製実行 ----
-    let first_tab = source_tabs.first().context("複製元にタブがありません")?;
-    let first_layout = source_layout(&snapshot, &first_tab.tab_id)
-        .context("最初のタブのレイアウトが見つかりません")?;
-    let first_root_cwd = map_cwd(
-        &source_root,
-        &target_dir,
-        &pane_cwd_at(first_layout, &snapshot, &first_layout.area)?,
-    );
+    // ---- 複製実行 (layout.export/apply 方式) ----
+    // 各タブの WireNode の cwd を写像しつつ label は保持する
+    let mapped_roots: Vec<WireNode> = layouts
+        .iter()
+        .map(|l| map_cwd_in_wire(&l.root, &source_root, &target_dir))
+        .collect();
+
+    // active tab / pane の復元用
+    let active_tab_index = source_ws
+        .active_tab_id
+        .as_deref()
+        .and_then(|aid| tabs.iter().position(|t| t.tab_id == aid));
+    let active_pane_path = active_tab_index
+        .and_then(|idx| layouts.get(idx))
+        .and_then(|l| l.root.pane_path(&l.focused_pane_id));
 
     let spinner = style::spinner("ワークスペースを作成中...");
-    let new_ws_id = client::workspace_create(&first_root_cwd, &target_label)?;
+    let first_cwd = wire_first_cwd(&mapped_roots[0])
+        .unwrap_or_else(|| target_dir.to_string_lossy().to_string());
+    let new_ws_id = client::workspace_create(&first_cwd, &target_label)?;
 
-    // 最初のタブは workspace create が自動作成したものを利用する
-    let initial = initial_tab_state(&new_ws_id)?;
-    let mut recreated: Vec<String> = vec![initial.tab_id.clone()];
+    // workspace_create が作った初期タブを取得
+    let initial_tab_id = socket
+        .workspace_active_tab(&new_ws_id)
+        .context("作成したワークスペースのアクティブタブが取得できません")?;
 
-    // 最初のタブのラベルを複製元にあわせてリネームし、分割を再構成
-    client::tab_rename(&initial.tab_id, &first_tab.label)?;
-    rebuild_splits_in_tab(
-        &initial.root_pane_id,
-        first_layout,
-        &snapshot,
-        &source_root,
-        &target_dir,
-    )?;
+    let mut recreated: Vec<String> = Vec::with_capacity(tabs.len());
 
-    // 残りのタブを作成し、同じく分割を再構成
-    for tab in source_tabs.iter().skip(1) {
-        let layout =
-            source_layout(&snapshot, &tab.tab_id).context("タブのレイアウトが見つかりません")?;
-        let tab_cwd = map_cwd(
-            &source_root,
-            &target_dir,
-            &pane_cwd_at(layout, &snapshot, &layout.area)?,
-        );
+    // 最初のタブは初期タブを置換する
+    spinner.set_message(format!("タブ {} を再構成中...", tabs[0].label));
+    let layout0 = socket
+        .layout_apply_replace(&initial_tab_id, &tabs[0].label, &mapped_roots[0])
+        .with_context(|| format!("タブ {} の再構成に失敗しました", tabs[0].label))?;
+    recreated.push(layout0.tab_id);
+
+    // 残りのタブを作成
+    for (tab, mapped) in tabs.iter().skip(1).zip(mapped_roots.iter().skip(1)) {
         spinner.set_message(format!("タブ {} を作成中...", tab.label));
-        let (tab_id, root_pane_id) = client::tab_create(&new_ws_id, &tab_cwd, &tab.label)?;
-        rebuild_splits_in_tab(&root_pane_id, layout, &snapshot, &source_root, &target_dir)?;
-        recreated.push(tab_id);
+        let layout = socket
+            .layout_apply_create(&new_ws_id, &tab.label, mapped)
+            .with_context(|| format!("タブ {} の作成に失敗しました", tab.label))?;
+        recreated.push(layout.tab_id);
     }
 
-    // アクティブタブの復元
-    if let Some(active_tab_id) = &source_ws.active_tab_id
-        && let Some(idx) = source_tabs.iter().position(|t| &t.tab_id == active_tab_id)
+    // アクティブタブ・ペーンの復元
+    if let Some(idx) = active_tab_index
         && let Some(new_active) = recreated.get(idx)
     {
-        client::tab_focus(new_active)?;
+        if let Err(e) = socket.tab_focus(new_active) {
+            style::warn(&format!("active tab の復元に失敗しました: {e}"));
+        } else if let Some(path) = &active_pane_path {
+            // 新しいレイアウトから tree path に対応する pane_id を解決して focus
+            match socket.layout_export(&new_ws_id, new_active) {
+                Ok(new_layout) => match new_layout.root.pane_id_at_path(path) {
+                    Some(pane_id) => {
+                        if let Err(e) = socket.pane_focus(&pane_id) {
+                            style::warn(&format!("active pane の復元に失敗しました: {e}"));
+                        }
+                    }
+                    None => {
+                        style::warn(&format!(
+                            "active pane の復元をスキップしました（path {path:?} が pane に解決しません）"
+                        ));
+                    }
+                },
+                Err(e) => {
+                    style::warn(&format!("active pane の解決に失敗しました: {e}"));
+                }
+            }
+        }
     }
 
     spinner.finish_with_message("ワークスペースの複製が完了しました");
@@ -217,21 +182,85 @@ pub fn duplicate(target: Option<String>) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn source_layout<'a>(snapshot: &'a Snapshot, tab_id: &str) -> Option<&'a TabLayout> {
-    snapshot.layouts.iter().find(|l| l.tab_id == tab_id)
+/// WireNode の cwd を複製先へ写像しつつ label を保持した新しい木を作る
+fn map_cwd_in_wire(node: &WireNode, source_root: &Path, target_dir: &Path) -> WireNode {
+    match node {
+        WireNode::Pane {
+            pane_id: _,
+            cwd,
+            command: _,
+            env: _,
+            label,
+        } => WireNode::Pane {
+            pane_id: None,
+            cwd: cwd
+                .as_deref()
+                .map(|c| map_cwd(source_root, target_dir, c))
+                .or_else(|| Some(target_dir.to_string_lossy().to_string())),
+            command: None,
+            env: None,
+            label: label.clone(),
+        },
+        WireNode::Split {
+            direction,
+            ratio,
+            first,
+            second,
+        } => WireNode::Split {
+            direction: *direction,
+            ratio: *ratio,
+            first: Box::new(map_cwd_in_wire(first, source_root, target_dir)),
+            second: Box::new(map_cwd_in_wire(second, source_root, target_dir)),
+        },
+    }
 }
 
-/// 複製元ワークスペースの git ルート（worktree / repo のトップ）を解決する
-fn find_source_root(snapshot: &Snapshot, source_ws_id: &str) -> anyhow::Result<PathBuf> {
-    let cwd = snapshot
-        .panes
-        .iter()
-        .find(|p| p.workspace_id == source_ws_id)
-        .map(|p| p.cwd.clone())
-        .context("複製元ワークスペースの cwd が取得できません")?;
+fn wire_first_cwd(node: &WireNode) -> Option<String> {
+    match node {
+        WireNode::Pane { cwd, .. } => cwd.clone(),
+        WireNode::Split { first, second, .. } => {
+            wire_first_cwd(first).or_else(|| wire_first_cwd(second))
+        }
+    }
+}
 
-    find_repo_root(Path::new(&cwd))
-        .with_context(|| format!("{} から git ルートを特定できませんでした", cwd))
+fn wire_collect_cwds(node: &WireNode, out: &mut Vec<String>) {
+    match node {
+        WireNode::Pane { cwd: Some(c), .. } => out.push(c.clone()),
+        WireNode::Pane { cwd: None, .. } => {}
+        WireNode::Split { first, second, .. } => {
+            wire_collect_cwds(first, out);
+            wire_collect_cwds(second, out);
+        }
+    }
+}
+
+fn wire_pane_count(node: &WireNode) -> usize {
+    match node {
+        WireNode::Pane { .. } => 1,
+        WireNode::Split { first, second, .. } => wire_pane_count(first) + wire_pane_count(second),
+    }
+}
+
+/// layouts から pane cwd を使って git ルートを解決する
+fn find_source_root_from_layouts(
+    layouts: &[crate::herdr::socket::LayoutDescription],
+) -> anyhow::Result<PathBuf> {
+    for layout in layouts {
+        let mut cwds = Vec::new();
+        wire_collect_cwds(&layout.root, &mut cwds);
+        // wire_first_cwd を優先しつつ、全 pane を走査して最初に見つかった git ルートを採用
+        if let Some(cwd) = wire_first_cwd(&layout.root) {
+            cwds.retain(|c| c != &cwd);
+            cwds.insert(0, cwd);
+        }
+        for cwd in cwds {
+            if let Some(root) = find_repo_root(Path::new(&cwd)) {
+                return Ok(root);
+            }
+        }
+    }
+    bail!("複製元ワークスペースの git ルートを特定できませんでした");
 }
 
 /// ペーン cwd の git ルート（worktree or 通常 repo のトップ）を探す
@@ -248,233 +277,19 @@ fn find_repo_root(cwd: &Path) -> Option<PathBuf> {
     }
 }
 
-/// 最初のタブ（workspace の root pane）の情報
-struct InitialTabState {
-    tab_id: String,
-    root_pane_id: String,
-}
-
-fn initial_tab_state(workspace_id: &str) -> anyhow::Result<InitialTabState> {
-    let snapshot_value = client::api_snapshot()?;
-    let snapshot: Snapshot =
-        serde_json::from_value(snapshot_value).context("snapshot の再取得に失敗しました")?;
-
-    let ws = snapshot
-        .workspaces
-        .iter()
-        .find(|w| w.workspace_id == workspace_id)
-        .context("作成したワークスペースが snapshot に見つかりません")?;
-    let tab_id = ws
-        .active_tab_id
-        .clone()
-        .context("作成したワークスペースのアクティブタブがありません")?;
-
-    let root_pane_id = snapshot
-        .layouts
-        .iter()
-        .find(|l| l.workspace_id == workspace_id && l.tab_id == tab_id)
-        .and_then(|l| l.panes.first())
-        .map(|p| p.pane_id.clone())
-        .context("作成したワークスペースのルートペーンが見つかりません")?;
-
-    Ok(InitialTabState {
-        tab_id,
-        root_pane_id,
-    })
-}
-
-/// レイアウト内の指定矩形の最左上座標を覆うペーンの cwd を取得する
-fn pane_cwd_at(layout: &TabLayout, snapshot: &Snapshot, point: &Rect) -> anyhow::Result<String> {
-    let target = find_pane_covering(layout, point.x, point.y)
-        .context("領域を覆うペーンがレイアウトに見つかりません")?;
-    snapshot
-        .panes
-        .iter()
-        .find(|p| p.tab_id == layout.tab_id && p.pane_id == target.pane_id)
-        .map(|p| p.cwd.clone())
-        .context("ペーンの cwd が見つかりません")
-}
-
-fn find_pane_covering(layout: &TabLayout, x: u32, y: u32) -> Option<&LayoutPane> {
-    layout.panes.iter().find(|p| p.rect.contains(x, y))
-}
-
 /// cwd を複製元ルート配下から複製先ルート配下へ写像する。
 /// ルート配下以外の cwd（/tmp 以下など）はそのまま維持する。
 fn map_cwd(source_root: &Path, target_root: &Path, cwd: &str) -> String {
     let path = Path::new(cwd);
     if let Ok(relative) = path.strip_prefix(source_root) {
+        if relative.as_os_str().is_empty() {
+            return target_root.to_string_lossy().to_string();
+        }
         let joined = target_root.join(relative);
         joined.to_string_lossy().to_string()
     } else {
         cwd.to_string()
     }
-}
-
-/// split ツリーを再構成する
-fn rebuild_splits_in_tab(
-    root_pane_id: &str,
-    layout: &TabLayout,
-    snapshot: &Snapshot,
-    source_root: &Path,
-    target_dir: &Path,
-) -> anyhow::Result<()> {
-    if layout.splits.is_empty() {
-        return Ok(());
-    }
-
-    let cwd_map: HashMap<&str, &str> = snapshot
-        .panes
-        .iter()
-        .filter(|p| p.tab_id == layout.tab_id)
-        .map(|p| (p.pane_id.as_str(), p.cwd.as_str()))
-        .collect();
-
-    let root = find_root_split(layout).context("split ツリーのルートが見つかりません")?;
-
-    apply_split_tree(
-        root_pane_id,
-        root,
-        layout,
-        &cwd_map,
-        source_root,
-        target_dir,
-    )
-}
-
-/// ルート split（どの split にも含まれない最大領域の split）を探す
-fn find_root_split(layout: &TabLayout) -> Option<&SplitInfo> {
-    layout.splits.iter().find(|s| {
-        !layout
-            .splits
-            .iter()
-            .any(|o| o.id != s.id && o.rect.encloses(&s.rect))
-    })
-}
-
-#[allow(clippy::too_many_arguments)]
-fn apply_split_tree(
-    pane_id: &str,
-    node: &SplitInfo,
-    layout: &TabLayout,
-    cwd_map: &HashMap<&str, &str>,
-    source_root: &Path,
-    target_dir: &Path,
-) -> anyhow::Result<()> {
-    match node.direction.as_str() {
-        "right" | "down" => {}
-        other => bail!("未知の分割方向: {other}"),
-    }
-
-    // 新ペーン (1 - ratio 側) の領域の最左上を覆う元ペーンの cwd を使う
-    let new_region = split_new_region(node);
-    let new_cwd_src = region_pane_cwd(layout, cwd_map, &new_region)
-        .context("分割後の新ペーンの cwd を特定できませんでした")?;
-    let new_cwd = map_cwd(source_root, target_dir, &new_cwd_src);
-
-    // 分割実行（元ペインは ratio の割合を保持する）
-    let new_pane_id = client::pane_split(pane_id, &node.direction, node.ratio, &new_cwd)?;
-
-    // 子 split（この split の領域内に含まれる次の階層の split）
-    let orig_region = split_original_region(node);
-    for child in direct_children(layout, node) {
-        let target_pane = if orig_region.intersects(&child.rect) {
-            pane_id.to_string()
-        } else {
-            new_pane_id.clone()
-        };
-        apply_split_tree(
-            &target_pane,
-            child,
-            layout,
-            cwd_map,
-            source_root,
-            target_dir,
-        )?;
-    }
-
-    Ok(())
-}
-
-/// node の分割で「新ペイン」が占める領域（right: 右側 / down: 下側）
-fn split_new_region(node: &SplitInfo) -> Rect {
-    match node.direction.as_str() {
-        "right" => {
-            let keep = (node.rect.width as f64 * node.ratio).round() as u32;
-            Rect {
-                x: node.rect.x + keep,
-                y: node.rect.y,
-                width: node.rect.width - keep,
-                height: node.rect.height,
-            }
-        }
-        "down" => {
-            let keep = (node.rect.height as f64 * node.ratio).round() as u32;
-            Rect {
-                x: node.rect.x,
-                y: node.rect.y + keep,
-                width: node.rect.width,
-                height: node.rect.height - keep,
-            }
-        }
-        _ => node.rect,
-    }
-}
-
-/// node の分割で「元ペイン」が保持する領域（ratio 側）
-fn split_original_region(node: &SplitInfo) -> Rect {
-    match node.direction.as_str() {
-        "right" => {
-            let keep = (node.rect.width as f64 * node.ratio).round() as u32;
-            Rect {
-                x: node.rect.x,
-                y: node.rect.y,
-                width: keep,
-                height: node.rect.height,
-            }
-        }
-        "down" => {
-            let keep = (node.rect.height as f64 * node.ratio).round() as u32;
-            Rect {
-                x: node.rect.x,
-                y: node.rect.y,
-                width: node.rect.width,
-                height: keep,
-            }
-        }
-        _ => node.rect,
-    }
-}
-
-/// node の領域内に含まれる「直接の子」split 一覧
-/// （node より真に小さく、かつ他の split の領域にも含まれないもの）
-fn direct_children<'a>(layout: &'a TabLayout, node: &'a SplitInfo) -> Vec<&'a SplitInfo> {
-    layout
-        .splits
-        .iter()
-        .filter(|s| {
-            s.id != node.id
-                && node.rect.encloses(&s.rect)
-                && s.rect != node.rect
-                && !layout.splits.iter().any(|o| {
-                    o.id != node.id
-                        && o.id != s.id
-                        && o.rect.encloses(&s.rect)
-                        && node.rect.encloses(&o.rect)
-                        && o.rect != node.rect
-                })
-        })
-        .collect()
-}
-
-/// 領域の最左上の属するペーンの cwd を探す
-fn region_pane_cwd(
-    layout: &TabLayout,
-    cwd_map: &HashMap<&str, &str>,
-    region: &Rect,
-) -> Option<String> {
-    let pane = find_pane_covering(layout, region.x, region.y)?;
-    cwd_map.get(pane.pane_id.as_str()).map(|s| s.to_string())
 }
 
 /// fzf で複製先ディレクトリを選択する
@@ -629,4 +444,100 @@ fn branch_of(root: &Path) -> String {
                 .unwrap_or_else(|| t.chars().take(7).collect())
         })
         .unwrap_or_else(|| "?".to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::herdr::socket::{SplitDirection, WireNode};
+
+    fn pane(cwd: &str, label: Option<&str>) -> WireNode {
+        WireNode::Pane {
+            pane_id: None,
+            cwd: Some(cwd.to_string()),
+            command: None,
+            env: None,
+            label: label.map(|s| s.to_string()),
+        }
+    }
+
+    #[test]
+    fn test_map_cwd_in_wire_preserves_label_and_maps_cwd() {
+        let source_root = Path::new("/src/tools-wt-1");
+        let target_dir = Path::new("/src/tools-wt-2");
+        let root = WireNode::Split {
+            direction: SplitDirection::Right,
+            ratio: 0.5,
+            first: Box::new(pane("/src/tools-wt-1/src", Some("🐶AGENT"))),
+            second: Box::new(WireNode::Split {
+                direction: SplitDirection::Down,
+                ratio: 0.3,
+                first: Box::new(pane("/src/tools-wt-1", Some("🪐EDITOR"))),
+                second: Box::new(pane("/tmp/other", None)),
+            }),
+        };
+
+        let mapped = map_cwd_in_wire(&root, source_root, target_dir);
+        match mapped {
+            WireNode::Split { first, second, .. } => {
+                match first.as_ref() {
+                    WireNode::Pane { cwd, label, .. } => {
+                        assert_eq!(cwd.as_deref(), Some("/src/tools-wt-2/src"));
+                        assert_eq!(label.as_deref(), Some("🐶AGENT"));
+                    }
+                    _ => panic!("first は pane"),
+                }
+                match second.as_ref() {
+                    WireNode::Split { first, second, .. } => {
+                        match first.as_ref() {
+                            WireNode::Pane { cwd, label, .. } => {
+                                assert_eq!(cwd.as_deref(), Some("/src/tools-wt-2"));
+                                assert_eq!(label.as_deref(), Some("🪐EDITOR"));
+                            }
+                            _ => panic!("second.first は pane"),
+                        }
+                        match second.as_ref() {
+                            WireNode::Pane { cwd, label, .. } => {
+                                // source_root 外はそのまま
+                                assert_eq!(cwd.as_deref(), Some("/tmp/other"));
+                                assert_eq!(label, &None);
+                            }
+                            _ => panic!("second.second は pane"),
+                        }
+                    }
+                    _ => panic!("second は split"),
+                }
+            }
+            _ => panic!("root は split"),
+        }
+    }
+
+    #[test]
+    fn test_wire_first_cwd_and_pane_count() {
+        let root = WireNode::Split {
+            direction: SplitDirection::Right,
+            ratio: 0.5,
+            first: Box::new(pane("/a", None)),
+            second: Box::new(WireNode::Split {
+                direction: SplitDirection::Down,
+                ratio: 0.5,
+                first: Box::new(pane("/b", None)),
+                second: Box::new(pane("/c", None)),
+            }),
+        };
+        assert_eq!(wire_first_cwd(&root).as_deref(), Some("/a"));
+        assert_eq!(wire_pane_count(&root), 3);
+    }
+
+    #[test]
+    fn test_map_cwd() {
+        assert_eq!(
+            map_cwd(Path::new("/src/a"), Path::new("/src/b"), "/src/a/foo/bar"),
+            "/src/b/foo/bar"
+        );
+        assert_eq!(
+            map_cwd(Path::new("/src/a"), Path::new("/src/b"), "/tmp/x"),
+            "/tmp/x"
+        );
+    }
 }
