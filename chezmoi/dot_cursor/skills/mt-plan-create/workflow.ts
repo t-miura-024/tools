@@ -9,7 +9,7 @@ import type {
 import { join } from 'node:path';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { execSync } from 'node:child_process';
-import { loadConfig } from '../mt-plan/init-config';
+import { loadConfig } from '../_shared/mt-plan-init-config';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -44,7 +44,6 @@ const PREPARE_DECISION_KEY = 'prepare-decision.json';
 const ISSUE_BODY_KEY = 'issue-body.md';
 const GRILL_MAP_KEY = 'grill-map.md';
 const REPO_INFO_KEY = 'repo-info.json';
-const mtPlanDir = join(import.meta.dir, '..', 'mt-plan');
 const mtGrillRoundsDir = join(import.meta.dir, '..', 'mt-grill-rounds');
 const mtDomainModelingDir = join(import.meta.dir, '..', 'mt-domain-modeling');
 
@@ -207,7 +206,7 @@ const def: WorkflowDef = {
             '',
             `### ${withDocs ? '4' : '3'}. 最終本文の確定`,
             '',
-            `plan-format.md（${join(mtPlanDir, 'plan-format.md')}）に従い、Issue body の最終本文を確定する。`,
+            `plan-format.md（${join(import.meta.dir, '..', '_shared', 'mt-plan-plan-format.md')}）に従い、Issue body の最終本文を確定する。`,
             `確定した本文をセッションディレクトリに \`${ISSUE_BODY_KEY}\` として書き出す。`,
             '',
             '分解モードの場合:',
@@ -452,7 +451,7 @@ const def: WorkflowDef = {
             '### 2. refined への昇格',
             '',
             '```bash',
-            `bun run ${join(mtPlanDir, 'transition-plan.ts')} <number> refined`,
+            `bun run ${join(import.meta.dir, '..', '_shared', 'mt-plan-transition-plan.ts')} <number> refined`,
             '```',
             '',
             'このコマンドは以下を自動実行する:',

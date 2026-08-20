@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -13,14 +13,14 @@ import {
   type UpdateIssueStateFn,
   type UpdateItemStatusFn,
   type FindPlanItemFn,
-} from "./transition-plan";
+} from "./mt-plan-transition-plan";
 import {
   InitConfigError,
   loadConfig,
   saveConfig,
   type MtPlanConfig,
   type PlanStatus,
-} from "./init-config";
+} from "./mt-plan-init-config";
 
 function makeConfig(): MtPlanConfig {
   return {
@@ -37,7 +37,7 @@ function makeConfig(): MtPlanConfig {
   };
 }
 
-describe("mt-plan/transition-plan (Project version)", () => {
+describe("mt-plan-transition-plan (Project version)", () => {
   let tmp: string;
 
   beforeEach(() => {

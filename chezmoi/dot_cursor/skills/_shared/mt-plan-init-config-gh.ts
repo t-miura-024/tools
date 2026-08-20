@@ -4,7 +4,7 @@ import {
   type ProjectV2Field,
   type ProjectV2Owner,
   InitConfigError,
-} from "./init-config";
+} from "./mt-plan-init-config";
 
 export class GitCommandError extends Error {
   readonly command: string;

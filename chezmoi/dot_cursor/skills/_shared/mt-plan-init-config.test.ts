@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -18,7 +18,7 @@ import {
   type MtPlanConfig,
   type ProjectV2,
   type ProjectV2Field,
-} from "./init-config";
+} from "./mt-plan-init-config";
 
 function makeProject(
   fields: ProjectV2Field[],
@@ -50,7 +50,7 @@ function makeStatusField(
   };
 }
 
-describe("mt-plan/init-config", () => {
+describe("mt-plan-init-config", () => {
   let tmp: string;
 
   beforeEach(() => {

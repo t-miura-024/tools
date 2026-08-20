@@ -1,5 +1,5 @@
-import { loadConfig, PLAN_STATUSES, type MtPlanConfig, type PlanStatus, InitConfigError } from "./init-config";
-import { runCommand, GitCommandError } from "./init-config-gh";
+import { loadConfig, PLAN_STATUSES, type MtPlanConfig, type PlanStatus, InitConfigError } from "./mt-plan-init-config";
+import { runCommand, GitCommandError } from "./mt-plan-init-config-gh";
 import * as fsp from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";

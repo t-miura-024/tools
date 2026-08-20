@@ -124,7 +124,7 @@ const def: WorkflowDef = {
             '',
             '```bash',
             'gh issue list --state open --limit 100 --json number,title,labels',
-            `bun ${join(import.meta.dir, '../mt-plan/list-plans.ts')} draft refined in-progress`,
+            `bun ${join(import.meta.dir, '../mt-plan-run/mt-plan-list-plans.ts')} draft refined in-progress`,
             '```',
             '',
             '### 3. 照合・判定',

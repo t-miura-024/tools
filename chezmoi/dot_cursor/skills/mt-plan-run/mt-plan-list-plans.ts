@@ -1,5 +1,5 @@
-import { loadConfig, type MtPlanConfig, type PlanStatus, PLAN_STATUSES, InitConfigError } from "./init-config";
-import { runCommand, GitCommandError } from "./init-config-gh";
+import { loadConfig, type MtPlanConfig, type PlanStatus, PLAN_STATUSES, InitConfigError } from "../_shared/mt-plan-init-config";
+import { runCommand, GitCommandError } from "../_shared/mt-plan-init-config-gh";
 
 export class ListPlansError extends Error {
   constructor(message: string) {
@@ -311,10 +311,10 @@ export function parseListPlansCli(argv: readonly string[]): ListPlansCliOptions 
 
 export function usage(): string {
   return [
-    "Usage: bun <mt-plan-skill-dir>/list-plans.ts [--config <path>] [statuses...]",
+    "Usage: bun <mt-plan-skill-dir>/mt-plan-list-plans.ts [--config <path>] [statuses...]",
     "",
     "Lists plans from the GitHub Project. Default statuses: refined in-progress.",
-    "Config is loaded from ~/.config/mt-plan/config.json (see init-config.ts).",
+    "Config is loaded from ~/.config/mt-plan/config.json (see ../_shared/mt-plan-init-config.ts).",
     "",
     `Supported statuses: ${PLAN_STATUSES.join(", ")}`,
   ].join("\n");

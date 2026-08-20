@@ -9,4 +9,4 @@ description: >
 
 ## 実行
 
-`tado-run` を `--workflow ~/.config/opencode/skills/mt-plan/workflow.ts` で起動する。
+`tado-run` を `--workflow ~/.config/opencode/skills/mt-plan-run/workflow.ts` で起動する。

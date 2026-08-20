@@ -8,7 +8,7 @@ import type {
   ArtifactRecord,
 } from 'tado';
 import { basename, join } from 'node:path';
-import { loadConfig } from './init-config';
+import { loadConfig } from '../_shared/mt-plan-init-config';
 
 type JsonRecord = Record<string, unknown>;
 
@@ -372,7 +372,7 @@ const def: WorkflowDef = {
             '3. `list-plans.ts` で status を確認し、`refined` または `in-progress` であることを検証する:',
             '',
             '```bash',
-            `bun run ${join(import.meta.dir, 'list-plans.ts')}`,
+            `bun run ${join(import.meta.dir, 'mt-plan-list-plans.ts')}`,
             '```',
             '',
             '- `draft` なら `mt-plan-create` へ案内して中断',
@@ -387,7 +387,7 @@ const def: WorkflowDef = {
             '5. `transition-plan.ts` を使って `refined` → `in-progress` に遷移する:',
             '',
             '```bash',
-            `bun run ${join(import.meta.dir, 'transition-plan.ts')} <number> in-progress`,
+            `bun run ${join(import.meta.dir, '../_shared/mt-plan-transition-plan.ts')} <number> in-progress`,
             '```',
             '',
             '既に `in-progress` の場合はスキップする。',
@@ -605,7 +605,7 @@ const def: WorkflowDef = {
         subagentType: 'mt-plan-work-reviewer',
         readonly: false,
         buildPrompt: (ctx: PromptCtx) => {
-          const collectScriptPath = join(import.meta.dir, 'collect-review-context.ts');
+          const collectScriptPath = join(import.meta.dir, 'mt-plan-collect-review-context.ts');
           const jsonPath = join(ctx.sessionDir, 'agent-review.json');
           const mdPath = join(ctx.sessionDir, 'agent-review.md');
           const prevRound = countReviewRounds(ctx.sessionDir);
@@ -876,7 +876,7 @@ const def: WorkflowDef = {
             '2. `transition-plan.ts` を使って `in-progress` → `done` に遷移する:',
             '',
             '```bash',
-            `bun run ${join(import.meta.dir, 'transition-plan.ts')} <number> done`,
+            `bun run ${join(import.meta.dir, '../_shared/mt-plan-transition-plan.ts')} <number> done`,
             '```',
             '',
             'このコマンドは以下を自動実行する:',

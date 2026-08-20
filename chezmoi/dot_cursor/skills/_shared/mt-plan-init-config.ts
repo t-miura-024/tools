@@ -77,7 +77,7 @@ async function defaultFetchProject(
   owner: string,
   projectNumber: number,
 ): Promise<ProjectV2> {
-  const { fetchProject } = await import("./init-config-gh");
+  const { fetchProject } = await import("./mt-plan-init-config-gh");
   return fetchProject(owner, projectNumber);
 }
 
