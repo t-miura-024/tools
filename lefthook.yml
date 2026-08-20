@@ -7,6 +7,7 @@ pre-commit:
       run: cargo clippy --all-targets -- -D warnings
 
 pre-push:
+  parallel: true
   commands:
     test:
       run: >-
@@ -18,6 +19,16 @@ pre-push:
         -u GIT_ALTERNATE_OBJECT_DIRECTORIES
         -u GIT_PREFIX
         cargo test
+    bun-test:
+      run: >-
+        env -u GIT_DIR
+        -u GIT_WORK_TREE
+        -u GIT_COMMON_DIR
+        -u GIT_INDEX_FILE
+        -u GIT_OBJECT_DIRECTORY
+        -u GIT_ALTERNATE_OBJECT_DIRECTORIES
+        -u GIT_PREFIX
+        bun test
 
 post-commit:
   commands:

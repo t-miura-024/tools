@@ -9,3 +9,7 @@ run = "scripts/docker.sh down"
 [tasks.docker-logs]
 description = "Docker サービス群のログを表示"
 run = "scripts/docker.sh logs"
+
+[tasks.test-bun]
+description = "TS テストを bun:test で実行"
+run = "bun test"
