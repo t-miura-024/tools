@@ -1,5 +1,5 @@
 #!/bin/sh
-# mdcat-fm: mdcat wrapper that prepends YAML frontmatter as highlighted code block + table
+# mdcat-fm: mdcat wrapper that prepends YAML frontmatter as table
 # Usage: mdcat-fm [MDCAT_OPTIONS...] FILE
 set -eu
 
@@ -42,7 +42,7 @@ else
   fm_raw=$(sed -n "2,$((actual_end - 1))p" "$file" | tr -d '\r')
 fi
 
-# Generate markdown table via Ruby (fallback to code block only on failure)
+# Generate markdown table via Ruby
 table=""
 if [ -n "$fm_raw" ]; then
   table=$(printf '%s' "$fm_raw" | ruby -ryaml -e '
@@ -68,18 +68,17 @@ if [ -n "$fm_raw" ]; then
   ' 2>/dev/null || true)
 fi
 
+# Frontmatter is not valid YAML or not a hash: fallback to no table (passthrough)
+if [ -z "$table" ]; then
+  exec mdcat "$@"
+fi
+
 tmp=$(mktemp -t mdcat-fm.XXXXXX.md)
 trap 'rm -f "$tmp"' EXIT INT TERM
 
 {
-  echo '```yaml'
-  printf '%s\n' "$fm_raw"
-  echo '```'
+  printf '%s\n' "$table"
   echo ""
-  if [ -n "$table" ]; then
-    printf '%s\n' "$table"
-    echo ""
-  fi
   echo "---"
   echo ""
   tail -n +$((actual_end + 1)) "$file"
