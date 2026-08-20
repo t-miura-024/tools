@@ -1,0 +1,26 @@
+{{/* .chezmoiignore 対象(bun.lock等)は chezmoi が自動で除外、現役 keep は stat で判定 */ -}}
+{{- $home := .chezmoi.homeDir -}}
+{{- $src := .chezmoi.sourceDir -}}
+{{- $prefix := print $home "/" -}}
+{{- $patterns := list
+  (joinPath $home ".cursor/skills/*")
+  (joinPath $home ".claude/skills/*")
+  (joinPath $home ".config/opencode/skills/*")
+-}}
+{{- range $patterns -}}
+{{- range glob . -}}
+{{- $rel := trimPrefix $prefix . -}}
+{{- $base := base . -}}
+{{- $srcPath := "" -}}
+{{- if hasPrefix ".cursor/skills/" $rel -}}
+{{- $srcPath = joinPath $src "dot_cursor/skills" $base -}}
+{{- else if hasPrefix ".claude/skills/" $rel -}}
+{{- $srcPath = joinPath $src "dot_claude/skills" (print "symlink_" $base) -}}
+{{- else if hasPrefix ".config/opencode/skills/" $rel -}}
+{{- $srcPath = joinPath $src "dot_config/opencode/skills" (print "symlink_" $base) -}}
+{{- end -}}
+{{- if not (stat $srcPath) }}
+{{ $rel }}
+{{- end }}
+{{- end -}}
+{{- end -}}
