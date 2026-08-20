@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -13,13 +13,13 @@ import {
   usage,
   type ListedPlan,
   type ProjectItem,
-} from "./list-plans";
+} from "./mt-plan-list-plans";
 import {
   InitConfigError,
   loadConfig,
   saveConfig,
   type MtPlanConfig,
-} from "./init-config";
+} from "../_shared/mt-plan-init-config";
 
 function makeConfig(
   overrides: Partial<MtPlanConfig> = {},
@@ -68,7 +68,7 @@ function makeItem(
   };
 }
 
-describe("mt-plan/list-plans (Project version)", () => {
+describe("mt-plan-list-plans (Project version)", () => {
   let tmp: string;
 
   beforeEach(() => {

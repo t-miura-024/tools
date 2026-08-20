@@ -135,3 +135,25 @@ _Avoid_: template cwd, saved cwd
 **ユーザー共通 JSON**:
 リポジトリやワークスペースに依存せず、ユーザー単位でテンプレートを保存する JSON ファイル。
 _Avoid_: repository-local JSON, workspace-local JSON
+
+## Skill構成
+
+**廃止**:
+`mt-plan` Skillディレクトリ（`~/.cursor/skills/mt-plan`）を完全に削除し、後方互換のためのShimやdeprecated READMEを残さないこと。
+_Avoid_: アーカイブ, 非推奨化
+
+**共通リソース**:
+`mt-plan-create` と `mt-plan-run` の双方からimportまたはファイルパス参照されている資材。`init-config` / `init-config-gh` / `transition-plan` / `plan-format` が該当する。
+_Avoid_: 共有ファイル, 共通モジュール
+
+**片側専用リソース**:
+片方のSkillからのみ参照される資材。`collect-review-context`（run専用）、`list-plans`（run専用）が該当。`sync-sessions` は参照なしのため削除対象。
+_Avoid_: 専有リソース
+
+**移行命名**:
+`skill/_shared` 配下で `mt-plan-xxx` 形式のkebab-caseファイル名を用いる命名規則。元ファイル名をそのまま付与する（例: `init-config.ts` → `mt-plan-init-config.ts`）。
+_Avoid_: リネーム, プレフィックス付与
+
+**テスト基盤**:
+`bun:test` ビルトインランナー。`vitest` 依存を削除し `from "bun:test"` で実行する。`package.json` は不要。
+_Avoid_: vitest, npm test

@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -9,7 +9,7 @@ import {
   CollectError,
   parseCli,
   type CollectInput,
-} from "./collect-review-context";
+} from "./mt-plan-collect-review-context";
 
 describe("collect-review-context", () => {
   let tmp: string;
@@ -74,7 +74,7 @@ describe("collect-review-context", () => {
 
       const origRunCommand = (collectReviewContext as any).__runCommand;
       // Use dependency injection via module-level variable
-      // Since we can't easily mock module-level functions in vitest without a pattern,
+      // Since we can't easily mock module-level functions in bun:test without a pattern,
       // we test parseCli and key logic separately
 
       // Test that session dir is created and files are written
