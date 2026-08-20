@@ -82,21 +82,61 @@ key_width = ARGV[0].to_i
 value_width = ARGV[1].to_i
 cols = ARGV[2].to_i
 
+def display_width(str)
+  return 0 if str.nil? || str.empty?
+  str.each_char.sum { |c| c.ord > 0xFF ? 2 : 1 }
+end
+
+def display_ljust(str, width)
+  dw = display_width(str)
+  pad = width - dw
+  pad = 0 if pad < 0
+  str + (" " * pad)
+end
+
+def slice_by_display_width(word, width)
+  lines = []
+  cur = ""
+  cur_w = 0
+  word.each_char do |c|
+    w = display_width(c)
+    if cur_w + w > width
+      lines << cur unless cur.empty?
+      cur = c
+      cur_w = w
+    else
+      cur += c
+      cur_w += w
+    end
+  end
+  lines << cur unless cur.empty?
+  lines
+end
+
 def wrap(text, width)
   return [""] if text.nil? || text.empty?
   text = text.gsub("\n", " ").gsub("\r", "")
   lines = []
   text.split(" ").each do |word|
-    while word.length > width
-      lines << word[0, width]
-      word = word[width..-1]
-    end
-    if lines.empty?
-      lines << word
-    elsif lines.last.length + 1 + word.length <= width
-      lines[-1] = lines.last + " " + word
+    if display_width(word) > width
+      parts = slice_by_display_width(word, width)
+      parts.each do |part|
+        if lines.empty?
+          lines << part
+        elsif display_width(lines.last) + 1 + display_width(part) <= width
+          lines[-1] = lines.last + " " + part
+        else
+          lines << part
+        end
+      end
     else
-      lines << word
+      if lines.empty?
+        lines << word
+      elsif display_width(lines.last) + 1 + display_width(word) <= width
+        lines[-1] = lines.last + " " + word
+      else
+        lines << word
+      end
     end
   end
   lines = [""] if lines.empty?
@@ -116,8 +156,8 @@ begin
   table_width = key_width + 3 + value_width
   border = c_border + ("─" * table_width) + c_reset
   puts border
-  header_key = "Key".ljust(key_width)
-  header_val = "Value".ljust(value_width)
+  header_key = display_ljust("Key", key_width)
+  header_val = display_ljust("Value", value_width)
   puts "#{c_bold} #{header_key} \u2502 #{header_val}#{c_reset}"
   puts border
   data.each do |k, v|
@@ -133,7 +173,7 @@ begin
     (0...max).each do |i|
       ks = key_lines[i] || ""
       vs = val_lines[i] || ""
-      printf(" %s%-*s#{c_reset} \u2502 %-*s\n", c_key, key_width, ks, value_width, vs)
+      printf(" %s%s#{c_reset} \u2502 %s\n", c_key, display_ljust(ks, key_width), display_ljust(vs, value_width))
     end
   end
   puts border
