@@ -1,0 +1,102 @@
+#!/bin/sh
+# mdcat-fm: mdcat wrapper that prepends YAML frontmatter as highlighted code block + table
+# Usage: mdcat-fm [MDCAT_OPTIONS...] FILE
+set -eu
+
+if [ $# -eq 0 ]; then
+  exec mdcat
+fi
+
+# Determine file is last argument
+argc=$#
+eval "file=\${$argc}"
+
+# stdin or non-regular file -> passthrough
+if [ "$file" = "-" ]; then
+  exec mdcat "$@"
+fi
+
+if [ ! -f "$file" ]; then
+  exec mdcat "$@"
+fi
+
+# Check first line is ---
+first_line=$(head -n 1 "$file" | tr -d '\r')
+if [ "$first_line" != "---" ]; then
+  exec mdcat "$@"
+fi
+
+# Find closing --- (search from line 2)
+# tr -d '\r' to handle CRLF, then grep -n
+end_rel=$(tr -d '\r' < "$file" | tail -n +2 | grep -n '^---$' | head -n 1 | cut -d: -f1 || true)
+if [ -z "$end_rel" ]; then
+  exec mdcat "$@"
+fi
+
+actual_end=$((end_rel + 1))
+
+# Extract frontmatter raw (without delimiters)
+if [ "$actual_end" -le 2 ]; then
+  fm_raw=""
+else
+  fm_raw=$(sed -n "2,$((actual_end - 1))p" "$file" | tr -d '\r')
+fi
+
+# Generate markdown table via Ruby (fallback to code block only on failure)
+table=""
+if [ -n "$fm_raw" ]; then
+  table=$(printf '%s' "$fm_raw" | ruby -ryaml -e '
+    begin
+      data = YAML.safe_load(STDIN.read)
+      if data.is_a?(Hash) && !data.empty?
+        puts "| Key | Value |"
+        puts "|-----|-------|"
+        data.each do |k, v|
+          val = case v
+                when Array then v.map(&:to_s).join(", ")
+                when Hash then v.map{|ik, iv| "#{ik}: #{iv}"}.join(", ")
+                when NilClass then ""
+                else v.to_s
+                end
+          val = val.gsub("|", "\\|").gsub("\n", "<br>")
+          puts "| `#{k}` | #{val} |"
+        end
+      end
+    rescue => e
+      exit 1
+    end
+  ' 2>/dev/null || true)
+fi
+
+tmp=$(mktemp -t mdcat-fm.XXXXXX.md)
+trap 'rm -f "$tmp"' EXIT INT TERM
+
+{
+  echo '```yaml'
+  printf '%s\n' "$fm_raw"
+  echo '```'
+  echo ""
+  if [ -n "$table" ]; then
+    printf '%s\n' "$table"
+    echo ""
+  fi
+  echo "---"
+  echo ""
+  tail -n +$((actual_end + 1)) "$file"
+} > "$tmp"
+
+# Build mdcat args: replace last arg (file) with tmp, keep preceding opts
+# Collect opts (all but last) with proper quoting
+new_pos=""
+idx=1
+for arg in "$@"; do
+  if [ "$idx" -lt "$argc" ]; then
+    esc=$(printf '%s' "$arg" | sed "s/'/'\\\\''/g")
+    new_pos="${new_pos} '$esc'"
+  fi
+  idx=$((idx + 1))
+done
+tmp_esc=$(printf '%s' "$tmp" | sed "s/'/'\\\\''/g")
+# shellcheck disable=SC2086
+eval "set -- $new_pos '$tmp_esc'"
+exec mdcat "$@"
