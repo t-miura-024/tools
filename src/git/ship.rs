@@ -233,28 +233,33 @@ fn checkout_branch_in(
     Ok(true)
 }
 
-/// `git status --porcelain` の出力を `(index_status, path)` の列に解析する。
-/// 4 文字未満の行はスキップし、rename (`OLD -> NEW`) は NEW 側を path とする。
+/// `git status --porcelain -z` の NUL 区切り出力を `(index_status, path)` の列に解析する。
+/// 各エントリは `XY<space>path` 形式（先頭 3 文字がステータス）、`XY` の 1 文字目が index_status。
+/// rename / copy (`R` / `C`) は `XY<space>new\0old\0` の 2 フィールドで new 側のみを採用し old 側はスキップする。
+/// 空エントリ（末尾 NUL 由来）および 3 文字未満のエントリはスキップする。
 fn parse_status_lines(status: &str) -> Vec<(char, String)> {
     let mut entries = Vec::new();
-    for line in status.lines() {
-        if line.len() < 4 {
+    let mut iter = status.split('\0').peekable();
+    while let Some(entry) = iter.next() {
+        if entry.is_empty() {
             continue;
         }
-        let path = &line[3..];
-        let actual_path = if let Some(idx) = path.find(" -> ") {
-            &path[idx + 4..]
-        } else {
-            path
-        };
-        let index_status = line.as_bytes().first().copied().unwrap_or(b' ') as char;
-        entries.push((index_status, actual_path.to_string()));
+        if entry.len() < 3 {
+            continue;
+        }
+        let index_status = entry.as_bytes()[0] as char;
+        let path = &entry[3..];
+        entries.push((index_status, path.to_string()));
+        // rename / copy は次の NUL フィールドが旧パス。new 側のみを扱うため消費して捨てる。
+        if index_status == 'R' || index_status == 'C' {
+            iter.next();
+        }
     }
     entries
 }
 
 fn add_changed_files_in(cwd: &Path) -> anyhow::Result<Vec<String>> {
-    let status = command_output_in(cwd, "git", &["status", "--porcelain"])?;
+    let status = command_output_in(cwd, "git", &["status", "--porcelain", "-z"])?;
     let mut added = Vec::new();
     for (index_status, path) in parse_status_lines(&status) {
         if matches!(index_status, 'M' | 'A' | 'D' | 'R' | 'C' | 'T') {
