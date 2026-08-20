@@ -82,6 +82,9 @@ pub fn command_output_in(cwd: &Path, command: &str, args: &[&str]) -> anyhow::Re
         bail!("{command} が失敗しました: {}", stderr.trim());
     }
 
+    // `trim_end` は ASCII whitespace (`\n`, `\r`, ` `, `\t` 等) のみを除去し
+    // NUL (`\0`) は除去しない。そのため `git status --porcelain -z` の
+    // NUL 区切り出力は保持され、呼び出し側で `split('\0')` による解析が可能。
     Ok(String::from_utf8_lossy(&output.stdout)
         .trim_end()
         .to_string())
