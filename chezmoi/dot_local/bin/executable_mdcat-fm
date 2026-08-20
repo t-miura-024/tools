@@ -1,5 +1,5 @@
 #!/bin/sh
-# mdcat-fm: mdcat wrapper that prepends YAML frontmatter as table
+# mdcat-fm: mdcat wrapper that prepends YAML frontmatter as table (proportional key width)
 # Usage: mdcat-fm [MDCAT_OPTIONS...] FILE
 set -eu
 
@@ -27,7 +27,6 @@ if [ "$first_line" != "---" ]; then
 fi
 
 # Find closing --- (search from line 2)
-# tr -d '\r' to handle CRLF, then grep -n
 end_rel=$(tr -d '\r' < "$file" | tail -n +2 | grep -n '^---$' | head -n 1 | cut -d: -f1 || true)
 if [ -z "$end_rel" ]; then
   exec mdcat "$@"
@@ -42,50 +41,120 @@ else
   fm_raw=$(sed -n "2,$((actual_end - 1))p" "$file" | tr -d '\r')
 fi
 
-# Generate markdown table via Ruby
-table=""
-if [ -n "$fm_raw" ]; then
-  table=$(printf '%s' "$fm_raw" | ruby -ryaml -e '
-    begin
-      data = YAML.safe_load(STDIN.read)
-      if data.is_a?(Hash) && !data.empty?
-        puts "| Key | Value |"
-        puts "|-----|-------|"
-        data.each do |k, v|
-          val = case v
-                when Array then v.map(&:to_s).join(", ")
-                when Hash then v.map{|ik, iv| "#{ik}: #{iv}"}.join(", ")
-                when NilClass then ""
-                else v.to_s
-                end
-          val = val.gsub("|", "\\|").gsub("\n", "<br>")
-          puts "| `#{k}` | #{val} |"
-        end
-      end
-    rescue => e
-      exit 1
-    end
-  ' 2>/dev/null || true)
+if [ -z "$fm_raw" ]; then
+  exec mdcat "$@"
 fi
 
-# Frontmatter is not valid YAML or not a hash: fallback to no table (passthrough)
-if [ -z "$table" ]; then
+# Extract --columns value for proportional layout (for table width)
+cols=80
+prev=""
+for arg in "$@"; do
+  if [ "$prev" = "--columns" ]; then
+    cols="$arg"
+    prev=""
+    continue
+  fi
+  case "$arg" in
+    --columns=*) cols="${arg#--columns=}" ;;
+    --columns) prev="--columns" ;;
+  esac
+done
+# cols=0 means no wrap -> treat as 120 for table purposes
+if [ "$cols" = "0" ] || [ -z "$cols" ]; then
+  cols=120
+fi
+# sanity: if cols not numeric, fallback 80
+case "$cols" in
+  *[!0-9]*) cols=80 ;;
+esac
+
+key_width=$(( cols * 20 / 100 ))
+if [ "$key_width" -lt 12 ]; then key_width=12; fi
+if [ "$key_width" -gt 24 ]; then key_width=24; fi
+value_width=$(( cols - key_width - 3 ))
+if [ "$value_width" -lt 20 ]; then value_width=20; fi
+
+# Generate ANSI table via Ruby with wrapping
+ruby_script=$(mktemp -t mdcat-fm-rb.XXXXXX.rb)
+trap 'rm -f "$ruby_script" "$tmp"' EXIT INT TERM 2>/dev/null || true
+cat > "$ruby_script" <<'RUBY'
+key_width = ARGV[0].to_i
+value_width = ARGV[1].to_i
+cols = ARGV[2].to_i
+
+def wrap(text, width)
+  return [""] if text.nil? || text.empty?
+  text = text.gsub("\n", " ").gsub("\r", "")
+  lines = []
+  text.split(" ").each do |word|
+    while word.length > width
+      lines << word[0, width]
+      word = word[width..-1]
+    end
+    if lines.empty?
+      lines << word
+    elsif lines.last.length + 1 + word.length <= width
+      lines[-1] = lines.last + " " + word
+    else
+      lines << word
+    end
+  end
+  lines = [""] if lines.empty?
+  lines
+end
+
+begin
+  require 'yaml'
+  data = YAML.safe_load(STDIN.read)
+  if !data.is_a?(Hash) || data.empty?
+    exit 1
+  end
+  c_border = "\e[38;2;88;91;112m"
+  c_key = "\e[38;2;137;220;235m"
+  c_reset = "\e[0m"
+  c_bold = "\e[1m"
+  table_width = key_width + 3 + value_width
+  border = c_border + ("─" * table_width) + c_reset
+  puts border
+  header_key = "Key".ljust(key_width)
+  header_val = "Value".ljust(value_width)
+  puts "#{c_bold} #{header_key} \u2502 #{header_val}#{c_reset}"
+  puts border
+  data.each do |k, v|
+    val = case v
+          when Array then v.map(&:to_s).join(", ")
+          when Hash then v.map{|ik, iv| "#{ik}: #{iv}"}.join(", ")
+          when NilClass then ""
+          else v.to_s
+          end
+    key_lines = wrap(k.to_s, key_width)
+    val_lines = wrap(val, value_width)
+    max = [key_lines.length, val_lines.length].max
+    (0...max).each do |i|
+      ks = key_lines[i] || ""
+      vs = val_lines[i] || ""
+      printf(" %s%-*s#{c_reset} \u2502 %-*s\n", c_key, key_width, ks, value_width, vs)
+    end
+  end
+  puts border
+rescue => e
+  exit 1
+end
+RUBY
+ansi_table=$(printf '%s' "$fm_raw" | ruby -ryaml "$ruby_script" "$key_width" "$value_width" "$cols" 2>/dev/null || true)
+rm -f "$ruby_script"
+# re-establish trap for tmp only
+trap 'rm -f "$tmp"' EXIT INT TERM 2>/dev/null || true
+
+if [ -z "$ansi_table" ]; then
   exec mdcat "$@"
 fi
 
 tmp=$(mktemp -t mdcat-fm.XXXXXX.md)
 trap 'rm -f "$tmp"' EXIT INT TERM
-
-{
-  printf '%s\n' "$table"
-  echo ""
-  echo "---"
-  echo ""
-  tail -n +$((actual_end + 1)) "$file"
-} > "$tmp"
+tail -n +$((actual_end + 1)) "$file" > "$tmp"
 
 # Build mdcat args: replace last arg (file) with tmp, keep preceding opts
-# Collect opts (all but last) with proper quoting
 new_pos=""
 idx=1
 for arg in "$@"; do
@@ -98,4 +167,17 @@ done
 tmp_esc=$(printf '%s' "$tmp" | sed "s/'/'\\\\''/g")
 # shellcheck disable=SC2086
 eval "set -- $new_pos '$tmp_esc'"
-exec mdcat "$@"
+
+# Output frontmatter ANSI table first, then mdcat body
+printf '%s\n\n' "$ansi_table"
+# Need mdcat output for body - if body file empty, mdcat outputs nothing
+if [ -s "$tmp" ]; then
+  mdcat "$@"
+else
+  # body empty but still need to handle mdcat options? no content
+  :
+fi
+# Ensure tmp cleanup handled by trap, but also remove explicitly for piped execution
+rm -f "$tmp"
+trap - EXIT INT TERM
+exit 0
