@@ -116,7 +116,11 @@ graph TD
 \`\`\`
 `;
 
-async function addQuestion(content: string, order: number, status: "draft" | "approved" = "approved"): Promise<number> {
+async function addQuestion(
+  content: string,
+  order: number,
+  status: "draft" | "approved" = "approved",
+): Promise<number> {
   const proc = Bun.spawn(
     [
       "bun",
@@ -166,23 +170,17 @@ async function addEvidence(qid: number, withSources = true, withFacts = true): P
     ...(withFacts && { facts: [{ source_number: 1, fact_number: 1, content: "F" }] }),
   };
   const proc = Bun.spawn(
-    [
-      "bun",
-      "run",
-      DB,
-      "evidence",
-      "save",
-      "--db-path",
-      dbPath,
-      "--data",
-      JSON.stringify(data),
-    ],
+    ["bun", "run", DB, "evidence", "save", "--db-path", dbPath, "--data", JSON.stringify(data)],
     { stdout: "pipe", stderr: "pipe" },
   );
   await proc.exited;
 }
 
-async function addReview(aspect: string, category: "must_fix" | "research_needed" | "suggestions" = "suggestions", qid?: number): Promise<void> {
+async function addReview(
+  aspect: string,
+  category: "must_fix" | "research_needed" | "suggestions" = "suggestions",
+  qid?: number,
+): Promise<void> {
   const data = {
     aspect,
     summary: "ok",
@@ -204,17 +202,36 @@ async function addReview(aspect: string, category: "must_fix" | "research_needed
 
 describe("phase audit: planner", () => {
   it("fails when there are no questions", async () => {
-    const r = await cli(["phase", "--phase", "planner", "--db-path", dbPath, "--plan-path", planPath]);
+    const r = await cli([
+      "phase",
+      "--phase",
+      "planner",
+      "--db-path",
+      dbPath,
+      "--plan-path",
+      planPath,
+    ]);
     expect(r.exitCode).toBe(1);
     const out = JSON.parse(r.stdout);
     expect(out.status).toBe("fail");
-    expect(out.checks.find((c: { check_name: string }) => c.check_name === "questions_table_has_rows").status).toBe("fail");
+    expect(
+      out.checks.find((c: { check_name: string }) => c.check_name === "questions_table_has_rows")
+        .status,
+    ).toBe("fail");
   });
 
   it("passes when plan.md is valid and has questions", async () => {
     await addQuestion("Q?", 1);
     writeFileSync(planPath, VALID_PLAN, "utf-8");
-    const r = await cli(["phase", "--phase", "planner", "--db-path", dbPath, "--plan-path", planPath]);
+    const r = await cli([
+      "phase",
+      "--phase",
+      "planner",
+      "--db-path",
+      dbPath,
+      "--plan-path",
+      planPath,
+    ]);
     expect(r.exitCode).toBe(0);
     const out = JSON.parse(r.stdout);
     expect(out.status).toBe("pass");
@@ -224,10 +241,20 @@ describe("phase audit: planner", () => {
   it("fails when plan.md is missing required sections", async () => {
     await addQuestion("Q?", 1);
     writeFileSync(planPath, "# 計画書\n\n## 背景・目的\n", "utf-8");
-    const r = await cli(["phase", "--phase", "planner", "--db-path", dbPath, "--plan-path", planPath]);
+    const r = await cli([
+      "phase",
+      "--phase",
+      "planner",
+      "--db-path",
+      dbPath,
+      "--plan-path",
+      planPath,
+    ]);
     expect(r.exitCode).toBe(1);
     const out = JSON.parse(r.stdout);
-    const check = out.checks.find((c: { check_name: string }) => c.check_name === "plan_md_required_sections");
+    const check = out.checks.find(
+      (c: { check_name: string }) => c.check_name === "plan_md_required_sections",
+    );
     expect(check.status).toBe("fail");
     expect(check.detail).toMatch(/missing/);
   });
@@ -270,20 +297,38 @@ describe("phase audit: researcher", () => {
     ]);
     expect(r.exitCode).toBe(1);
     const out = JSON.parse(r.stdout);
-    expect(out.checks.find((c: { check_name: string }) => c.check_name === "sources_present").status).toBe("fail");
+    expect(
+      out.checks.find((c: { check_name: string }) => c.check_name === "sources_present").status,
+    ).toBe("fail");
   });
 });
 
 describe("phase audit: writer", () => {
   it("fails when report.md is missing", async () => {
-    const r = await cli(["phase", "--phase", "writer", "--db-path", dbPath, "--report-path", reportPath]);
+    const r = await cli([
+      "phase",
+      "--phase",
+      "writer",
+      "--db-path",
+      dbPath,
+      "--report-path",
+      reportPath,
+    ]);
     expect(r.exitCode).toBe(1);
     expect(JSON.parse(r.stdout).status).toBe("fail");
   });
 
   it("passes when report.md is valid", async () => {
     writeFileSync(reportPath, VALID_REPORT, "utf-8");
-    const r = await cli(["phase", "--phase", "writer", "--db-path", dbPath, "--report-path", reportPath]);
+    const r = await cli([
+      "phase",
+      "--phase",
+      "writer",
+      "--db-path",
+      dbPath,
+      "--report-path",
+      reportPath,
+    ]);
     expect(r.exitCode).toBe(0);
     expect(JSON.parse(r.stdout).status).toBe("pass");
   });
@@ -295,7 +340,9 @@ describe("phase audit: reviewer", () => {
     const r = await cli(["phase", "--phase", "reviewer", "--db-path", dbPath]);
     expect(r.exitCode).toBe(1);
     const out = JSON.parse(r.stdout);
-    const check = out.checks.find((c: { check_name: string }) => c.check_name === "all_aspects_reviewed");
+    const check = out.checks.find(
+      (c: { check_name: string }) => c.check_name === "all_aspects_reviewed",
+    );
     expect(check.status).toBe("fail");
     expect(check.detail).toMatch(/sources/);
   });
@@ -323,7 +370,11 @@ describe("cycle audit: research", () => {
     const r = await cli(["cycle", "--cycle", "research", "--db-path", dbPath]);
     expect(r.exitCode).toBe(1);
     const out = JSON.parse(r.stdout);
-    expect(out.checks.find((c: { check_name: string }) => c.check_name === "all_approved_questions_have_rounds").status).toBe("fail");
+    expect(
+      out.checks.find(
+        (c: { check_name: string }) => c.check_name === "all_approved_questions_have_rounds",
+      ).status,
+    ).toBe("fail");
   });
 
   it("passes when every approved question has rounds and sources", async () => {
@@ -352,7 +403,10 @@ describe("cycle audit: writer-reviewer", () => {
     ]);
     expect(r.exitCode).toBe(1);
     const out = JSON.parse(r.stdout);
-    expect(out.checks.find((c: { check_name: string }) => c.check_name === "no_unresolved_must_fix").status).toBe("fail");
+    expect(
+      out.checks.find((c: { check_name: string }) => c.check_name === "no_unresolved_must_fix")
+        .status,
+    ).toBe("fail");
   });
 
   it("fails when research_needed has no follow-up round", async () => {
@@ -372,7 +426,10 @@ describe("cycle audit: writer-reviewer", () => {
     ]);
     expect(r.exitCode).toBe(1);
     const out = JSON.parse(r.stdout);
-    expect(out.checks.find((c: { check_name: string }) => c.check_name === "research_needed_addressed").status).toBe("fail");
+    expect(
+      out.checks.find((c: { check_name: string }) => c.check_name === "research_needed_addressed")
+        .status,
+    ).toBe("fail");
   });
 
   it("passes when all checks succeed", async () => {

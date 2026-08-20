@@ -88,11 +88,7 @@ export function extractPaths(input: unknown): ExtractedPaths {
  * `~` / 相対パス / 絶対パスの 3 パターンを絶対パス表記に正規化する。
  * 空文字列はそのまま空文字列を返す。
  */
-export function normalizePath(
-  p: string,
-  home: string,
-  cwd: string,
-): string {
+export function normalizePath(p: string, home: string, cwd: string): string {
   if (!p) return "";
   if (p === "~") return home;
   if (p.startsWith("~/")) return `${home}/${p.slice(2)}`;
@@ -115,8 +111,7 @@ export function isUnderHome(absPath: string, home: string): boolean {
  */
 export function isChezmoiSourceDir(dir: string): boolean {
   return (
-    fs.existsSync(path.join(dir, ".chezmoiignore")) ||
-    fs.existsSync(path.join(dir, "dot_config"))
+    fs.existsSync(path.join(dir, ".chezmoiignore")) || fs.existsSync(path.join(dir, "dot_config"))
   );
 }
 
@@ -198,10 +193,7 @@ export interface EvalResult {
  * 入力 JSON を受け取り、抽出 -> 正規化 -> chezmoi 管理判定 -> 誘導先解決までを
  * まとめて行う。ホーム配下の chezmoi 管理ファイルの編集は deny 対象として返す。
  */
-export function evaluateInput(
-  input: unknown,
-  env: { home: string; cwd: string },
-): EvalResult {
+export function evaluateInput(input: unknown, env: { home: string; cwd: string }): EvalResult {
   const { toolName, path1, path2 } = extractPaths(input);
   const sourceDir = chezmoiSourceDir();
   const guideRoot = resolveGuideRoot(env.home, env.cwd);

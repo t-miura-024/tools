@@ -22,7 +22,10 @@ type HookOutcome = {
 
 const HANDLERS: Record<string, HookDefinition[]> = {
   "tool.execute.before": [
-    {"command":"bun \"$HOME/.config/opencode/plugins/agent-hooks/block-chezmoi-direct-edit.ts\"","matcher":"^(write|edit|Write|Edit|StrReplace|MultiEdit|Delete|EditNotebook)$"},
+    {
+      command: 'bun "$HOME/.config/opencode/plugins/agent-hooks/block-chezmoi-direct-edit.ts"',
+      matcher: "^(write|edit|Write|Edit|StrReplace|MultiEdit|Delete|EditNotebook)$",
+    },
   ],
 };
 
@@ -55,7 +58,10 @@ function evaluateHook(definition: HookDefinition, toolName: string, input: unkno
 
 export default async function plugin() {
   return {
-    "tool.execute.before": async (input: { tool: string; sessionID: string; callID: string }, output: { args: unknown }) => {
+    "tool.execute.before": async (
+      input: { tool: string; sessionID: string; callID: string },
+      output: { args: unknown },
+    ) => {
       for (const definition of HANDLERS["tool.execute.before"] ?? []) {
         const hookInput = { tool: input.tool, args: output.args };
         const outcome = evaluateHook(definition, input.tool, hookInput);

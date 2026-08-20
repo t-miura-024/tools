@@ -26,10 +26,7 @@ export type RootSession = {
   statusSequence: number;
 };
 
-type SessionInfo = Pick<
-  Session,
-  "id" | "title" | "directory" | "projectID" | "parentID" | "time"
->;
+type SessionInfo = Pick<Session, "id" | "title" | "directory" | "projectID" | "parentID" | "time">;
 
 export type HerdrRunResult = { ok: true } | { ok: false; error: string };
 
@@ -46,10 +43,7 @@ export type HerdrMetadataReporter = {
 
 type QueueTask = () => Promise<void>;
 
-function enqueue(
-  queue: { current: Promise<void> },
-  task: QueueTask,
-): Promise<void> {
+function enqueue(queue: { current: Promise<void> }, task: QueueTask): Promise<void> {
   const next = queue.current.then(task, task);
   queue.current = next.catch(() => {});
   return next;
@@ -76,9 +70,7 @@ function isCurrentProject(
 
 function statusKind(status: unknown): SessionStatus | undefined {
   const kind =
-    typeof status === "string"
-      ? status
-      : (status as { type?: unknown } | undefined)?.type;
+    typeof status === "string" ? status : (status as { type?: unknown } | undefined)?.type;
   if (kind === "busy" || kind === "retry") return kind;
   if (kind === "idle") return kind;
   return undefined;
@@ -90,9 +82,7 @@ function activityRank(status: SessionStatus | undefined): number {
   return 0;
 }
 
-export function sessionDisplayValue(
-  session: Pick<RootSession, "id" | "title">,
-): string {
+export function sessionDisplayValue(session: Pick<RootSession, "id" | "title">): string {
   return session.title.trim() || session.id;
 }
 
@@ -108,10 +98,7 @@ export class SessionTracker {
 
   seed(sessions: SessionInfo[]): void {
     for (const session of sessions) {
-      if (
-        !isRootSession(session) ||
-        !isCurrentProject(session, this.project, this.directory)
-      ) {
+      if (!isRootSession(session) || !isCurrentProject(session, this.project, this.directory)) {
         continue;
       }
       this.sessions.set(session.id, this.toRootSession(session));
@@ -120,10 +107,7 @@ export class SessionTracker {
   }
 
   addOrUpdate(session: SessionInfo): void {
-    if (
-      !isRootSession(session) ||
-      !isCurrentProject(session, this.project, this.directory)
-    ) {
+    if (!isRootSession(session) || !isCurrentProject(session, this.project, this.directory)) {
       return;
     }
 
@@ -181,17 +165,14 @@ export class SessionTracker {
   }
 
   private latestByUpdatedAt(): RootSession | undefined {
-    return [...this.sessions.values()].sort(
-      (a, b) => b.updatedAt - a.updatedAt,
-    )[0];
+    return [...this.sessions.values()].sort((a, b) => b.updatedAt - a.updatedAt)[0];
   }
 
   private selectPrimary(): RootSession | undefined {
     return [...this.sessions.values()].sort((a, b) => {
       const rank = activityRank(b.status) - activityRank(a.status);
       if (rank !== 0) return rank;
-      if (b.statusSequence !== a.statusSequence)
-        return b.statusSequence - a.statusSequence;
+      if (b.statusSequence !== a.statusSequence) return b.statusSequence - a.statusSequence;
       return b.updatedAt - a.updatedAt;
     })[0];
   }
@@ -261,13 +242,7 @@ export function resolveHerdrBinary(
 }
 
 function sessionArgs(workspaceID: string, value?: string): string[] {
-  const args = [
-    "workspace",
-    "report-metadata",
-    workspaceID,
-    "--source",
-    SOURCE,
-  ];
+  const args = ["workspace", "report-metadata", workspaceID, "--source", SOURCE];
   if (value === undefined) {
     args.push("--clear-token", TOKEN);
   } else {
@@ -289,9 +264,7 @@ export function createHerdrMetadataReporter(options: {
   function report(value: string | undefined): Promise<void> {
     return enqueue(queue, async () => {
       const operation =
-        value === undefined
-          ? "workspace metadata clear"
-          : "workspace metadata update";
+        value === undefined ? "workspace metadata clear" : "workspace metadata update";
       const result = await runner(
         options.herdrBinary,
         sessionArgs(options.workspaceID, value),
@@ -329,11 +302,7 @@ function sessionFromInfo(value: unknown): SessionInfo | undefined {
   return session as SessionInfo;
 }
 
-export const HerdrWorkspaceSessionPlugin: Plugin = async ({
-  client,
-  project,
-  directory,
-}) => {
+export const HerdrWorkspaceSessionPlugin: Plugin = async ({ client, project, directory }) => {
   const environment = process.env;
   const workspaceID = environment[HERDR_WORKSPACE_ID]?.trim();
   const herdrBinary = resolveHerdrBinary(environment);
@@ -378,10 +347,7 @@ export const HerdrWorkspaceSessionPlugin: Plugin = async ({
       const response = await client.session.list();
       tracker.seed(
         (response.data ?? []).filter((session) => {
-          return (
-            isRootSession(session) &&
-            isCurrentProject(session, project, directory)
-          );
+          return isRootSession(session) && isCurrentProject(session, project, directory);
         }),
       );
       await publish();
@@ -396,11 +362,7 @@ export const HerdrWorkspaceSessionPlugin: Plugin = async ({
     try {
       const response = await client.session.get({ path: { id: sessionID } });
       const session = response.data;
-      if (
-        !session ||
-        session.parentID ||
-        !isCurrentProject(session, project, directory)
-      ) {
+      if (!session || session.parentID || !isCurrentProject(session, project, directory)) {
         return false;
       }
       tracker.addOrUpdate(session);

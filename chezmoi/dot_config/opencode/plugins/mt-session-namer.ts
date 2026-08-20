@@ -9,9 +9,7 @@ const THROTTLE_MS = 60_000;
 const MAX_LLM_CALLS = 3;
 const DEFAULT_MAX_LENGTH = 60;
 const ENV_MODEL = process.env.OPENCODE_SESSION_NAMER_MODEL;
-const ENV_MAX_LENGTH =
-  Number(process.env.OPENCODE_SESSION_NAMER_MAX_LENGTH) ||
-  DEFAULT_MAX_LENGTH;
+const ENV_MAX_LENGTH = Number(process.env.OPENCODE_SESSION_NAMER_MAX_LENGTH) || DEFAULT_MAX_LENGTH;
 const ENV_DISABLED =
   process.env.OPENCODE_SESSION_NAMER_DISABLED === "1" ||
   process.env.OPENCODE_SESSION_NAMER_DISABLED === "true";
@@ -19,10 +17,7 @@ const ENV_DEBUG =
   process.env.OPENCODE_SESSION_NAMER_DEBUG === "1" ||
   process.env.OPENCODE_SESSION_NAMER_DEBUG === "true";
 
-type SessionInfo = Pick<
-  Session,
-  "id" | "title" | "directory" | "projectID" | "parentID"
->;
+type SessionInfo = Pick<Session, "id" | "title" | "directory" | "projectID" | "parentID">;
 
 type QueueTask = () => Promise<void>;
 
@@ -31,10 +26,7 @@ type ModelCandidate = {
   modelID: string;
 };
 
-function enqueue(
-  queue: { current: Promise<void> },
-  task: QueueTask,
-): Promise<void> {
+function enqueue(queue: { current: Promise<void> }, task: QueueTask): Promise<void> {
   const next = queue.current.then(task, task);
   queue.current = next.catch(() => {});
   return next;
@@ -50,7 +42,7 @@ function normalizePath(path: string): string {
 
 function isDefaultTitle(title: string | undefined): boolean {
   if (!title) return true;
-  return /^New session - /.test(title) || /^Child session - /.test(title);
+  return title.startsWith("New session - ") || title.startsWith("Child session - ");
 }
 
 function normalizeTitle(title: string): string {
@@ -58,11 +50,14 @@ function normalizeTitle(title: string): string {
 }
 
 function sanitizeTitle(title: string, maxLength: number): string {
-  return title
-    .replace(/[\u0000-\u001f\u007f]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim()
-    .slice(0, maxLength);
+  return (
+    title
+      // oxlint-disable-next-line no-control-regex
+      .replace(/[\u0000-\u001f\u007f]/g, " ")
+      .replace(/\s+/g, " ")
+      .trim()
+      .slice(0, maxLength)
+  );
 }
 
 function textOf(parts: Array<{ type: string; text?: string }>): string {
@@ -87,9 +82,7 @@ function sessionFromInfo(value: unknown): SessionInfo | undefined {
 }
 
 function comparableCost(value: number | undefined): number | undefined {
-  return typeof value === "number" && Number.isFinite(value) && value >= 0
-    ? value
-    : undefined;
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : undefined;
 }
 
 function compareCost(a: number | undefined, b: number | undefined): number {
@@ -99,9 +92,7 @@ function compareCost(a: number | undefined, b: number | undefined): number {
   return a - b;
 }
 
-export function orderModelIDs(
-  models: Provider["models"] | undefined,
-): string[] {
+export function orderModelIDs(models: Provider["models"] | undefined): string[] {
   return Object.entries(models ?? {})
     .map(([modelID, model], index) => ({ modelID, model, index }))
     .sort((a, b) => {
@@ -134,10 +125,7 @@ export const SessionNamer: Plugin = async ({ client, project, directory }) => {
 
   if (ENV_DISABLED) return {};
 
-  const log = (
-    level: "debug" | "info" | "warn" | "error",
-    message: string,
-  ) => {
+  const log = (level: "debug" | "info" | "warn" | "error", message: string) => {
     if (level === "debug" && !ENV_DEBUG) return;
     client.app
       .log({
@@ -153,9 +141,7 @@ export const SessionNamer: Plugin = async ({ client, project, directory }) => {
     );
   }
 
-  async function ensureSession(
-    sessionID: string,
-  ): Promise<SessionInfo | undefined> {
+  async function ensureSession(sessionID: string): Promise<SessionInfo | undefined> {
     const cached = sessions.get(sessionID);
     if (cached) return cached;
     try {
@@ -227,9 +213,7 @@ export const SessionNamer: Plugin = async ({ client, project, directory }) => {
     }
   }
 
-  async function resolveModels(
-    providerID: string | null,
-  ): Promise<ModelCandidate[]> {
+  async function resolveModels(providerID: string | null): Promise<ModelCandidate[]> {
     if (!providerID) return [];
     const cached = resolvedModels.get(providerID);
     if (cached) return cached;
@@ -293,24 +277,17 @@ export const SessionNamer: Plugin = async ({ client, project, directory }) => {
     if (conversation.firstUser) {
       context.push(`First user message: "${conversation.firstUser.slice(0, 300)}"`);
     }
-    if (
-      conversation.latestUser &&
-      conversation.latestUser !== conversation.firstUser
-    ) {
+    if (conversation.latestUser && conversation.latestUser !== conversation.firstUser) {
       context.push(`Latest user message: "${conversation.latestUser.slice(0, 300)}"`);
     }
     if (conversation.firstAssistant) {
-      context.push(
-        `First assistant response: "${conversation.firstAssistant.slice(0, 400)}"`,
-      );
+      context.push(`First assistant response: "${conversation.firstAssistant.slice(0, 400)}"`);
     }
     if (
       conversation.latestAssistant &&
       conversation.latestAssistant !== conversation.firstAssistant
     ) {
-      context.push(
-        `Latest assistant response: "${conversation.latestAssistant.slice(0, 400)}"`,
-      );
+      context.push(`Latest assistant response: "${conversation.latestAssistant.slice(0, 400)}"`);
     }
     const prompt = [
       "Generate a concise, specific title for this conversation:",
@@ -365,12 +342,7 @@ export const SessionNamer: Plugin = async ({ client, project, directory }) => {
   async function evaluate(sessionID: string): Promise<void> {
     if (manualSessions.has(sessionID) || pending.has(sessionID)) return;
     const info = await ensureSession(sessionID);
-    if (
-      !info ||
-      info.parentID ||
-      tempSessions.has(sessionID) ||
-      !isCurrentProject(info)
-    ) {
+    if (!info || info.parentID || tempSessions.has(sessionID) || !isCurrentProject(info)) {
       return;
     }
 
@@ -398,9 +370,7 @@ export const SessionNamer: Plugin = async ({ client, project, directory }) => {
     const conversation = await getConversation(sessionID);
     const primary = conversation.firstUser || conversation.latestUser;
     if (!primary) return;
-    const hasAssistant =
-      conversation.firstAssistant !== "" ||
-      conversation.latestAssistant !== "";
+    const hasAssistant = conversation.firstAssistant !== "" || conversation.latestAssistant !== "";
     if (hasAssistant) assistantSeen.add(sessionID);
 
     let title: string | null = null;
@@ -458,11 +428,7 @@ export const SessionNamer: Plugin = async ({ client, project, directory }) => {
         const info = sessionFromInfo(event.properties.info);
         if (!info) return;
         sessions.set(info.id, info);
-        if (
-          !info.parentID &&
-          isCurrentProject(info) &&
-          !lastSetTitles.has(info.id)
-        ) {
+        if (!info.parentID && isCurrentProject(info) && !lastSetTitles.has(info.id)) {
           lastSetTitles.set(info.id, info.title);
         }
         return;

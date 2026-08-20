@@ -14,12 +14,7 @@ const project = {
   time: { created: 1 },
 };
 
-function session(
-  id: string,
-  updated: number,
-  title = id,
-  parentID?: string,
-): RootSession {
+function session(id: string, updated: number, title = id, parentID?: string): RootSession {
   return {
     id,
     title,
@@ -45,17 +40,13 @@ function info(value: RootSession) {
 describe("SessionTracker", () => {
   test("falls back to the herdr command when Herdr does not inject its path", () => {
     expect(resolveHerdrBinary({ HERDR_ENV: "1" })).toBe("herdr");
-    expect(
-      resolveHerdrBinary({ HERDR_ENV: "1", HERDR_BIN_PATH: "/bin/herdr" }),
-    ).toBe("/bin/herdr");
+    expect(resolveHerdrBinary({ HERDR_ENV: "1", HERDR_BIN_PATH: "/bin/herdr" })).toBe("/bin/herdr");
     expect(resolveHerdrBinary({})).toBeUndefined();
   });
 
   test("falls back to the full session ID when the title is blank", () => {
     expect(sessionDisplayValue(session("ses_123", 1, "  "))).toBe("ses_123");
-    expect(sessionDisplayValue(session("ses_123", 1, "Review auth"))).toBe(
-      "Review auth",
-    );
+    expect(sessionDisplayValue(session("ses_123", 1, "Review auth"))).toBe("Review auth");
   });
 
   test("seeds the newest root session and ignores child sessions", () => {
@@ -103,8 +94,7 @@ describe("SessionTracker", () => {
 
 describe("Herdr invocation seam", () => {
   test("a fake runner can inspect metadata and clear argv", async () => {
-    const calls: Array<{ binary: string; args: string[]; timeout: number }> =
-      [];
+    const calls: Array<{ binary: string; args: string[]; timeout: number }> = [];
     const runner = async (
       binary: string,
       args: string[],
@@ -153,10 +143,7 @@ describe("Herdr invocation seam", () => {
   });
 
   test("continues queued updates after a failed Herdr call", async () => {
-    const results: HerdrRunResult[] = [
-      { ok: false, error: "connection refused" },
-      { ok: true },
-    ];
+    const results: HerdrRunResult[] = [{ ok: false, error: "connection refused" }, { ok: true }];
     const calls: string[][] = [];
     const reporter = createHerdrMetadataReporter({
       workspaceID: "w1",

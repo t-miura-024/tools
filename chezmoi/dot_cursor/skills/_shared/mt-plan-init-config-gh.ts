@@ -38,10 +38,7 @@ export type RunCommandResult = {
   stderr: string;
 };
 
-export async function runCommand(
-  command: string,
-  args: string[],
-): Promise<RunCommandResult> {
+export async function runCommand(command: string, args: string[]): Promise<RunCommandResult> {
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, { stdio: ["ignore", "pipe", "pipe"] });
     let stdout = "";
@@ -150,14 +147,11 @@ function projectV2OrgQuery(): string {
   `;
 }
 
-export async function fetchProject(
-  owner: string,
-  projectNumber: number,
-): Promise<ProjectV2> {
-  const raw = await tryFetchUserProject(owner, projectNumber)
-    .catch(() => null)
-    ?? await tryFetchOrgProject(owner, projectNumber)
-    ?? null;
+export async function fetchProject(owner: string, projectNumber: number): Promise<ProjectV2> {
+  const raw =
+    (await tryFetchUserProject(owner, projectNumber).catch(() => null)) ??
+    (await tryFetchOrgProject(owner, projectNumber)) ??
+    null;
 
   if (!raw) {
     throw new InitConfigError(
@@ -169,10 +163,7 @@ export async function fetchProject(
   return mapProject(raw);
 }
 
-async function tryFetchUserProject(
-  owner: string,
-  projectNumber: number,
-): Promise<RawProjectV2> {
+async function tryFetchUserProject(owner: string, projectNumber: number): Promise<RawProjectV2> {
   const args = [
     "api",
     "graphql",
@@ -190,8 +181,8 @@ async function tryFetchUserProject(
   const response = JSON.parse(stdout) as GhProjectViewResponse;
 
   if (response.errors && response.errors.length > 0) {
-    const isUserNotFound = response.errors.some(
-      (e) => /Could not resolve to a (User|Repository)/.test(e.message),
+    const isUserNotFound = response.errors.some((e) =>
+      /Could not resolve to a (User|Repository)/.test(e.message),
     );
     if (isUserNotFound) {
       throw new InitConfigError("not found");
@@ -208,10 +199,7 @@ async function tryFetchUserProject(
   return raw;
 }
 
-async function tryFetchOrgProject(
-  owner: string,
-  projectNumber: number,
-): Promise<RawProjectV2> {
+async function tryFetchOrgProject(owner: string, projectNumber: number): Promise<RawProjectV2> {
   const args = [
     "api",
     "graphql",
@@ -229,8 +217,8 @@ async function tryFetchOrgProject(
   const response = JSON.parse(stdout) as GhProjectViewResponse;
 
   if (response.errors && response.errors.length > 0) {
-    const isOrgNotFound = response.errors.some(
-      (e) => /Could not resolve to an Organization/.test(e.message),
+    const isOrgNotFound = response.errors.some((e) =>
+      /Could not resolve to an Organization/.test(e.message),
     );
     if (isOrgNotFound) {
       throw new InitConfigError("not found");

@@ -8,7 +8,6 @@ import {
   runCommand,
   CollectError,
   parseCli,
-  type CollectInput,
 } from "./mt-plan-collect-review-context";
 
 describe("collect-review-context", () => {
@@ -32,10 +31,14 @@ describe("collect-review-context", () => {
 
     it("parses optional --repo and --base-branch", () => {
       const opts = parseCli([
-        "--plan-number", "33",
-        "--session-dir", "/tmp/session",
-        "--repo", "t-miura-024/tools",
-        "--base-branch", "develop",
+        "--plan-number",
+        "33",
+        "--session-dir",
+        "/tmp/session",
+        "--repo",
+        "t-miura-024/tools",
+        "--base-branch",
+        "develop",
       ]);
       expect(opts.planNumber).toBe(33);
       expect(opts.sessionDir).toBe("/tmp/session");
@@ -59,7 +62,10 @@ describe("collect-review-context", () => {
 
   describe("collectReviewContext", () => {
     it("writes issue body to session dir", async () => {
-      const mockRun = async (cmd: string, args: string[]): Promise<{ stdout: string; stderr: string }> => {
+      const _mockRun = async (
+        cmd: string,
+        args: string[],
+      ): Promise<{ stdout: string; stderr: string }> => {
         if (cmd === "gh" && args[0] === "issue") {
           return { stdout: JSON.stringify({ body: "# Test Issue\n\nbody content" }), stderr: "" };
         }
@@ -72,7 +78,7 @@ describe("collect-review-context", () => {
         throw new Error(`unexpected command: ${cmd} ${args.join(" ")}`);
       };
 
-      const origRunCommand = (collectReviewContext as any).__runCommand;
+      const _origRunCommand = (collectReviewContext as any).__runCommand;
       // Use dependency injection via module-level variable
       // Since we can't easily mock module-level functions in bun:test without a pattern,
       // we test parseCli and key logic separately
@@ -82,7 +88,7 @@ describe("collect-review-context", () => {
 
       try {
         // Force base branch detection to fail gracefully
-        const result = await collectReviewContext({
+        const _result = await collectReviewContext({
           planNumber: 33,
           sessionDir,
           repo: "test/repo",

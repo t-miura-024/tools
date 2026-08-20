@@ -24,15 +24,15 @@ interface FileChange {
 }
 
 const STATUS_MAP: Record<string, string> = {
-  A: 'add',
-  M: 'modify',
-  D: 'delete',
-  R: 'rename',
-  C: 'copy',
+  A: "add",
+  M: "modify",
+  D: "delete",
+  R: "rename",
+  C: "copy",
 };
 
 function git(...args: string[]): GitResult {
-  const result = Bun.spawnSync(['git', ...args], { stdout: 'pipe', stderr: 'pipe' });
+  const result = Bun.spawnSync(["git", ...args], { stdout: "pipe", stderr: "pipe" });
   return {
     code: result.exitCode ?? -1,
     stdout: result.stdout.toString(),
@@ -51,12 +51,12 @@ function mapStatus(code: string): string {
 
 /** `-z --name-status` の NUL 区切り出力を変更一覧へ変換する。 */
 function parseNameStatus(raw: string): FileChange[] {
-  const parts = raw.split('\0').filter((part) => part.length > 0);
+  const parts = raw.split("\0").filter((part) => part.length > 0);
   const files: FileChange[] = [];
-  for (let i = 0; i < parts.length; ) {
+  for (let i = 0; i < parts.length;) {
     const token = parts[i++];
     const code = token[0];
-    if (code === 'R' || code === 'C') {
+    if (code === "R" || code === "C") {
       const oldPath = parts[i++];
       const newPath = parts[i++];
       if (oldPath === undefined || newPath === undefined) break;
@@ -72,11 +72,11 @@ function parseNameStatus(raw: string): FileChange[] {
 
 /** `--numstat` の出力から統計を集計する。バイナリは '-' で行数不明のため数えない（推測で補完しない）。 */
 function parseNumstat(raw: string): { files: number; insertions: number; deletions: number } {
-  const lines = raw.trim() ? raw.trim().split('\n') : [];
+  const lines = raw.trim() ? raw.trim().split("\n") : [];
   let insertions = 0;
   let deletions = 0;
   for (const line of lines) {
-    const [ins, del] = line.split('\t');
+    const [ins, del] = line.split("\t");
     const insNum = Number(ins);
     const delNum = Number(del);
     if (Number.isInteger(insNum)) insertions += insNum;
@@ -86,20 +86,22 @@ function parseNumstat(raw: string): { files: number; insertions: number; deletio
 }
 
 // --- リポジトリルートの解決。git は親ディレクトリを遡るため、サブディレクトリからも実行できる ---
-const top = git('rev-parse', '--show-toplevel');
+const top = git("rev-parse", "--show-toplevel");
 if (top.code !== 0) {
-  fail(`Git リポジトリのルートを解決できません: ${top.stderr.trim() || 'Git リポジトリ外で実行されました'}`);
+  fail(
+    `Git リポジトリのルートを解決できません: ${top.stderr.trim() || "Git リポジトリ外で実行されました"}`,
+  );
 }
 
 // --- 引数解析とベース解決 ---
-const spec = Bun.argv[2] ?? '';
+const spec = Bun.argv[2] ?? "";
 
 let base: string;
 let head: string;
 let baseBranch: string;
 
-if (spec.includes('..')) {
-  const parts = spec.split('..');
+if (spec.includes("..")) {
+  const parts = spec.split("..");
   if (parts.length !== 2 || !parts[0] || !parts[1]) {
     fail(`引数形式が不正です: <base>..<head> 形式で指定してください（実際: ${spec}）`);
   }
@@ -108,45 +110,50 @@ if (spec.includes('..')) {
   baseBranch = base;
 } else if (spec) {
   base = spec;
-  head = 'HEAD';
+  head = "HEAD";
   baseBranch = spec;
 } else {
-  const sym = git('symbolic-ref', 'refs/remotes/origin/HEAD');
+  const sym = git("symbolic-ref", "refs/remotes/origin/HEAD");
   if (sym.code !== 0) {
-    fail('origin/HEAD が未設定です。git remote set-head origin --auto で設定してください');
+    fail("origin/HEAD が未設定です。git remote set-head origin --auto で設定してください");
   }
   // refs/remotes/origin/main → origin/main、refs/heads/main → main のように表記を正規化する
-  baseBranch = sym.stdout.trim().replace(/^refs\/remotes\//, '').replace(/^refs\/heads\//, '');
+  baseBranch = sym.stdout
+    .trim()
+    .replace(/^refs\/remotes\//, "")
+    .replace(/^refs\/heads\//, "");
   base = baseBranch;
-  head = 'HEAD';
+  head = "HEAD";
 }
 
 // --- ベース / ヘッドの解決確認 ---
 for (const [label, commitish] of [
-  ['base', base],
-  ['head', head],
+  ["base", base],
+  ["head", head],
 ] as const) {
-  const verify = git('rev-parse', '--verify', '--quiet', `${commitish}^{commit}`);
+  const verify = git("rev-parse", "--verify", "--quiet", `${commitish}^{commit}`);
   if (verify.code !== 0) {
     fail(`${label} を解決できません: ${commitish}`);
   }
 }
 
 // --- merge-base の計算 ---
-const mb = git('merge-base', base, head);
+const mb = git("merge-base", base, head);
 if (mb.code !== 0) {
-  fail(`merge-base を計算できません（${base} と ${head} に共通祖先がありません）: ${mb.stderr.trim() || '共通祖先なし'}`);
+  fail(
+    `merge-base を計算できません（${base} と ${head} に共通祖先がありません）: ${mb.stderr.trim() || "共通祖先なし"}`,
+  );
 }
 const mergeBase = mb.stdout.trim();
 
 // --- 差分の取得（name-status / numstat / raw diff を別々に取得する） ---
-const ns = git('diff', '-z', '-M', '--name-status', mergeBase, head);
+const ns = git("diff", "-z", "-M", "--name-status", mergeBase, head);
 if (ns.code !== 0) fail(`差分一覧を取得できません: ${ns.stderr.trim()}`);
 
-const numstat = git('diff', '--numstat', '-M', mergeBase, head);
+const numstat = git("diff", "--numstat", "-M", mergeBase, head);
 if (numstat.code !== 0) fail(`変更統計を取得できません: ${numstat.stderr.trim()}`);
 
-const raw = git('diff', '-M', '--no-ext-diff', '--full-index', mergeBase, head);
+const raw = git("diff", "-M", "--no-ext-diff", "--full-index", mergeBase, head);
 if (raw.code !== 0) fail(`raw diff を取得できません: ${raw.stderr.trim()}`);
 
 const files = parseNameStatus(ns.stdout);
@@ -162,7 +169,7 @@ console.log(
     mergeBase,
     files,
     stat,
-    rawDiff: hasChanges ? raw.stdout : '',
+    rawDiff: hasChanges ? raw.stdout : "",
   }),
 );
 process.exit(0);

@@ -16,8 +16,8 @@
  */
 
 import { Database } from "bun:sqlite";
-import { readFileSync, existsSync, mkdirSync, readdirSync } from "node:fs";
-import { dirname, join, resolve, isAbsolute } from "node:path";
+import { readFileSync, existsSync, mkdirSync } from "node:fs";
+import { dirname, resolve, isAbsolute } from "node:path";
 
 // -----------------------------------------------------------------------------
 // CLI plumbing
@@ -216,7 +216,9 @@ function cmdQuestion(action: string, flags: FlagMap): never {
 
 function nextOrder(db: Database): number {
   const row = db
-    .query<{ next: number | null }, []>("SELECT COALESCE(MAX(display_order), 0) + 1 AS next FROM questions")
+    .query<{ next: number | null }, []>(
+      "SELECT COALESCE(MAX(display_order), 0) + 1 AS next FROM questions",
+    )
     .get();
   return row?.next ?? 1;
 }
@@ -251,10 +253,7 @@ function cmdEvidenceSave(flags: FlagMap): never {
 
   const tx = db.transaction(() => {
     const roundRow = db
-      .query<
-        { id: number; question_id: number; round_number: number },
-        [number, number]
-      >(
+      .query<{ id: number; question_id: number; round_number: number }, [number, number]>(
         `INSERT INTO evidence_rounds (question_id, round_number, summary, self_evaluation)
          VALUES (?, ?, ?, ?)
          ON CONFLICT (question_id, round_number) DO UPDATE SET
@@ -276,10 +275,7 @@ function cmdEvidenceSave(flags: FlagMap): never {
     if (Array.isArray(data.sources)) {
       for (const s of data.sources) {
         const row = db
-          .query<
-            { id: number },
-            [number, number, string, string, string | null, string | null]
-          >(
+          .query<{ id: number }, [number, number, string, string, string | null, string | null]>(
             `INSERT INTO sources (evidence_round_id, source_number, title, url, kind, accessed_at)
              VALUES (?, ?, ?, ?, ?, ?)
              ON CONFLICT (evidence_round_id, source_number) DO UPDATE SET
@@ -376,7 +372,11 @@ function cmdReviewSave(flags: FlagMap): never {
         findings++;
       }
     }
-    return { review_id: reviewRow.id, round_number: reviewRow.round_number, finding_count: findings };
+    return {
+      review_id: reviewRow.id,
+      round_number: reviewRow.round_number,
+      finding_count: findings,
+    };
   });
 
   try {
@@ -411,10 +411,7 @@ function cmdIterationSave(flags: FlagMap): never {
     summary?: string;
   };
   const result = db
-    .query<
-      { id: number },
-      [number, string, number | null, string | null]
-    >(
+    .query<{ id: number }, [number, string, number | null, string | null]>(
       `INSERT INTO iterations (loop_number, iteration_type, triggered_by_audit, summary)
        VALUES (?, ?, ?, ?)
        RETURNING id`,
@@ -617,7 +614,9 @@ function cmdSnapshot(flags: FlagMap): never {
         )
         .all();
       const report = reportPath
-        ? (existsSync(reportPath) ? readFileSync(reportPath, "utf-8") : null)
+        ? existsSync(reportPath)
+          ? readFileSync(reportPath, "utf-8")
+          : null
         : null;
       output({
         success: true,
