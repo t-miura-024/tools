@@ -45,7 +45,7 @@ function parseJson(raw: string | undefined): unknown {
 }
 
 function readSessionFile(sessionDir: string, fileName: string): string | undefined {
-  const _fs = require("node:fs");
+  const fs = require("node:fs");
   try {
     return fs.readFileSync(join(sessionDir, fileName), "utf-8") as string;
   } catch {
@@ -159,7 +159,7 @@ function parseHunkCheck(raw: string | undefined): HunkCheckOutput | undefined {
   return { passes: parsed.passes, blocking_threads: blockingThreads };
 }
 
-function formatHunkFeedback(_ctx: PromptCtx): string | undefined {
+function formatHunkFeedback(ctx: PromptCtx): string | undefined {
   const raw =
     findArtifactText(ctx.artifacts, HUNK_CHECK_KEY) ??
     readSessionFile(ctx.sessionDir, HUNK_CHECK_KEY);
@@ -208,7 +208,7 @@ function formatHunkFeedback(_ctx: PromptCtx): string | undefined {
  * あり、セッションディレクトリには置かれない（countReviewRounds と同じ）。
  */
 function resetReviewCycle(sessionDir: string): void {
-  const _fs = require("node:fs");
+  const fs = require("node:fs");
   const dbPath = getWorkflowDbPath();
   if (!fs.existsSync(dbPath)) return;
 
@@ -293,7 +293,6 @@ function validateReviewJson(raw: string | undefined): {
  * しないため、sessionDir の basename（= セッション ID）から導出する。
  */
 function getWorkflowDbPath(): string {
-  const _fs = require("node:fs");
   const os = require("node:os") as { homedir: () => string };
   const configuredHome = process.env.TADO_HOME?.trim();
   const home = configuredHome || os.homedir();
@@ -301,7 +300,7 @@ function getWorkflowDbPath(): string {
 }
 
 function countReviewRounds(sessionDir: string): number {
-  const _fs = require("node:fs");
+  const fs = require("node:fs");
   const dbPath = getWorkflowDbPath();
   if (!fs.existsSync(dbPath)) return 0;
 
@@ -329,7 +328,7 @@ function countReviewRounds(sessionDir: string): number {
 function findArtifactText(artifacts: ArtifactRecord[], key: string): string | undefined {
   const match = artifacts.find((a) => a.artifactKey === key);
   if (!match) return undefined;
-  const _fs = require("node:fs");
+  const fs = require("node:fs");
   try {
     return fs.readFileSync(match.filePath, "utf-8") as string;
   } catch {
@@ -383,7 +382,7 @@ const def: WorkflowDef = {
       onFail: { action: "escalate" },
       task: {
         action: "orchestrate",
-        buildPrompt: (_ctx: PromptCtx) => {
+        buildPrompt: (ctx: PromptCtx) => {
           return [
             "## 目的",
             "",
@@ -509,7 +508,7 @@ const def: WorkflowDef = {
       onFail: { action: "escalate" },
       task: {
         action: "orchestrate",
-        buildPrompt: (_ctx: PromptCtx) => {
+        buildPrompt: (ctx: PromptCtx) => {
           const hunkFeedback = formatHunkFeedback(ctx);
           return [
             "## 目的",
@@ -616,7 +615,7 @@ const def: WorkflowDef = {
           ].join("\n");
         },
       },
-      check: (_ctx: CheckCtx): CheckResult => {
+      check: (ctx: CheckCtx): CheckResult => {
         if (ctx.attemptResult.status !== "completed") {
           return { status: "error", reasons: [ctx.attemptResult.errors ?? "execute_work failed"] };
         }
@@ -637,7 +636,7 @@ const def: WorkflowDef = {
         action: "run_subagent",
         subagentType: "mt-plan-work-reviewer",
         readonly: false,
-        buildPrompt: (_ctx: PromptCtx) => {
+        buildPrompt: (ctx: PromptCtx) => {
           const collectScriptPath = join(import.meta.dir, "mt-plan-collect-review-context.ts");
           const jsonPath = join(ctx.sessionDir, "agent-review.json");
           const mdPath = join(ctx.sessionDir, "agent-review.md");
@@ -705,7 +704,7 @@ const def: WorkflowDef = {
           ].join("\n");
         },
       },
-      check: (_ctx: CheckCtx): CheckResult => {
+      check: (ctx: CheckCtx): CheckResult => {
         const raw = findArtifactText(ctx.artifacts, REVIEW_JSON_KEY);
         const result = validateReviewJson(raw);
         if (!result.valid) {
@@ -729,7 +728,7 @@ const def: WorkflowDef = {
       onFail: { action: "escalate" },
       task: {
         action: "orchestrate",
-        buildPrompt: (_ctx: PromptCtx) => {
+        buildPrompt: (ctx: PromptCtx) => {
           const reviewRaw =
             findArtifactText(ctx.artifacts, REVIEW_JSON_KEY) ??
             readSessionFile(ctx.sessionDir, REVIEW_JSON_KEY);
@@ -795,7 +794,7 @@ const def: WorkflowDef = {
           ].join("\n");
         },
       },
-      check: (_ctx: CheckCtx): CheckResult => {
+      check: (ctx: CheckCtx): CheckResult => {
         if (ctx.attemptResult.status !== "completed") {
           return { status: "error", reasons: [ctx.attemptResult.errors ?? "hunk start failed"] };
         }
@@ -837,7 +836,7 @@ const def: WorkflowDef = {
       onFail: { action: "goto", target: "execute_work", requeueSource: true },
       task: {
         action: "orchestrate",
-        buildPrompt: (_ctx: PromptCtx) => {
+        buildPrompt: (ctx: PromptCtx) => {
           const checkPath = join(ctx.sessionDir, HUNK_CHECK_KEY);
           return [
             "## 目的",
@@ -863,14 +862,14 @@ const def: WorkflowDef = {
           ].join("\n");
         },
       },
-      check: (_ctx: CheckCtx): CheckResult => {
+      check: (ctx: CheckCtx): CheckResult => {
         const raw = ctx.attemptResult.subagentOutput;
         const result = parseHunkCheck(raw);
         if (!result) {
           return { status: "error", reasons: ["mt hunk check output is not valid gate JSON"] };
         }
 
-        const _fs = require("node:fs");
+        const fs = require("node:fs");
         try {
           fs.writeFileSync(
             join(ctx.sessionDir, HUNK_CHECK_KEY),
@@ -915,7 +914,7 @@ const def: WorkflowDef = {
       onFail: { action: "escalate" },
       task: {
         action: "orchestrate",
-        buildPrompt: (_ctx: PromptCtx) => {
+        buildPrompt: (ctx: PromptCtx) => {
           return [
             "## 目的",
             "",
