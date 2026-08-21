@@ -49,6 +49,16 @@ pre-push:
         -u GIT_ALTERNATE_OBJECT_DIRECTORIES
         -u GIT_PREFIX
         bun test
+    ts-typecheck-gate:
+      run: >-
+        env -u GIT_DIR
+        -u GIT_WORK_TREE
+        -u GIT_COMMON_DIR
+        -u GIT_INDEX_FILE
+        -u GIT_OBJECT_DIRECTORY
+        -u GIT_ALTERNATE_OBJECT_DIRECTORIES
+        -u GIT_PREFIX
+        mise run ts-typecheck-gate
 
 post-commit:
   commands:

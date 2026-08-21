@@ -16,7 +16,11 @@ run = "bun test"
 
 [tasks.ts-typecheck]
 description = "TS 型チェックを tsc --noEmit で実行"
-run = "bunx tsc --noEmit --skipLibCheck --target ESNext --module ESNext --moduleResolution bundler --allowImportingTsExtensions --types bun-types,node $(find chezmoi -name '*.ts' -type f)"
+run = "bunx tsc --noEmit --skipLibCheck --target ESNext --module ESNext --moduleResolution bundler --allowImportingTsExtensions --types bun-types,node $(find chezmoi -name '*.ts' -type f -not -path \"*/node_modules/*\")"
+
+[tasks.ts-typecheck-gate]
+description = "TS 型チェックのうち Cannot find name のみをブロッキング対象とする gate"
+run = "scripts/ts-typecheck-gate.sh"
 
 [tasks.ts-lint]
 description = "TS lint を oxlint --deny-warnings で実行"
