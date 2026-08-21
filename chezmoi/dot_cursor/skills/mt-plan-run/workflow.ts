@@ -159,6 +159,67 @@ function parseHunkCheck(raw: string | undefined): HunkCheckOutput | undefined {
   return { passes: parsed.passes, blocking_threads: blockingThreads };
 }
 
+/// mt hunk サブコマンドを実行して stdout を返す。
+/// exit 1 はゲートブロックなど正常系の出力を伴うため、throw せず stdout を回収する。
+function runHunkCommand(args: string[]): string {
+  const { execFileSync } = require("node:child_process") as {
+    execFileSync: (
+      command: string,
+      args: string[],
+      options?: Record<string, unknown>,
+    ) => string | Buffer;
+  };
+  try {
+    return String(
+      execFileSync("mt", ["hunk", ...args], {
+        encoding: "utf-8",
+        stdio: ["ignore", "pipe", "pipe"],
+        // bun は process.env への代入を実行パス解決に反映しないため、
+        // テストの PATH 差し替えが効くよう明示的に現在の env を渡す
+        env: { ...process.env },
+      }),
+    );
+  } catch (error) {
+    const stdout = (error as { stdout?: unknown }).stdout;
+    return typeof stdout === "string" ? stdout : String(stdout ?? "");
+  }
+}
+
+/// セッション活性判定は `mt hunk status` の文言一致のみを正とする（ADR-0016）。
+function isHunkSessionActive(): boolean {
+  return runHunkCommand(["status"]).includes("hunk review session: active");
+}
+
+/// TUI 生存判定は `hunk session get --repo <root> --json` の成功のみを正とする。
+/// `mt hunk status` は `.hunk/hunk-review.json`（`mt hunk start` 後に作成）が
+/// 無いと TUI が生きていても "none" を返すため、start 前のゲートでは使えない。
+function isHunkSessionLive(): boolean {
+  const { execFileSync } = require("node:child_process") as {
+    execFileSync: (
+      command: string,
+      args: string[],
+      options?: Record<string, unknown>,
+    ) => string | Buffer;
+  };
+  try {
+    const repoRoot = String(
+      execFileSync("git", ["rev-parse", "--show-toplevel"], {
+        encoding: "utf-8",
+        stdio: ["ignore", "pipe", "pipe"],
+        env: { ...process.env },
+      }),
+    ).trim();
+    execFileSync("hunk", ["session", "get", "--repo", repoRoot, "--json"], {
+      encoding: "utf-8",
+      stdio: ["ignore", "pipe", "pipe"],
+      env: { ...process.env },
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function formatHunkFeedback(ctx: PromptCtx): string | undefined {
   const raw =
     findArtifactText(ctx.artifacts, HUNK_CHECK_KEY) ??
@@ -624,6 +685,41 @@ const def: WorkflowDef = {
     },
 
     // -------------------------------------------------------------------
+    // Step 3.5: hunk セッション確保（レビューサイクルの前提条件）
+    // -------------------------------------------------------------------
+    {
+      key: "ensure_hunk_session",
+      phase: "hunk セッション確保",
+      type: "human_gate",
+      maxRetries: 3,
+      onFail: { action: "escalate" },
+      humanGate: {
+        presentArtifacts: [],
+        choices: [
+          {
+            value: "approve",
+            label: "hunk TUI を起動した（ready）",
+            desc: `ターミナルで \`BASE_BRANCH="$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's#^origin/##')"\` と \`hunk diff "$BASE_BRANCH"\` を実行してセッションを active にする。report 後、check が \`hunk session get\` で再検証し失敗ならリトライされる`,
+          },
+          { value: "abort", label: "中断" },
+        ],
+      },
+      check: (_ctx: CheckCtx): CheckResult => {
+        // start 前は `.hunk/hunk-review.json` が存在しないため `mt hunk status`
+        // は常に "none" を返す。TUI 生存の検出には `hunk session get` を使う
+        if (isHunkSessionLive()) {
+          return { status: "pass", reasons: ["hunk session is live (`hunk session get`)"] };
+        }
+        return {
+          status: "fail",
+          reasons: [
+            "hunk session is not live. ターミナルで `hunk diff <base-branch>` を起動してから ready を選択してください",
+          ],
+        };
+      },
+    },
+
+    // -------------------------------------------------------------------
     // Step 4: レビュー（SubAgent による客観レビュー）
     // -------------------------------------------------------------------
     {
@@ -798,7 +894,27 @@ const def: WorkflowDef = {
         if (ctx.attemptResult.status !== "completed") {
           return { status: "error", reasons: [ctx.attemptResult.errors ?? "hunk start failed"] };
         }
-        return { status: "pass", reasons: ["hunk review started"] };
+        // 偽装 artifact（{"session":null}）を弾く: start の stdout に session が
+        // 含まれていることと、daemon 上でセッションが active であることを検証する
+        const raw =
+          findArtifactText(ctx.artifacts, HUNK_START_KEY) ??
+          readSessionFile(ctx.sessionDir, HUNK_START_KEY);
+        const started = findJsonObject(raw);
+        if (!started || started.session === null || started.session === undefined) {
+          return {
+            status: "fail",
+            reasons: [
+              `${HUNK_START_KEY} has no session. hunk セッションを active にして \`mt hunk start\` を再実行してください`,
+            ],
+          };
+        }
+        if (!isHunkSessionActive()) {
+          return {
+            status: "fail",
+            reasons: ["hunk session is not active according to `mt hunk status`"],
+          };
+        }
+        return { status: "pass", reasons: ["hunk review started with an active session"] };
       },
     },
 
@@ -822,7 +938,19 @@ const def: WorkflowDef = {
           { value: "abort", label: "中断" },
         ],
       },
-      check: (_ctx: CheckCtx): CheckResult => ({ status: "pass", reasons: [] }),
+      check: (_ctx: CheckCtx): CheckResult => {
+        // 人間承認の偽装を検出する: 承認時点でも daemon 上でセッションが
+        // active であることを再検証する（ADR-0016）
+        if (!isHunkSessionActive()) {
+          return {
+            status: "fail",
+            reasons: [
+              "hunk session is not active. `hunk diff <base-branch>` を再起動してから approve を選択してください",
+            ],
+          };
+        }
+        return { status: "pass", reasons: ["hunk session is still active"] };
+      },
     },
 
     // -------------------------------------------------------------------
@@ -854,7 +982,7 @@ const def: WorkflowDef = {
             '{"passes":false,"blocking_threads":[{"id":"...","file":"...","line":1,"taxonomy":"question","body":"[question] ...","replies":[]}]}',
             "```",
             "",
-            "passes が false の場合も task 自体は実行成功として report する。workflow の check 関数が blocking_threads を確認して execute_work → review_work → start_hunk_review → await_review → check_hunk の修正ループへ戻す。passes が true の場合だけ finalize_done へ進む。",
+            "passes が false の場合も task 自体は実行成功として report する。workflow の check 関数が `mt hunk check` を daemon から再実行し、report / artifact の JSON と passes・blocking_threads が一致することを検証する（不一致は偽装として fail）。一致した場合は blocking_threads を確認して execute_work → ensure_hunk_session → review_work → start_hunk_review → await_review → check_hunk の修正ループへ戻す。passes が true の場合だけ finalize_done へ進む。",
             "",
             "## セッション情報",
             "",
@@ -863,17 +991,41 @@ const def: WorkflowDef = {
         },
       },
       check: (ctx: CheckCtx): CheckResult => {
-        const raw = ctx.attemptResult.subagentOutput;
-        const result = parseHunkCheck(raw);
-        if (!result) {
-          return { status: "error", reasons: ["mt hunk check output is not valid gate JSON"] };
+        // daemon から再取得する。exit 1 は未解決コメントによる通常のブロックで、
+        // stdout に gate JSON を出力するため throw せず回収する（runHunkCommand）
+        const daemon = parseHunkCheck(runHunkCommand(["check"]));
+        if (!daemon) {
+          return {
+            status: "error",
+            reasons: ["mt hunk check daemon output is not valid gate JSON"],
+          };
+        }
+
+        // 偽装検出: report / artifact の gate JSON と daemon 真理を突合する。
+        // want のみでは fail させない（passes / blocking_threads の一致判定に含まれる）
+        const reported =
+          parseHunkCheck(ctx.attemptResult.subagentOutput) ??
+          parseHunkCheck(findArtifactText(ctx.artifacts, HUNK_CHECK_KEY));
+        if (!reported) {
+          return { status: "error", reasons: ["report/artifact has no valid gate JSON"] };
+        }
+        if (
+          daemon.passes !== reported.passes ||
+          JSON.stringify(daemon.blocking_threads) !== JSON.stringify(reported.blocking_threads)
+        ) {
+          return {
+            status: "fail",
+            reasons: [
+              "reported gate JSON does not match `mt hunk check` daemon output. `mt hunk check` を再実行し、stdout の JSON をそのまま report してください",
+            ],
+          };
         }
 
         const fs = require("node:fs");
         try {
           fs.writeFileSync(
             join(ctx.sessionDir, HUNK_CHECK_KEY),
-            `${JSON.stringify(result, null, 2)}\n`,
+            `${JSON.stringify(daemon, null, 2)}\n`,
             "utf-8",
           );
         } catch (error) {
@@ -883,7 +1035,7 @@ const def: WorkflowDef = {
           };
         }
 
-        if (result.passes) return { status: "pass", reasons: ["hunk gate passes"] };
+        if (daemon.passes) return { status: "pass", reasons: ["hunk gate passes"] };
         try {
           resetReviewCycle(ctx.sessionDir);
         } catch (error) {
@@ -892,7 +1044,7 @@ const def: WorkflowDef = {
             reasons: [`failed to reset hunk review cycle: ${String(error)}`],
           };
         }
-        const reasons = result.blocking_threads.map((thread) => {
+        const reasons = daemon.blocking_threads.map((thread) => {
           const replies =
             thread.replies && thread.replies.length > 0
               ? `; replies: ${thread.replies.join(" | ")}`

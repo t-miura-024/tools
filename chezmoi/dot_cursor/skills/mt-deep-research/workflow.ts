@@ -107,7 +107,7 @@ const def: WorkflowDef = {
       onFail: { action: "escalate" },
       task: {
         action: "orchestrate",
-        buildPrompt: (_ctx: PromptCtx) => {
+        buildPrompt: (ctx: PromptCtx) => {
           const hearingPath = join(ctx.sessionDir, "hearing.md");
           return buildStepPrompt({
             purpose: [
@@ -165,7 +165,7 @@ const def: WorkflowDef = {
         action: "run_subagent",
         subagentType: "mt-deep-research-planner",
         readonly: false,
-        buildPrompt: (_ctx: PromptCtx) => {
+        buildPrompt: (ctx: PromptCtx) => {
           const planPath = join(ctx.sessionDir, "plan.md");
           const planTemplate = join(import.meta.dir, "templates", "plan.md");
           return buildStepPrompt({
@@ -201,7 +201,7 @@ const def: WorkflowDef = {
           });
         },
       },
-      check: (_ctx: CheckCtx): CheckResult => {
+      check: (ctx: CheckCtx): CheckResult => {
         if (!ctx.artifactDbPath) return { status: "error", reasons: ["No artifact DB path"] };
         const db = openResearchDb(ctx.artifactDbPath);
         try {
@@ -246,7 +246,7 @@ const def: WorkflowDef = {
       onFail: { action: "escalate" },
       task: {
         action: "orchestrate",
-        buildPrompt: (_ctx: PromptCtx) => {
+        buildPrompt: (ctx: PromptCtx) => {
           return buildStepPrompt({
             purpose: [
               "承認されたすべての問いについて、Researcher SubAgent を並列起動し、調査を実行する。",
@@ -301,7 +301,7 @@ const def: WorkflowDef = {
           });
         },
       },
-      check: (_ctx: CheckCtx): CheckResult => {
+      check: (ctx: CheckCtx): CheckResult => {
         if (!ctx.artifactDbPath) return { status: "error", reasons: ["No artifact DB path"] };
         const db = openResearchDb(ctx.artifactDbPath);
         try {
@@ -323,7 +323,7 @@ const def: WorkflowDef = {
       onFail: { action: "escalate" },
       task: {
         action: "orchestrate",
-        buildPrompt: (_ctx: PromptCtx) => {
+        buildPrompt: (ctx: PromptCtx) => {
           return buildStepPrompt({
             purpose: [
               "research サイクル全体の機械監査を実行し、問題があれば Auditor に意味整合性評価を依頼する。",
@@ -358,7 +358,7 @@ const def: WorkflowDef = {
           });
         },
       },
-      check: (_ctx: CheckCtx): CheckResult => {
+      check: (ctx: CheckCtx): CheckResult => {
         if (!ctx.artifactDbPath) return { status: "error", reasons: ["No artifact DB path"] };
         const db = openResearchDb(ctx.artifactDbPath);
         try {
@@ -381,7 +381,7 @@ const def: WorkflowDef = {
       onFail: { action: "escalate" },
       task: {
         action: "orchestrate",
-        buildPrompt: (_ctx: PromptCtx) => {
+        buildPrompt: (ctx: PromptCtx) => {
           return buildStepPrompt({
             purpose: ["off_topic_questions をユーザーに提示し、追加調査するか判断を仰ぐ。"],
             criteria: ["auditResearchCycle が pass（off_topic_resolved）"],
@@ -413,7 +413,7 @@ const def: WorkflowDef = {
           });
         },
       },
-      check: (_ctx: CheckCtx): CheckResult => {
+      check: (ctx: CheckCtx): CheckResult => {
         if (!ctx.artifactDbPath) return { status: "error", reasons: ["No artifact DB path"] };
         const db = openResearchDb(ctx.artifactDbPath);
         try {
@@ -437,7 +437,7 @@ const def: WorkflowDef = {
         action: "run_subagent",
         subagentType: "mt-deep-research-writer",
         readonly: false,
-        buildPrompt: (_ctx: PromptCtx) => {
+        buildPrompt: (ctx: PromptCtx) => {
           const reportPath = join(ctx.sessionDir, "report.md");
           const reportTemplate = join(import.meta.dir, "templates", "report.md");
           return buildStepPrompt({
@@ -476,7 +476,7 @@ const def: WorkflowDef = {
           });
         },
       },
-      check: (_ctx: CheckCtx): CheckResult => {
+      check: (ctx: CheckCtx): CheckResult => {
         if (!ctx.artifactDbPath) return { status: "error", reasons: ["No artifact DB path"] };
         const db = openResearchDb(ctx.artifactDbPath);
         try {
@@ -504,7 +504,7 @@ const def: WorkflowDef = {
             key: `reviewer_${aspect}`,
             subagentType: "mt-deep-research-reviewer",
             readonly: true,
-            buildPrompt: (_ctx: PromptCtx) => {
+            buildPrompt: (ctx: PromptCtx) => {
               const reportPath = join(ctx.sessionDir, "report.md");
               const aspectDesc: Record<string, string> = {
                 coverage: "調査範囲の網羅性：すべての問いがレポートでカバーされているか",
@@ -558,7 +558,7 @@ const def: WorkflowDef = {
         buildPrompt: (_ctx: PromptCtx) =>
           buildStepPrompt({ purpose: [], criteria: [], approach: [] }),
       },
-      check: (_ctx: CheckCtx): CheckResult => {
+      check: (ctx: CheckCtx): CheckResult => {
         if (!ctx.artifactDbPath) return { status: "error", reasons: ["No artifact DB path"] };
         const db = openResearchDb(ctx.artifactDbPath);
         try {
@@ -581,7 +581,7 @@ const def: WorkflowDef = {
       onFail: { action: "escalate" },
       task: {
         action: "orchestrate",
-        buildPrompt: (_ctx: PromptCtx) => {
+        buildPrompt: (ctx: PromptCtx) => {
           const reportPath = join(ctx.sessionDir, "report.md");
           return buildStepPrompt({
             purpose: ["writer-reviewer サイクルの機械監査を実行し、問題があれば修正ループを回す。"],
@@ -637,7 +637,7 @@ const def: WorkflowDef = {
           });
         },
       },
-      check: (_ctx: CheckCtx): CheckResult => {
+      check: (ctx: CheckCtx): CheckResult => {
         if (!ctx.artifactDbPath) return { status: "error", reasons: ["No artifact DB path"] };
         const db = openResearchDb(ctx.artifactDbPath);
         try {
@@ -661,7 +661,7 @@ const def: WorkflowDef = {
       onFail: { action: "escalate" },
       task: {
         action: "orchestrate",
-        buildPrompt: (_ctx: PromptCtx) => {
+        buildPrompt: (ctx: PromptCtx) => {
           const reportPath = join(ctx.sessionDir, "report.md");
           return buildStepPrompt({
             purpose: ["report.md を最終更新し、lint を実行してレポートを確定する。"],
@@ -695,7 +695,7 @@ const def: WorkflowDef = {
           });
         },
       },
-      check: async (_ctx: CheckCtx): Promise<CheckResult> => {
+      check: async (ctx: CheckCtx): Promise<CheckResult> => {
         if (!ctx.artifactDbPath) return { status: "error", reasons: ["No artifact DB path"] };
         const db = openResearchDb(ctx.artifactDbPath);
         try {
@@ -748,7 +748,7 @@ const def: WorkflowDef = {
       onFail: { action: "escalate" },
       task: {
         action: "run_command",
-        buildPrompt: (_ctx: PromptCtx) => {
+        buildPrompt: (ctx: PromptCtx) => {
           return buildStepPrompt({
             purpose: ["調査が完了したことを簡潔に報告する。report.md の全文は出力しない。"],
             criteria: [],
