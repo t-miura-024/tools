@@ -7,7 +7,8 @@ use crate::tool::shared::{
     run_tool_command,
 };
 
-/// ツールマニフェスト（Brewfile / mise.toml / bun-global.yml）とインストール状態の
+/// ツールマニフェスト（Brewfile / mise.toml / bun-global.yml / herdr-plugins.toml）と
+/// インストール状態の
 /// 突合（drift 検証）を実行する。`mt doctor` がセクションとして再利用するため `pub`。
 pub fn verify() -> anyhow::Result<()> {
     style::intro("ツール管理の検証");
@@ -30,6 +31,7 @@ pub fn verify() -> anyhow::Result<()> {
     if !bun_packages.is_empty() {
         verify_bun_global_packages(&manifests.manifest_dir, &manifests.root, &bun_packages)?;
     }
+    crate::herdr::plugin::verify_plugins(&manifests)?;
 
     style::outro("✅ ツール管理の検証が完了しました");
     Ok(())

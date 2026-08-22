@@ -43,6 +43,7 @@ pub(super) fn install() -> anyhow::Result<()> {
         )?;
     }
     cleanup_after_install(&manifests, &bun_packages)?;
+    crate::herdr::plugin::sync_with_tool_install(&manifests)?;
 
     style::outro("✅ ツールのインストールが完了しました");
     Ok(())
