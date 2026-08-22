@@ -1,4 +1,6 @@
 packages:
+  "@deepseek-ai/dsh":
+    version: latest
   "@jackwener/opencli":
     version: latest
   "@opencode-ai/cli":
