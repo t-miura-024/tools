@@ -5,7 +5,7 @@
 ## Prerequisites
 
 - Rust 1.85+ (edition 2024)
-- 外部依存: `fzf`, `gh` (GitHub CLI), `ngrok`, `opencode`, `curl`, `ssh`, `brew`, `mise`, `docker`, `chezmoi`, `age`
+- 外部依存: `fzf`, `gh` (GitHub CLI), `ngrok`, `opencode`, `curl`, `ssh`, `brew`, `mise`, `docker`, `chezmoi`, `age`, `herdr`
 
 ## Install
 
@@ -40,6 +40,7 @@ cargo install --path .
 | `mt herdr workspace duplicate` | herdr ワークスペースを対話中に複製（既存タブ + 設定のクローン） |
 | `mt herdr workspace template create` | ワークスペースのタブ・ペーン構成を名前付きテンプレートとして保存 |
 | `mt herdr workspace template apply`  | テンプレートをワークスペースに反映（既存タブ置換 + cwd 注入 + active 復元） |
+| `mt herdr plugin sync`         | `manifests/herdr-plugins.toml` に従って herdr プラグインを導入し、manifest 外の GitHub 導入を削除候補として確認 |
 | `mt herdr workspace template delete` | 保存済みテンプレートを一覧から選択して削除 |
 | `mt opencode oauth setup`      | Google OAuth のセットアップ            |
 | `mt opencode web expose`       | OpenCode Web を ngrok で公開           |

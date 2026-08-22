@@ -1,0 +1,9 @@
+# herdr プラグインの宣言。
+# source は `herdr plugin install <OWNER/REPO[/SUBDIR]>` と同じ shorthand で書く。
+# バージョンは pin せず最新を追従する(再 install が更新の公式フロー)。
+
+[[plugin]]
+source = "zenbu-labs/terminal-browser/herdr-plugin"
+
+[[plugin]]
+source = "zenbu-labs/terminal-code/herdr-plugin"

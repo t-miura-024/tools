@@ -4,7 +4,7 @@ mod brew;
 mod bun;
 mod install;
 mod mise;
-mod shared;
+pub(crate) mod shared;
 pub mod verify;
 
 #[derive(Subcommand)]

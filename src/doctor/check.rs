@@ -82,7 +82,7 @@ pub fn run() -> anyhow::Result<()> {
     }
 
     // ── セクション 3: ツールインストール状態 / drift（mt tool verify のロジックを再利用）──
-    // verify() がマニフェスト（Brewfile / mise.toml / bun-global.yml）宣言と
+    // verify() がマニフェスト（Brewfile / mise.toml / bun-global.yml / herdr-plugins.toml）宣言と
     // インストール状態の突合を行い、自身の intro/outro でセクションを区切る。
     if let Err(err) = crate::tool::verify::verify() {
         style::warn(&format!("ツールインストール状態 / drift: {err}"));

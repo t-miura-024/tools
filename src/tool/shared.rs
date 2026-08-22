@@ -9,12 +9,13 @@ use serde::Deserialize;
 
 use crate::cli::style;
 
-pub(super) struct Manifests {
-    pub(super) root: PathBuf,
-    pub(super) manifest_dir: PathBuf,
-    pub(super) brewfile: PathBuf,
-    pub(super) mise_toml: PathBuf,
-    pub(super) bun_global: PathBuf,
+pub(crate) struct Manifests {
+    pub(crate) root: PathBuf,
+    pub(crate) manifest_dir: PathBuf,
+    pub(crate) brewfile: PathBuf,
+    pub(crate) mise_toml: PathBuf,
+    pub(crate) bun_global: PathBuf,
+    pub(crate) herdr_plugins: PathBuf,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -43,22 +44,24 @@ impl ToolCommandSpec {
 }
 
 impl Manifests {
-    pub(super) fn discover() -> anyhow::Result<Self> {
+    pub(crate) fn discover() -> anyhow::Result<Self> {
         let root = find_repo_root()?;
         let manifest_dir = root.join("manifests");
         Ok(Self {
             brewfile: manifest_dir.join("Brewfile"),
             mise_toml: manifest_dir.join("mise.toml"),
             bun_global: manifest_dir.join("bun-global.yml"),
+            herdr_plugins: manifest_dir.join("herdr-plugins.toml"),
             manifest_dir,
             root,
         })
     }
 
-    pub(super) fn ensure_files(&self) -> anyhow::Result<()> {
+    pub(crate) fn ensure_files(&self) -> anyhow::Result<()> {
         self.ensure_brewfile()?;
         ensure_file(&self.mise_toml, "mise.toml")?;
         ensure_file(&self.bun_global, "bun-global.yml")?;
+        ensure_file(&self.herdr_plugins, "herdr-plugins.toml")?;
         Ok(())
     }
 

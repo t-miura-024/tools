@@ -1,8 +1,8 @@
 # ツール管理マニフェスト
 
-このディレクトリは PC にインストールする開発ツールの Single Source of Truth です。Homebrew、mise、bun global の各マニフェストを格納し、`mt tool` サブコマンドで一元管理します。
+このディレクトリは PC にインストールする開発ツールの Single Source of Truth です。Homebrew、mise、bun global、herdr plugin の各マニフェストを格納し、`mt tool` / `mt herdr` サブコマンドで一元管理します。
 
-> 設計判断は [ADR 0003: manifests/ を PC ツール管理の Single Source of Truth とする](../docs/adr/0003-manifests-ssot.md) を参照。
+> 設計判断は [ADR 0003: manifests/ を PC ツール管理の Single Source of Truth とする](../docs/adr/0003-manifests-ssot.md)、herdr プラグインの方式は [ADR 0018: herdr プラグインを manifests/herdr-plugins.toml で宣言管理する](../docs/adr/0018-herdr-plugin-manifest.md) を参照。
 
 ## ファイル構成
 
@@ -11,6 +11,7 @@
 | `Brewfile` | Homebrew | CLI ツール、cask アプリ、VSCode 拡張の宣言 |
 | `mise.toml` | mise | ランタイム（bun, node, rust）のバージョン宣言 |
 | `bun-global.yml` | bun global | bun グローバルパッケージの存在管理 |
+| `herdr-plugins.toml` | herdr plugin | herdr プラグインの存在管理（最新追従） |
 
 ## 使い方
 
@@ -81,3 +82,17 @@ mt tool mise upgrade
 - Homebrew パッケージの追加: `manifests/Brewfile` を編集して `mt tool install`
 - mise のツールバージョン変更: `manifests/mise.toml` を編集して `mt tool install`
 - bun global package の追加・削除: `manifests/bun-global.yml` を編集して `mt tool install`（registry パッケージは `version:` で、GitHub ホストパッケージは `repo:` で宣言）
+
+### herdr プラグインの追加・削除
+
+```bash
+# manifests/herdr-plugins.toml
+[[plugin]]
+source = "zenbu-labs/terminal-browser/herdr-plugin"
+```
+
+```bash
+mt herdr plugin sync
+```
+
+`source` は `herdr plugin install <OWNER/REPO[/SUBDIR]>` と同じ shorthand で書き、バージョンは pin せず最新を追従します（再 install が更新の公式フロー）。sync は manifest 全エントリを導入・更新した後、manifest 外の GitHub 導入プラグインを削除候補として表示し、承認したときだけ uninstall します。ローカル link 中のプラグインは同期対象外です。
