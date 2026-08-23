@@ -68,6 +68,10 @@ _Avoid_: ファイル全体コメント, ファイルスコープ指摘
 `mt hunk start` が行指定なしのコメントに `{"newLine": 1}` を付与して hunk の必須スキーマを満たす動作。
 _Avoid_: 正規化, フォールバック
 
+**レビューコメントテンプレート**:
+hunk に注入する AI レビュー指摘の表示構造。`markup`（STML）と `summary`（fallback）の二重で表現し、severity（🚨 must / ⚠️ should / 💡 want）と taxonomy（🐛 issue / 🙋 question）を絵文字で区別する。axis は 🎯 essentiality / ✅ acceptance / 📦 scope / 🧭 alignment / ✨ quality で併記し、ヘッダ・対象・詳細・提案の4ブロックで構造化する。
+_Avoid_: コメントテンプレート, レビュー書式
+
 **OpenCLI**:
 jackwener/OpenCLI（npm: `@jackwener/opencli`）。ログイン済み Chrome を Browser Bridge 拡張経由で操作し、Web サイトを決定論的な CLI として提供するツール。エージェントブラウザとして採用。
 _Avoid_: opencli.org / opencli.dev の仕様プロジェクトとの混同
