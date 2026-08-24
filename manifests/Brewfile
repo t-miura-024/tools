@@ -65,6 +65,5 @@ mas "LINE", id: 539883307
 vscode "catppuccin.catppuccin-vsc"
 vscode "catppuccin.catppuccin-vsc-icons"
 vscode "ms-ceintl.vscode-language-pack-ja"
-vscode "ritwickdey.liveserver"
 
 cargo "mt"
