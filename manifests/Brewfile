@@ -62,21 +62,9 @@ cask "ghostty"
 mas "Kindle", id: 302584613
 mas "LINE", id: 539883307
 
-vscode "bierner.markdown-mermaid"
-vscode "cweijan.vscode-typora"
-vscode "dbaeumer.vscode-eslint"
-vscode "esbenp.prettier-vscode"
-vscode "github.copilot-chat"
-vscode "google.geminicodeassist"
-vscode "gruntfuggly.todo-tree"
-vscode "hediet.vscode-drawio"
-vscode "mhutchie.git-graph"
+vscode "catppuccin.catppuccin-vsc"
+vscode "catppuccin.catppuccin-vsc-icons"
 vscode "ms-ceintl.vscode-language-pack-ja"
-vscode "ms-vscode-remote.remote-containers"
-vscode "prisma.prisma"
 vscode "ritwickdey.liveserver"
-vscode "rooveterinaryinc.roo-cline"
-vscode "vscode-icons-team.vscode-icons"
-vscode "wayou.vscode-todo-highlight"
 
 cargo "mt"
