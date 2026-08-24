@@ -1,0 +1,65 @@
+{
+  // ── Diff Editor ──
+  "diffEditor.renderSideBySide": true, // 差分エディタの横並び表示設定
+
+  // ── Editor: カーソル・操作 ──
+  "editor.cursorBlinking": "smooth", // カーソル点滅スタイルの設定
+  "editor.cursorSmoothCaretAnimation": "on", // カーソル移動のスムーズアニメーション設定
+  "editor.cursorStyle": "block", // カーソルスタイルの設定
+  "editor.dragAndDrop": false, // テキストのドラッグアンドドロップ設定
+  "editor.smoothScrolling": true, // エディタのスムーズスクロール設定
+  "editor.wordSegmenterLocales": "ja", // 単語の分割ロケール設定
+
+  // ── Editor: 表示・フォント ──
+  "editor.fontFamily": "'UDEV Gothic 35HS', 'Fira Code', Consolas", // フォントファミリーの設定
+  "editor.fontLigatures": true, // フォントリガチャの有効化設定
+  "editor.guides.bracketPairs": "active", // 括弧のペアのガイド表示設定
+  "editor.minimap.enabled": false, // ミニマップの表示設定
+  "editor.renderLineHighlight": "all", // 行のハイライト表示設定
+  "editor.showFoldingControls": "always", // 折りたたみコントロールの表示設定
+
+  // ── Editor: 保存・フォーマット ──
+  "editor.formatOnSave": true, // 保存時の自動フォーマット設定
+
+  // ── Files ──
+  "files.autoSave": "onFocusChange", // フォーカスが変わったときに自動保存する設定
+  "files.insertFinalNewline": true, // ファイルの末尾に改行を挿入する設定
+  "files.trimFinalNewlines": true, // ファイル末尾の不要な改行を削除する設定
+  "files.trimTrailingWhitespace": true, // 行末の不要な空白を削除する設定
+
+  // ── Workbench ──
+  "workbench.colorTheme": "Catppuccin Mocha", // カラーテーマの設定
+  "workbench.iconTheme": "catppuccin-mocha", // アイコンテーマの設定
+  "workbench.editor.wrapTabs": true, // タブの折り返し表示設定
+  "workbench.editor.customLabels.patterns": {
+    "**/index.*": "${dirname}", // インデックスファイルのカスタムラベル設定（コンポーネント向け）
+    "**/{page,layout,template,route,actions,hooks,components,utils,types}.{js,ts,jsx,tsx}": "${dirname(2)}/${dirname(1)}/${dirname(0)}/${filename}.${extname}", // Next.jsの特定ファイルのカスタムラベル設定
+  },
+  "workbench.list.smoothScrolling": true, // ワークベンチのリストのスムーズスクロール設定
+
+  // ── Terminal ──
+  "terminal.integrated.cursorBlinking": true, // 統合ターミナルのカーソル点滅設定
+  "terminal.integrated.enableImages": true, // 統合ターミナルで画像表示を有効にする設定
+  "terminal.integrated.scrollback": 5000, // 統合ターミナルのスクロールバック行数設定
+  "terminal.integrated.smoothScrolling": true, // 統合ターミナルのスムーズスクロール設定
+
+  // ── JavaScript / TypeScript: Inlay Hints ──
+  "javascript.inlayHints.functionLikeReturnTypes.enabled": true, // JavaScriptの関数の戻り値型ヒント設定
+  "javascript.inlayHints.parameterNames.enabled": "all", // JavaScriptのパラメータ名ヒント設定
+  "javascript.inlayHints.parameterTypes.enabled": true, // JavaScriptのパラメータ型ヒント設定
+  "javascript.inlayHints.propertyDeclarationTypes.enabled": true, // JavaScriptのプロパティ宣言型ヒント設定
+  "javascript.inlayHints.variableTypes.enabled": true, // JavaScriptの変数型ヒント設定
+  "typescript.inlayHints.parameterNames.enabled": "all", // TypeScriptのパラメータ名ヒント設定
+  "typescript.inlayHints.parameterTypes.enabled": true, // TypeScriptのパラメータ型ヒント設定
+  "typescript.inlayHints.propertyDeclarationTypes.enabled": true, // TypeScriptのプロパティ宣言型ヒント設定
+  "typescript.inlayHints.variableTypes.enabled": true, // TypeScriptの変数型ヒント設定
+  "typescript.preferences.importModuleSpecifier": "relative", // TypeScriptのモジュール指定子を相対パスで生成する設定
+
+  // ── System / Update ──
+  "update.mode": "silentlyApplyOnQuit", // VS Codeの自動更新モード設定（終了時にサイレント適用）
+  "http.systemCertificatesNode": true, // システム証明書ストアをNode.jsで利用する設定
+
+  // ── Chat ──
+  "chat.disableAIFeatures": true, // チャットのAI機能を無効化する設定
+  "chat.viewSessions.orientation": "stacked", // チャットセッション表示の向き設定（積み重ね表示）
+}
