@@ -27,6 +27,9 @@
   "files.trimFinalNewlines": true, // ファイル末尾の不要な改行を削除する設定
   "files.trimTrailingWhitespace": true, // 行末の不要な空白を削除する設定
 
+  // ── Git ──
+  "git.blame.editorDecoration.enabled": true, // エディタ内にGit Blame情報（変更者・日時）を表示する設定
+
   // ── Workbench ──
   "workbench.colorTheme": "Catppuccin Mocha", // カラーテーマの設定
   "workbench.iconTheme": "catppuccin-mocha", // アイコンテーマの設定
@@ -34,6 +37,9 @@
   "workbench.editor.customLabels.patterns": {
     "**/index.*": "${dirname}", // インデックスファイルのカスタムラベル設定（コンポーネント向け）
     "**/{page,layout,template,route,actions,hooks,components,utils,types}.{js,ts,jsx,tsx}": "${dirname(2)}/${dirname(1)}/${dirname(0)}/${filename}.${extname}", // Next.jsの特定ファイルのカスタムラベル設定
+  },
+  "workbench.editorAssociations": {
+    "*.md": "vscode.markdown.editor", // Markdownファイルを専用のMarkdownエディタで開く設定
   },
   "workbench.list.smoothScrolling": true, // ワークベンチのリストのスムーズスクロール設定
 
