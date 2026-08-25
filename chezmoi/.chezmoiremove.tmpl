@@ -1,4 +1,4 @@
-{{/* .chezmoiignore 対象(bun.lock等)は chezmoi が自動で除外、現役 keep は stat で判定 */ -}}
+{{/* obsolete mt-* / _shared のみ削除。生成物(bun.lock等)は .chezmoiignore で管理外のため対象外 */ -}}
 {{- $home := .chezmoi.homeDir -}}
 {{- $src := .chezmoi.sourceDir -}}
 {{- $prefix := print $home "/" -}}
@@ -12,6 +12,10 @@
 {{- range glob . -}}
 {{- $rel := trimPrefix $prefix . -}}
 {{- $base := base . -}}
+{{- /* 生成物は .chezmoiignore で除外済みのため remove 対象外。mt-* / _shared のみ判定 */ -}}
+{{- if not (or (hasPrefix "mt-" $base) (eq $base "_shared")) -}}
+{{- continue -}}
+{{- end -}}
 {{- $srcPath := "" -}}
 {{- if hasPrefix ".cursor/skills/" $rel -}}
 {{- $srcPath = joinPath $src "dot_cursor/skills" $base -}}
@@ -22,8 +26,6 @@
 {{- else if hasPrefix ".tado/workflows/" $rel -}}
 {{- $srcPath = joinPath $src "dot_tado/workflows" $base -}}
 {{- end -}}
-{{- if not (stat $srcPath) }}
-{{ $rel }}
+{{- if not (stat $srcPath) }}{{ $rel }}{{ "\n" }}{{- end -}}
+{{- end -}}
 {{- end }}
-{{- end -}}
-{{- end -}}
