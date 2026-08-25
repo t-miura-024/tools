@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import def from "./workflow.ts";
+import def from "./index.ts";
 import type { CheckCtx } from "tado";
 
 const stepCheck = (key: string) => def.steps.find((s) => s.key === key)!.check;
