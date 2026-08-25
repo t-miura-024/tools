@@ -81,17 +81,6 @@ function optionalLocation(item: JsonRecord): { filePath?: string; position?: unk
   };
 }
 
-function commentImport(summary: string, item: JsonRecord): JsonRecord {
-  const location = optionalLocation(item);
-  const comment: JsonRecord = { summary };
-  if (typeof location.filePath === "string" && location.filePath.trim()) {
-    comment.filePath = location.filePath;
-  }
-  const lines = positionToHunkLines(location.position);
-  if (lines) Object.assign(comment, lines);
-  return comment;
-}
-
 /// agent-review.json の position（{side, line}）を hunk の apply 形式
 /// （newLine / oldLine）へ変換する。行指定のない指摘は newLine を省略し、
 /// mt hunk start 側の newLine: 1 合成に任せる。
@@ -105,7 +94,75 @@ function positionToHunkLines(
   return { newLine: line };
 }
 
-function buildHunkComments(reviewRaw: string | undefined): JsonRecord[] {
+const SEVERITY_EMOJI: Record<string, string> = {
+  must: "🚨",
+  should: "⚠️",
+  want: "💡",
+};
+
+const TAXONOMY_EMOJI: Record<string, string> = {
+  issue: "🐛",
+  question: "🙋",
+};
+
+const AXIS_EMOJI: Record<string, string> = {
+  essentiality: "🎯",
+  acceptance: "✅",
+  scope: "📦",
+  alignment: "🧭",
+  quality: "✨",
+};
+
+const SEVERITY_BORDER_COLOR: Record<string, string> = {
+  must: "danger",
+  should: "warning",
+  want: "muted",
+};
+
+function escapeStml(value: string): string {
+  return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+export function formatComment(input: {
+  severity: "must" | "should" | "want";
+  axis: string;
+  detail: string;
+  filePath?: string;
+  line?: number;
+  suggestions?: string[];
+}): { markup: string; summary: string } {
+  const severityEmoji = SEVERITY_EMOJI[input.severity] ?? "";
+  const taxonomy = input.severity === "must" ? "issue" : "question";
+  const taxonomyEmoji = TAXONOMY_EMOJI[taxonomy] ?? "";
+  const axisEmoji = AXIS_EMOJI[input.axis] ?? "";
+  const borderColor = SEVERITY_BORDER_COLOR[input.severity] ?? "muted";
+  const title = `${severityEmoji} ${input.severity} · ${taxonomyEmoji} ${taxonomy} · ${axisEmoji} ${input.axis}`;
+  const target = input.filePath
+    ? input.line !== undefined
+      ? `${input.filePath}:${input.line}`
+      : input.filePath
+    : "general";
+  const detailHead = input.detail.trim().split("\n")[0]?.trim() ?? "";
+  const truncatedHead = detailHead.length > 80 ? `${detailHead.slice(0, 77)}...` : detailHead;
+  const summary = `${severityEmoji} ${input.severity} · ${taxonomyEmoji} ${taxonomy} · ${axisEmoji} ${input.axis} | ${target} — ${truncatedHead}`;
+  const escapedDetail = escapeStml(input.detail.trim()).replace(/\n/g, "<br/>");
+  const targetBlock = `<text><dim>📁 ${escapeStml(target)}</dim></text>`;
+  const detailBlock = `<text>${escapedDetail}</text>`;
+  let markup = `<box border border-color="${borderColor}" padding-x="1" padding-y="1" title="${title}">\n`;
+  markup += `${targetBlock}\n`;
+  markup += `<spacer size="1" />\n`;
+  markup += `${detailBlock}`;
+  if (input.suggestions && input.suggestions.length > 0) {
+    const items = input.suggestions
+      .map((s) => `<item>${escapeStml(s).replace(/\n/g, "<br/>")}</item>`)
+      .join("");
+    markup += `\n<spacer size="1" />\n<list>${items}</list>`;
+  }
+  markup += `\n</box>`;
+  return { markup, summary };
+}
+
+export function buildHunkComments(reviewRaw: string | undefined): JsonRecord[] {
   const comments: JsonRecord[] = [];
   const review = findJsonObject(reviewRaw);
   const axes = isRecord(review?.axes) ? review.axes : undefined;
@@ -121,10 +178,38 @@ function buildHunkComments(reviewRaw: string | undefined): JsonRecord[] {
         if (severity !== "must" && severity !== "should" && severity !== "want") continue;
         if (typeof detail !== "string" || !detail.trim()) continue;
 
-        // must is an AI-found blocking issue. should/want are questions for
-        // the human gate; they must not be downgraded to explanatory context.
-        const taxonomy = severity === "must" ? "[issue]" : "[question]";
-        comments.push(commentImport(`${taxonomy} (${severity}) [${axis}] ${detail.trim()}`, value));
+        const location = optionalLocation(value);
+        const filePath = typeof location.filePath === "string" ? location.filePath : undefined;
+        const positionLines = positionToHunkLines(location.position);
+        const line = positionLines?.newLine ?? positionLines?.oldLine;
+
+        const rawSuggestions =
+          (value as Record<string, unknown>).suggestions ??
+          (value as Record<string, unknown>).suggestion ??
+          (value as Record<string, unknown>).proposals ??
+          (value as Record<string, unknown>).proposal;
+        let suggestions: string[] | undefined;
+        if (Array.isArray(rawSuggestions)) {
+          const filtered = (rawSuggestions as unknown[]).filter(
+            (s): s is string => typeof s === "string" && s.trim().length > 0,
+          );
+          if (filtered.length > 0) suggestions = filtered.map((s) => s.trim());
+        } else if (typeof rawSuggestions === "string" && rawSuggestions.trim()) {
+          suggestions = [rawSuggestions.trim()];
+        }
+
+        const { markup, summary } = formatComment({
+          severity: severity as "must" | "should" | "want",
+          axis,
+          detail: detail.trim(),
+          filePath,
+          line,
+          suggestions,
+        });
+        const comment: JsonRecord = { summary, markup };
+        if (filePath) comment.filePath = filePath;
+        if (positionLines) Object.assign(comment, positionLines);
+        comments.push(comment);
       }
     }
   }
@@ -842,10 +927,10 @@ const def: WorkflowDef = {
             "",
             "## 入力からコメントへの変換",
             "",
-            `agent-review.json（${join(ctx.sessionDir, REVIEW_JSON_KEY)}）の axes を読み、各項目を hunk の comment apply 形式（{filePath, newLine|oldLine, summary}）に変換する:`,
-            "- must: `[issue] (must) [<axis>] <detail>`（AI が発見したブロッキング指摘）",
-            "- should: `[question] (should) [<axis>] <detail>`（人間に判断を仰ぐ指摘）",
-            "- want: `[question] (want) [<axis>] <detail>`（人間に判断を仰ぐ指摘。ゲートをブロックしない）",
+            `agent-review.json（${join(ctx.sessionDir, REVIEW_JSON_KEY)}）の axes を読み、各項目を hunk の comment apply 形式（{filePath, newLine|oldLine, summary, markup}）に変換する。formatComment 純粋関数で STML（markup）と fallback（summary）を二重生成する:`,
+            "- severity: 🚨 must / ⚠️ should / 💡 want、taxonomy: 🐛 issue（must）/ 🙋 question（should/want）、axis: 🎯 essentiality / ✅ acceptance / 📦 scope / 🧭 alignment / ✨ quality を box title `🚨 must · 🐛 issue · ✅ acceptance` に併記",
+            "- summary: `🚨 must · 🐛 issue · ✅ acceptance | path:line — 詳細先頭` 形式（`[]` を用いない）",
+            "- markup: STML の <box> で 4 ブロック（ヘッダ=title、対象ファイル/行、詳細本文、任意の提案リスト）を構造化。`hunk diff --experimental` で STML が描画され、非対応環境では summary が graceful fallback される",
             "",
             "- `filePath` はリポジトリルートからの相対パスで必ず含める。ファイルに紐づかない指摘はファイルレベル指摘として代表ファイル（例: CONTEXT.md）に紐づける",
             '- 特定行への指摘は `position`（{side: "new"|"old", line}）を `newLine` / `oldLine` に変換して含める',
