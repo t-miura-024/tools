@@ -38,6 +38,8 @@ const RESEARCH_DB = "research.db";
 
 const def: WorkflowDef = {
   id: "mt-deep-research",
+  description:
+    "ローカルSearXNGとSubAgentオーケストレーションで自律的な多段探索を行うワークフロー。Planner/Researcher/Writer/Reviewer/Auditorが連携し成果物を生成する。",
 
   beforeInit: async (_ctx: InitCtx) => {
     const checks: string[] = [];

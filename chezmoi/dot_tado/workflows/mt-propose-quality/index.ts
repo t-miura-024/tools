@@ -3,6 +3,8 @@ import { join } from "node:path";
 
 const def: WorkflowDef = {
   id: "mt-propose-quality",
+  description:
+    "対象リポジトリのコード品質を分析しQuality軸の改善候補を発掘するワークフロー。コード健全性・テスト充実などの視点で15案を収集しdraft Issue化する。",
 
   steps: [
     {
