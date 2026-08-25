@@ -6,6 +6,7 @@
   (joinPath $home ".cursor/skills/*")
   (joinPath $home ".claude/skills/*")
   (joinPath $home ".config/opencode/skills/*")
+  (joinPath $home ".tado/workflows/*")
 -}}
 {{- range $patterns -}}
 {{- range glob . -}}
@@ -18,6 +19,8 @@
 {{- $srcPath = joinPath $src "dot_claude/skills" (print "symlink_" $base) -}}
 {{- else if hasPrefix ".config/opencode/skills/" $rel -}}
 {{- $srcPath = joinPath $src "dot_config/opencode/skills" (print "symlink_" $base) -}}
+{{- else if hasPrefix ".tado/workflows/" $rel -}}
+{{- $srcPath = joinPath $src "dot_tado/workflows" $base -}}
 {{- end -}}
 {{- if not (stat $srcPath) }}
 {{ $rel }}
