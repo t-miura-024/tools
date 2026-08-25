@@ -1,3 +1,14 @@
 [user]
 	email = t.miura024@gmail.com
 	name = t-miura-024
+
+[core]
+	pager = delta
+
+[interactive]
+	diffFilter = delta --color-only
+
+[delta]
+	navigate = true
+	dark = true
+	line-numbers = true
