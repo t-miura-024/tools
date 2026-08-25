@@ -13,5 +13,9 @@ dot_raycast_passphrase.age
 !.config/opencode/skills/_shared
 !.config/opencode/skills/mt-*
 
+# bun/node の依存ディレクトリは生成物なので chezmoi 管理外
+**/node_modules
+**/node_modules/**
+
 # LazyVim が生成する動的ファイル（プラグイン更新のたびに変わる）
 .config/nvim/lazy-lock.json
