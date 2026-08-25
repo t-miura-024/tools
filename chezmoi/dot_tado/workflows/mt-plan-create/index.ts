@@ -46,6 +46,8 @@ const mtDomainModelingDir = join(import.meta.dir, "..", "mt-domain-modeling");
 
 const def: WorkflowDef = {
   id: "mt-plan-create",
+  description:
+    "GitHub Issueとして計画を新規作成・リファインメントするワークフロー。from-Issue取り込みとGrillヒアリングを経てDraft Issueを起票する。",
 
   beforeInit: async (_ctx: InitCtx) => {
     try {

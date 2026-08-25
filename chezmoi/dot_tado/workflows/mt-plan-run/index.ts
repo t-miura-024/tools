@@ -400,7 +400,9 @@ function findArtifactText(artifacts: ArtifactRecord[], key: string): string | un
 const REVIEW_JSON_KEY = "agent-review.json";
 
 const def: WorkflowDef = {
-  id: "mt-plan",
+  id: "mt-plan-run",
+  description:
+    "GitHub Issueベースの計画を選択し実行して履歴を更新するワークフロー。実行・検証・修正サイクルを管理し計画を完遂させる。",
 
   beforeInit: async (_ctx: InitCtx) => {
     try {

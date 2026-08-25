@@ -3,6 +3,8 @@ import { join } from "node:path";
 
 const def: WorkflowDef = {
   id: "mt-propose-capabilities",
+  description:
+    "対象リポジトリを軽量走査しCapability軸の企画候補を発掘するワークフロー。3視点の並列ブレストで15案を収集しdraft Issueとして起票する。",
 
   steps: [
     {
