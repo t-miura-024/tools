@@ -237,12 +237,18 @@ pub fn fetch_comments(repo_root: &Path) -> anyhow::Result<Vec<HunkComment>> {
 // taxonomy 分類 & ゲート判定（完了条件 3）
 // ---------------------------------------------------------------------------
 
-/// コメントが want 指摘（`[question] (want)`）かどうか。
+/// コメントが want 指摘かどうか。
 ///
-/// want コメントはゲートをブロックしない（CONTEXT.md の want コメント定義）。
+/// want コメントはゲートをブロックしない。
+/// - 旧形式: `[question] (want)` で始まる（CONTEXT.md の want コメント定義）
+/// - 新形式: STML/emoji 形式 `💡 want · 🙋 question` など（`want` と `question` を両方含む）
 pub fn is_want(body: &str) -> bool {
     let trimmed = body.trim();
-    trimmed.starts_with("[question]") && trimmed.contains("(want)")
+    if trimmed.starts_with("[question]") && trimmed.contains("(want)") {
+        return true;
+    }
+    let lower = body.to_lowercase();
+    lower.contains("want") && lower.contains("question")
 }
 
 /// 全コメントのゲート判定を行う。
