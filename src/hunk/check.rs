@@ -40,7 +40,9 @@ pub fn check() -> anyhow::Result<()> {
     let out = output_for_comments(&comments);
 
     if out.passes {
-        shared::delete_review_state(&repo_root);
+        // 削除は `mt hunk done` に一本化する。`check` での削除はワークフロー側の
+        // 再検証（`mt hunk check` の二度実行）が「状態なし」でJSONを返せず
+        // `goto execute_work` ループに入る原因になるため、ここでは削除しない。
         println!("{}", serde_json::to_string(&out)?);
         Ok(())
     } else {
