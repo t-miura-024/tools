@@ -1,0 +1,13 @@
+# chezmoi user-level config — generated from chezmoi/.chezmoi.toml.tmpl (chezmoi init --apply)
+# Source dir is set here so that `chezmoi` (and `mt chezmoi`) can find the dotfile source.
+# The chezmoi source dir (`~/src/tools/chezmoi/`) is itself tracked by the `tools` repo.
+# 直接編集しても動作しますが、永続化したい変更は chezmoi/.chezmoi.toml.tmpl へ反映してください。
+
+sourceDir = "{{ .chezmoi.homeDir }}/src/tools/chezmoi"
+encryption = "age"
+
+[age]
+identity = "{{ .chezmoi.homeDir }}/.config/chezmoi/key.txt"
+
+[diff]
+pager = "delta"

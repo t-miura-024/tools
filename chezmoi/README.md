@@ -12,6 +12,7 @@
 
 ```
 chezmoi/
+├── .chezmoi.toml.tmpl         # ~/.config/chezmoi/chezmoi.toml のテンプレート（sourceDir + diff.pager=delta）
 ├── dot_zshrc.tmpl             # ~/.zshrc（テンプレート、API キー復号）
 ├── dot_zprofile               # ~/.zprofile（plain copy）
 ├── dot_gitconfig              # ~/.gitconfig（plain copy）
@@ -50,6 +51,7 @@ chezmoi/
 | `dot_zsh_secrets.age` | age 暗号化 | API キーなどの secrets（age 公開鍵で暗号化） |
 | `dot_Raycast.rayconfig` | Raycast 暗号化 | Raycast Export 全データ（passphrase で暗号化、git 追跡） |
 | `dot_raycast_passphrase.age` | age 暗号化 | Raycast 暗号化 passphrase（age 公開鍵で暗号化） |
+| `.chezmoi.toml.tmpl` | chezmoi | `~/.config/chezmoi/chezmoi.toml` のテンプレート（`chezmoi init` で生成、diff.pager=delta） |
 | `.chezmoiignore` | chezmoi | この README を chezmoi apply の対象外にする |
 | `.chezmoiremove.tmpl` | chezmoi | ホームに残留した obsolete skill（`mt-*`）を動的に削除。`.chezmoiignore` の ignore 対象（`bun.lock`等）は除外 |
 | `README.md` | doc | このファイル（chezmoi ソースの doc であって dotfile ではない） |
@@ -63,17 +65,26 @@ chezmoi/
     age-keygen -o ~/.config/chezmoi/key.txt
     ```
 
-3. `~/.config/chezmoi/chezmoi.toml` を作成（git コミット対象外、ユーザー固有設定）:
+3. `~/.config/chezmoi/chezmoi.toml` は `chezmoi/.chezmoi.toml.tmpl` から生成される管理対象設定です。新規環境では自動生成されます:
+
+    ```bash
+    chezmoi init --apply   # .chezmoi.toml.tmpl から ~/.config/chezmoi/chezmoi.toml を生成
+    ```
+
+    生成される内容（`{{ .chezmoi.homeDir }}` は実行時に展開）:
 
     ```toml
-    sourceDir = "/Users/mt/src/tools/chezmoi"
+    sourceDir = "/Users/mt/src/tools/chezmoi"  # テンプレート: {{ .chezmoi.homeDir }}/src/tools/chezmoi
     encryption = "age"
 
     [age]
-    identity = "/Users/mt/.config/chezmoi/key.txt"
+    identity = "/Users/mt/.config/chezmoi/key.txt"  # テンプレート: {{ .chezmoi.homeDir }}/.config/chezmoi/key.txt
+
+    [diff]
+    pager = "delta"
     ```
 
-    `chezmoi/` ソースディレクトリ自体には `chezmoi.toml` を **置かない** 設計です（git 追跡される親リポジトリにローカルパスを埋め込まないため）。
+    `sourceDir` はテンプレートで `{{ .chezmoi.homeDir }}` を用いて動的化されており、絶対パスを git にハードコードしません。worktree では `CHEZMOI_SOURCE_DIR` 環境変数（`mt` が `--source` で自動付与）で上書きされます。既存環境で手動更新する場合は `~/.config/chezmoi/chezmoi.toml` に `[diff] pager = "delta"` を追記してください。
 
 4. dotfile を展開:
 
