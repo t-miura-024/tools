@@ -37,6 +37,7 @@ brew "sevenzip"
 brew "yazi"
 brew "zoxide"
 brew "lefthook"
+brew "duckdb"
 
 cask "arc"
 cask "claude-code"
