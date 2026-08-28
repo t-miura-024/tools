@@ -1,4 +1,4 @@
-import { resolve, join } from "node:path";
+import { resolve, join, dirname, relative } from "node:path";
 import fs from "node:fs";
 import { execFileSync } from "node:child_process";
 
@@ -20,16 +20,17 @@ export function isPathInside(base: string, target: string): boolean {
     realTarget = fs.realpathSync(normalizedTarget);
   } catch {
     try {
-      const sep = normalizedTarget.lastIndexOf("/");
-      const parent = sep > 0 ? normalizedTarget.slice(0, sep) : sep === 0 ? "/" : ".";
+      const parent = dirname(normalizedTarget);
       const realParent = fs.realpathSync(parent);
-      const rest = normalizedTarget.slice(parent.length);
-      realTarget = realParent + rest;
+      const rel = relative(parent, normalizedTarget);
+      realTarget = join(realParent, rel);
     } catch {
       realTarget = normalizedTarget;
     }
   }
-  return realTarget === realBase || realTarget.startsWith(realBase + "/");
+  if (realTarget === realBase) return true;
+  const rel = relative(realBase, realTarget);
+  return rel !== "" && !rel.startsWith("..") && !rel.startsWith("/");
 }
 
 // =============================================================================

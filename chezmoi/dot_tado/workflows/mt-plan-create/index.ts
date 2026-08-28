@@ -1,12 +1,12 @@
 import type { WorkflowDef, CheckCtx, PromptCtx, CheckResult, InitCtx, ArtifactRecord } from "tado";
-import { join, resolve } from "node:path";
+import { join, resolve, dirname, relative } from "node:path";
 import fs from "node:fs";
 import { readFileSync, writeFileSync } from "node:fs";
 import { execSync } from "node:child_process";
 import { loadConfig } from "../_shared/mt-plan-init-config";
 
 // ---------------------------------------------------------------------------
-// Helpers
+// Helpers — fixed isPathInside truncation (logic-3:27) and path traversal && bug (logic-1:51)
 // ---------------------------------------------------------------------------
 
 function isPathInside(base: string, target: string): boolean {
@@ -23,26 +23,24 @@ function isPathInside(base: string, target: string): boolean {
     realTarget = fs.realpathSync(normalizedTarget);
   } catch {
     try {
-      const sep = normalizedTarget.lastIndexOf("/");
-      const parent = sep > 0 ? normalizedTarget.slice(0, sep) : sep === 0 ? "/" : ".";
+      const parent = dirname(normalizedTarget);
       const realParent = fs.realpathSync(parent);
-      const rest = normalizedTarget.slice(parent.length);
-      realTarget = realParent + rest;
+      const rel = relative(parent, normalizedTarget);
+      realTarget = join(realParent, rel);
     } catch {
       realTarget = normalizedTarget;
     }
   }
-  return realTarget === realBase || realTarget.startsWith(realBase + "/");
+  if (realTarget === realBase) return true;
+  const rel = relative(realBase, realTarget);
+  return rel !== "" && !rel.startsWith("..") && !rel.startsWith("/");
 }
 
 function findArtifactText(artifacts: ArtifactRecord[], key: string): string {
   const match = artifacts.find((a) => a.artifactKey === key);
   if (!match) throw new Error(`Artifact not found: ${key}`);
   const resolved = resolve(match.filePath);
-  if (match.filePath.includes("..")) {
-    throw new Error(`path traversal detected: ${match.filePath}`);
-  }
-  if (!isPathInside(process.cwd(), resolved) && resolved.includes("..")) {
+  if (!isPathInside(process.cwd(), resolved)) {
     throw new Error(`path traversal detected: ${match.filePath}`);
   }
   return readFileSync(resolved, "utf-8");
@@ -109,10 +107,28 @@ const def: WorkflowDef = {
   },
 
   afterInit: async (ctx: InitCtx) => {
-    const stdout = execSync("gh repo view --json nameWithOwner --jq .nameWithOwner", {
-      encoding: "utf-8",
-    }).trim();
-    const [owner, repo] = stdout.split("/");
+    let stdout: string;
+    try {
+      stdout = execSync("gh repo view --json nameWithOwner --jq .nameWithOwner", {
+        encoding: "utf-8",
+      }).trim();
+    } catch (error) {
+      throw new Error(
+        `gh repo view failed: ${error instanceof Error ? error.message : String(error)}. gh auth login と git リポジトリを確認してください。`,
+      );
+    }
+    if (!stdout || !stdout.includes("/")) {
+      throw new Error(`gh repo view の出力が不正です: "${stdout}"`);
+    }
+    const parts = stdout.split("/");
+    if (parts.length !== 2 || !parts[0] || !parts[1]) {
+      throw new Error(`gh repo view の出力が不正です: "${stdout}"`);
+    }
+    const [owner, repo] = parts;
+    const validName = /^[\w.-]+$/;
+    if (!validName.test(owner) || !validName.test(repo)) {
+      throw new Error(`repo名が不正です: "${stdout}"`);
+    }
     const repoInfo: RepoInfo = { owner, repo, nameWithOwner: stdout };
     const repoInfoPath = join(ctx.sessionDir, REPO_INFO_KEY);
     writeFileSync(repoInfoPath, JSON.stringify(repoInfo, null, 2), "utf-8");
