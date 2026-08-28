@@ -15,6 +15,7 @@ import {
   findJsonObject,
   parseJson,
   isRecord,
+  parseDiffChangedLines,
   parseHunkCheck,
   runHunkCommand,
   isHunkSessionActive,
@@ -46,6 +47,8 @@ export {
   validateFindingsJson,
   validateVerdictJson,
   mergeFindingsByProximity,
+  parseDiffChangedLines,
+  filterFindingsByDiff,
   formatReviewComment,
   buildHunkComments,
   findArtifactText,
@@ -73,6 +76,7 @@ export type {
   Severity,
   Finding,
   FindingsJson,
+  FilteredOutItem,
   VerdictJson,
   HunkCheckOutput,
   HunkBlockingThread,
@@ -307,6 +311,7 @@ const def: WorkflowDef = {
             "",
             `1. セッションディレクトリの diff.txt (${diffPath}) と effort.json を読み込み、対象差分と effort を把握する。`,
             "   - diff.txt はサイズガード必須: 200KB または 8000行を超える場合は先頭 8000行のみを検証者に渡し、残りは `[... truncated: <残り行数> lines omitted]` と付記する。全文を無制限に複製しない。",
+            "   - diff.txt が SoT であることを厳守: 指摘対象は diff.txt の `+` 行（追加/変更行）のみ。差分外ファイル・行への指摘は禁止。",
             "",
             '2. Task ツールで `subagent_type = "mt-review-diff-reviewer"` を波ごとに並列起動する (同一メッセージ内で最大 6 同時。波は直列で実行する)。',
             "   - 各 SubAgent には以下をプロンプト注入する:",
@@ -314,8 +319,9 @@ const def: WorkflowDef = {
             "     - width/depth と担当観点数 (専念度の文脈)",
             "     - 対象差分 (diff.txt の内容。サイズガードで切り詰めたもの。要約は行わないが truncate は必須)",
             "     - セッションディレクトリのパス",
+            '     - **差分限定規律**: 指摘は diff.txt の `+` 行のみ。`filePath` 必須、`position` 必須（`side:"new"` かつ `line` は `+` 行の行番号）。`filePath` なし / `position` なし / `side:"old"` / diff外ファイル / `+` 行でない line は publish_findings で機械的に除外される。差分外の破壊（例: 呼び出し元が壊れる）は差分内の原因行に紐付けて記述し、差分外ファイルへの直接 `filePath` は禁止。読み取りは自由だが指摘の出力は差分内に制限。',
             "   - 各 SubAgent は `edit: deny / bash: deny`相当の read-only で動作し、担当外観点の指摘を禁止される。",
-            "   - 各 SubAgent は findings 配列の JSON を返す (axis/severity/detail/position/suggestions)。",
+            '   - 各 SubAgent は findings 配列の JSON を返す (axis/severity/detail/position/suggestions)。`filePath` と `position:{side:"new", line}` は必須。',
             "",
             "3. 全検証者の findings を集約し、一時ファイルに保存する (publish_findings が findings.json として正規化するため、ここでは生の集約でよい):",
             "",
@@ -331,9 +337,18 @@ const def: WorkflowDef = {
             "",
             "検証者は「正しいことの確認」ではなく「崩せるかという反証」の視座で差分を突く。攻撃者・利用者・保守者の敵対視点で前提崩れ・悪用可能性・将来の保守破綻を暴露し、弱点を容赦なく指摘する。",
             "",
+            "## 差分限定規律 (厳守 — SubAgent へ徹底)",
+            "",
+            "- 指摘は diff.txt の `+` 行（追加/変更行）のみに限定する。diff外ファイル・行への指摘は禁止",
+            '- `filePath` 必須、 `position: {side:"new", line}` 必須。`side:"old"` / ファイルなし（general）/ positionなしは禁止',
+            "- 差分外コードの読み取りは自由だが、指摘の出力は差分内に制限する",
+            "- 差分起因で差分外が確実に壊れる場合でも、差分内の原因行に紐付けて指摘し、差分外ファイルへの直接 filePath は行わない",
+            "- 違反は publish_findings で機械的に除外され `filteredOut` に記録される",
+            "",
             "## 制約",
             "",
             "- 担当外観点の指摘は行わない (スコープ規律)",
+            "- 差分外への指摘は行わない（上記差分限定規律）",
             "- ファイルの作成・修正は行わない (検証 Step は hunk と findings/verdict アーティファクトにのみ副作用を持つ)",
             "- workflow.db のループ制御に触れない",
             "",
@@ -383,23 +398,26 @@ const def: WorkflowDef = {
             "1. 生 findings を読み込み、以下の機械ルールで正規化する (純粋関数として実装 — LLM の恣意的な再解釈は禁止):",
             "   - 各 finding の axis が PERSPECTIVE_POOL の 15 観点に含まれるか検証 (未知 axis は除外し reasons に記録)",
             "   - severity が must/should/want のいずれかであることを検証",
-            "   - counts.must/should/want が findings 内の件数と厳密に一致することを検証",
+            '   - filePath が必須、position が必須（side:"new"、line は正の整数）であることを検証（missing / old_side は除外し filteredOut に記録）',
+            "   - diff.txt を parseDiffChangedLines でパースし `Map<filePath, Set<addedLines>>` を生成する（+++ b/<path> と @@ hunk の new側カウントで `+` 行を抽出。削除ファイル/bynary/ /dev/null はスキップ）",
+            "   - filterFindingsByDiff で diff外ファイル / `+` 行でない line / missing_position / old_side を機械的に除外し `filteredOut: {count, items:[{axis,filePath,line,reason}]}` に記録する（reason: file_not_in_diff / line_not_in_added / missing_position / old_side / missing_filePath）",
             "   - 同一ファイルで ±2 行以内の findings はマージする (mergeFindingsByProximity 純粋関数。detail 連結、severity は must>should>want の最優先を継承、suggestions 結合)",
+            "   - 除外後の kept について counts.must/should/want を再計算し、counts が厳密に一致することを検証",
             "",
             `2. 正規化した findings を findings.json (${findingsPath}) として書き出す。スキーマ:`,
             "```json",
-            '{ "round": 1, "width": "medium", "depth": "medium", "findings": [{"axis":"req-1","severity":"must","detail":"...","filePath":"src/a.ts","position":{"side":"new","line":10}}], "counts":{"must":1,"should":0,"want":0} }',
+            '{ "round": 1, "width": "medium", "depth": "medium", "findings": [{"axis":"req-1","severity":"must","detail":"...","filePath":"src/a.ts","position":{"side":"new","line":10}}], "counts":{"must":1,"should":0,"want":0}, "filteredOut":{"count":2,"items":[{"axis":"req-1","filePath":"src/b.ts","line":5,"reason":"line_not_in_added"}]} }',
             "```",
             "   - round は effort.json の round (なければ 1)",
             "   - width/depth は effort.json の値を継承",
+            "   - filteredOut は任意。除外があった場合のみ count と items（axis/filePath/line/reason/detail）を記録し、人間へ透明に通知する",
             "",
-            `3. findings.json を hunk comment apply 形式へ変換し、STML markup + summary を二重生成する (純粋関数 formatReviewComment):`,
+            `3. findings.json を hunk comment apply 形式へ変換し、STML markup + summary を二重生成する (純粋関数 formatReviewComment / buildHunkComments):`,
             "   - severity: 🚨 must / ⚠️ should / 💡 want、taxonomy: 🐛 issue (must) / 🙋 question (should/want)",
             "   - axis: 15 観点の絵文字 (🎯 req-1 / 📋 req-2 / 🛡️ logic-1 / 🔒 logic-2 / 🧭 logic-3 / ⚡ logic-4 / 👁️ ai-1 / 🔌 ai-2 / ♻️ ai-3 / 🩹 ai-4 / 🧩 arch-1 / 🧱 arch-2 / 🎨 arch-3 / 🏷️ arch-4 / 🔗 arch-5)",
             "   - summary: `🚨 must · 🐛 issue · 🎯 req-1 | path:line — 詳細先頭` 形式 ([] を用いない)",
             "   - markup: STML の <box> で 4 ブロック (ヘッダ=title、対象ファイル/行、詳細本文、任意の提案リスト) を構造化。hunk diff --experimental で STML が描画され、非対応環境では summary が graceful fallback される",
-            "   - filePath はリポジトリルートからの相対パスで含める。ファイルに紐づかない指摘は newLine を省略 (mt hunk start が newLine:1 に合成)",
-            "   - position.side が new なら newLine、old なら oldLine に変換",
+            '   - filePath はリポジトリルートからの相対パスで必須。position は side:"new" のみ、newLine として hunk に渡す（general/oldLineは禁止。差分外の破壊は差分内の原因行に紐付けて記述）',
             "",
             `   変換結果を ${hunkCommentsPath} に JSON 配列として保存する (空配列でも保存する)。buildHunkComments 純粋関数を参照。`,
             "",
@@ -426,8 +444,9 @@ const def: WorkflowDef = {
             "",
             "## 制約",
             "",
-            "- findings.json のスキーマ検証を必ず行う (validateFindingsJson)",
+            "- findings.json のスキーマ検証を必ず行う (validateFindingsJson — filePath必須/position必須/side:new を検証)",
             "- ±2 行マージは純粋関数で決定論的に行う (LLM の判断でマージしない)",
+            "- diffフィルタは純粋関数 parseDiffChangedLines + filterFindingsByDiff で決定論的に行い、counts を再計算して filteredOut に透明に記録する",
             "- STML markup と summary を二重生成し、severity/taxonomy を継承する (must→issue, should/want→question)",
             "- workflow.db のループ制御に触れない",
             "",
@@ -450,6 +469,32 @@ const def: WorkflowDef = {
         const result = validateFindingsJson(raw);
         if (!result.valid) {
           return { status: "error", reasons: [result.error ?? "findings validation failed"] };
+        }
+        // 差分限定の機械的検証 — findings の全指摘が diff.txt の `+` 行に含まれることを検証
+        const diffRaw =
+          findArtifactText(ctx.artifacts as ArtifactRecord[], "diff.txt", ctx.sessionDir) ??
+          readSessionFile(ctx.sessionDir, "diff.txt");
+        if (diffRaw !== undefined) {
+          const changedMap = parseDiffChangedLines(diffRaw);
+          for (const f of result.parsed!.findings) {
+            const set = changedMap.get(f.filePath);
+            if (!set) {
+              return {
+                status: "fail",
+                reasons: [
+                  `finding at ${f.filePath}:${f.position.line} is not in diff (file_not_in_diff). diff.txt の \`+\` 行のみが指摘対象です。parseDiffChangedLines/filterFindingsByDiff で機械的に除外してください`,
+                ],
+              };
+            }
+            if (!set.has(f.position.line)) {
+              return {
+                status: "fail",
+                reasons: [
+                  `finding at ${f.filePath}:${f.position.line} is not in diff added lines (line_not_in_added). diff.txt の \`+\` 行のみが指摘対象です。parseDiffChangedLines/filterFindingsByDiff で機械的に除外してください`,
+                ],
+              };
+            }
+          }
         }
         const hunkRaw =
           findArtifactText(ctx.artifacts as ArtifactRecord[], HUNK_START_KEY, ctx.sessionDir) ??

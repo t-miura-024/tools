@@ -96,7 +96,8 @@ export const PERSPECTIVE_POOL: readonly Perspective[] = [
     name: "影響範囲",
     category: "ロジック",
     tier: 2,
-    summary: "波及・破壊的変更・テスト戦略、同種問題を抱える他箇所(横展開)",
+    summary:
+      "差分内の変更による波及・破壊的変更・テスト戦略。同種問題も差分内の原因行に紐付けて指摘し、差分外ファイルへの直接指摘は行わない",
   },
   {
     id: "ai-2",
@@ -112,7 +113,8 @@ export const PERSPECTIVE_POOL: readonly Perspective[] = [
     name: "関心事の分離",
     category: "アーキテクチャ",
     tier: 2,
-    summary: "ディレクトリ構成・モジュールの責務境界・関心事の分離",
+    summary:
+      "差分内の関心事の分離・ディレクトリ構成・モジュール責務境界。差分外の設計論は差分内の原因行に紐付けてのみ言及",
   },
   {
     id: "logic-4",
@@ -146,7 +148,8 @@ export const PERSPECTIVE_POOL: readonly Perspective[] = [
     name: "凝集度",
     category: "アーキテクチャ",
     tier: 3,
-    summary: "深い module か(浅い module 検出、凝集欠如)",
+    summary:
+      "差分内が深い module か（浅い module 検出、凝集欠如）。差分外の設計論は差分内の原因行に紐付けてのみ言及",
   },
   {
     id: "arch-3",
@@ -154,7 +157,8 @@ export const PERSPECTIVE_POOL: readonly Perspective[] = [
     name: "一貫性",
     category: "アーキテクチャ",
     tier: 4,
-    summary: "既存コードの思想・スタイル・設計パターンとの一致",
+    summary:
+      "差分内の既存コード思想・スタイル・パターンとの一致。差分外の設計論は差分内の原因行に紐付けてのみ言及",
   },
   {
     id: "arch-4",
@@ -162,7 +166,8 @@ export const PERSPECTIVE_POOL: readonly Perspective[] = [
     name: "ネーミング",
     category: "アーキテクチャ",
     tier: 4,
-    summary: "名前が意図を表すか、ドメイン概念の表現(Primitive Obsession 含む)",
+    summary:
+      "差分内の名前が意図を表すか、ドメイン概念の表現。差分外の設計論は差分内の原因行に紐付けてのみ言及",
   },
   {
     id: "arch-5",
@@ -170,7 +175,8 @@ export const PERSPECTIVE_POOL: readonly Perspective[] = [
     name: "結合度",
     category: "アーキテクチャ",
     tier: 5,
-    summary: "依存方向・過度な結合・変更の散らばり(Shotgun Surgery)",
+    summary:
+      "差分内の依存方向・過度な結合・変更の散らばり（Shotgun Surgery）。差分外の設計論は差分内の原因行に紐付けてのみ言及",
   },
 ] as const;
 
@@ -262,12 +268,26 @@ export interface Finding {
   suggestions?: string[];
 }
 
+export interface FilteredOutItem {
+  axis: string;
+  filePath?: string;
+  line?: number;
+  reason:
+    | "file_not_in_diff"
+    | "line_not_in_added"
+    | "missing_position"
+    | "old_side"
+    | "missing_filePath";
+  detail?: string;
+}
+
 export interface FindingsJson {
   round: number;
   width: Width;
   depth: Depth;
   findings: Finding[];
   counts: { must: number; should: number; want: number };
+  filteredOut?: { count: number; items: FilteredOutItem[] };
 }
 
 export interface VerdictJson {
@@ -405,21 +425,21 @@ export function validateFindingsJson(raw: string | undefined): {
     if (typeof item.detail !== "string" || !item.detail.trim()) {
       return { valid: false, error: "finding detail is missing or empty" };
     }
-    if (item.filePath !== undefined && typeof item.filePath !== "string") {
-      return { valid: false, error: "filePath must be string if present" };
+    if (typeof item.filePath !== "string" || !item.filePath.trim()) {
+      return { valid: false, error: "filePath is required and must be non-empty string" };
     }
-    if (item.position !== undefined) {
-      if (!isRecord(item.position)) return { valid: false, error: "position must be object" };
-      if (item.position.side !== "new" && item.position.side !== "old") {
-        return { valid: false, error: "position.side must be new or old" };
-      }
-      if (
-        typeof item.position.line !== "number" ||
-        !Number.isInteger(item.position.line) ||
-        item.position.line < 1
-      ) {
-        return { valid: false, error: "position.line must be positive integer" };
-      }
+    if (!isRecord(item.position)) {
+      return { valid: false, error: "position is required and must be object" };
+    }
+    if (item.position.side !== "new") {
+      return { valid: false, error: 'position.side must be "new"' };
+    }
+    if (
+      typeof item.position.line !== "number" ||
+      !Number.isInteger(item.position.line) ||
+      item.position.line < 1
+    ) {
+      return { valid: false, error: "position.line must be positive integer" };
     }
     if (item.suggestions !== undefined) {
       if (!Array.isArray(item.suggestions))
@@ -537,6 +557,159 @@ export function mergeFindingsByProximity(findings: Finding[]): Finding[] {
 }
 
 // =============================================================================
+// diff.txt パース — 追加行集合の抽出 (純粋関数) — D1/D2/D11 対応
+// =============================================================================
+
+export function parseDiffChangedLines(diffRaw: string | undefined): Map<string, Set<number>> {
+  const result = new Map<string, Set<number>>();
+  if (!diffRaw || !diffRaw.trim()) return result;
+
+  const lines = diffRaw.split("\n");
+  let currentFile: string | null = null;
+  let newLine = 0;
+  let inHunk = false;
+
+  for (const rawLine of lines) {
+    const line = rawLine;
+    if (line.startsWith("diff --git ")) {
+      currentFile = null;
+      inHunk = false;
+      continue;
+    }
+    if (line.startsWith("Binary files ")) {
+      // バイナリ差分は追加行なしとしてスキップ
+      currentFile = null;
+      inHunk = false;
+      continue;
+    }
+    if (line.startsWith("+++ ")) {
+      const rawPath = line.slice(4).trim();
+      // "+++ b/<path>" or "+++ /dev/null"
+      if (rawPath === "/dev/null" || rawPath === "b/dev/null") {
+        currentFile = null;
+      } else if (rawPath.startsWith("b/")) {
+        const filePath = rawPath.slice(2);
+        if (filePath && filePath !== "/dev/null") {
+          currentFile = filePath;
+          if (!result.has(currentFile)) result.set(currentFile, new Set<number>());
+        } else {
+          currentFile = null;
+        }
+      } else {
+        // 予期しない形式だが念のため b/ なしでも扱う
+        const filePath = rawPath;
+        if (filePath && filePath !== "/dev/null") {
+          currentFile = filePath;
+          if (!result.has(currentFile)) result.set(currentFile, new Set<number>());
+        } else {
+          currentFile = null;
+        }
+      }
+      inHunk = false;
+      continue;
+    }
+    if (line.startsWith("@@ ")) {
+      const match = line.match(/^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/);
+      if (match) {
+        newLine = Number.parseInt(match[1], 10);
+        inHunk = true;
+      } else {
+        inHunk = false;
+      }
+      continue;
+    }
+    if (!inHunk || currentFile === null) continue;
+    if (line.startsWith("+") && !line.startsWith("+++")) {
+      const set = result.get(currentFile);
+      if (set) set.add(newLine);
+      newLine++;
+    } else if (line.startsWith(" ")) {
+      newLine++;
+    } else if (line.startsWith("-") && !line.startsWith("---")) {
+      // old側削除は newLine を進めない
+    } else if (line.startsWith("\\")) {
+      // "\ No newline at end of file" — 無視
+    } else {
+      // hunk外のメタ行は無視（index, ---, etc.は既に処理済み）
+    }
+  }
+
+  // 空集合のファイル（バイナリや削除で追加行なし）は除外して返す（判定を file_not_in_diff に倒すため）
+  for (const [file, set] of result) {
+    if (set.size === 0) result.delete(file);
+  }
+
+  return result;
+}
+
+export function filterFindingsByDiff(
+  findings: Finding[],
+  changedLinesMap: Map<string, Set<number>>,
+): { kept: Finding[]; filteredOut: FilteredOutItem[] } {
+  const kept: Finding[] = [];
+  const filteredOut: FilteredOutItem[] = [];
+
+  for (const f of findings) {
+    const filePath = f.filePath?.trim() ?? "";
+    const position = f.position;
+    const line = position?.line;
+    const side = (position as unknown as { side?: string })?.side;
+
+    if (!filePath) {
+      filteredOut.push({
+        axis: f.axis,
+        reason: "missing_filePath",
+        detail: f.detail.slice(0, 120),
+      });
+      continue;
+    }
+    if (!position || typeof line !== "number" || !Number.isInteger(line) || line < 1) {
+      filteredOut.push({
+        axis: f.axis,
+        filePath,
+        reason: "missing_position",
+        detail: f.detail.slice(0, 120),
+      });
+      continue;
+    }
+    if (side !== "new") {
+      filteredOut.push({
+        axis: f.axis,
+        filePath,
+        line,
+        reason: "old_side",
+        detail: f.detail.slice(0, 120),
+      });
+      continue;
+    }
+    const set = changedLinesMap.get(filePath);
+    if (!set) {
+      filteredOut.push({
+        axis: f.axis,
+        filePath,
+        line,
+        reason: "file_not_in_diff",
+        detail: f.detail.slice(0, 120),
+      });
+      continue;
+    }
+    if (!set.has(line)) {
+      filteredOut.push({
+        axis: f.axis,
+        filePath,
+        line,
+        reason: "line_not_in_added",
+        detail: f.detail.slice(0, 120),
+      });
+      continue;
+    }
+    kept.push(f);
+  }
+
+  return { kept, filteredOut };
+}
+
+// =============================================================================
 // STML markup + summary 出力標準化 (純粋関数)
 // =============================================================================
 
@@ -636,8 +809,8 @@ function positionToHunkLines(
 ): { newLine?: number; oldLine?: number } | undefined {
   if (!isRecord(position)) return undefined;
   const line = position.line;
-  if (typeof line !== "number") return undefined;
-  if (position.side === "old") return { oldLine: line };
+  if (typeof line !== "number" || !Number.isInteger(line) || line < 1) return undefined;
+  if (position.side !== "new") return undefined;
   return { newLine: line };
 }
 
@@ -660,9 +833,11 @@ export function buildHunkComments(findingsRaw: string | undefined): JsonRecord[]
         if (severity !== "must" && severity !== "should" && severity !== "want") return null;
         if (typeof detail !== "string" || !detail.trim()) return null;
         const location = optionalLocation(r as JsonRecord);
-        const filePath = typeof location.filePath === "string" ? location.filePath : undefined;
+        if (typeof location.filePath !== "string" || !location.filePath.trim()) return null;
+        const filePath = location.filePath.trim();
         const positionLines = positionToHunkLines(location.position);
-        const line = positionLines?.newLine ?? positionLines?.oldLine;
+        if (!positionLines?.newLine) return null;
+        const line = positionLines.newLine;
         const rawSuggestions = (r.suggestions ??
           r.suggestion ??
           r.proposals ??
@@ -681,9 +856,7 @@ export function buildHunkComments(findingsRaw: string | undefined): JsonRecord[]
           severity: severity as Severity,
           detail: (detail as string).trim(),
           filePath,
-          position: isRecord(location.position)
-            ? (location.position as { side: "new" | "old"; line: number })
-            : undefined,
+          position: location.position as { side: "new"; line: number },
           line,
           positionLines,
           suggestions,
@@ -704,16 +877,17 @@ export function buildHunkComments(findingsRaw: string | undefined): JsonRecord[]
         axis: f.axis,
         severity: f.severity,
         detail: f.detail,
-        ...(f.filePath ? { filePath: f.filePath } : {}),
-        ...(f.position ? { position: f.position } : {}),
+        filePath: f.filePath,
+        position: f.position,
         ...(f.suggestions ? { suggestions: f.suggestions } : {}),
       })),
   );
 
   for (const f of merged) {
-    const filePath = f.filePath;
+    const filePath = f.filePath!;
     const positionLines = f.position ? positionToHunkLines(f.position) : undefined;
-    const line = positionLines?.newLine ?? positionLines?.oldLine;
+    if (!positionLines?.newLine) continue;
+    const line = positionLines.newLine;
     const { markup, summary } = formatReviewComment({
       severity: f.severity,
       axis: f.axis,
@@ -722,9 +896,7 @@ export function buildHunkComments(findingsRaw: string | undefined): JsonRecord[]
       line,
       suggestions: f.suggestions,
     });
-    const comment: JsonRecord = { summary, markup };
-    if (filePath) comment.filePath = filePath;
-    if (positionLines) Object.assign(comment, positionLines);
+    const comment: JsonRecord = { summary, markup, filePath, newLine: line };
     comments.push(comment);
   }
 
