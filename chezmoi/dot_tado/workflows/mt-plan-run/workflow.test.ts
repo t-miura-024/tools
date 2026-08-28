@@ -405,7 +405,7 @@ describe("formatComment snapshots", () => {
 
 describe("buildHunkComments integration", () => {
   it("generates markup and summary for mixed axes with and without line", () => {
-    // findings 形式（新 SoT）に合わせて構築 — axes ではなく findings 配列
+    // diff-only厳格化: filePath必須・position必須(side:new)のみがコメント化される
     const review = JSON.stringify({
       round: 1,
       width: "medium",
@@ -448,22 +448,26 @@ describe("buildHunkComments integration", () => {
       counts: { must: 2, should: 2, want: 1 },
     });
     const comments = buildHunkComments(review);
-    expect(comments).toHaveLength(5);
+    // filePathなし / old_side は除外され、new側のみが残る
+    expect(comments).toHaveLength(2);
     for (const c of comments) {
       expect(c.summary).toBeDefined();
       expect(c.markup).toBeDefined();
       expect(c.summary as string).not.toContain("[");
       expect(c.markup as string).toContain("<box");
       expect(c.markup as string).toContain("border-color=");
+      expect(c.filePath).toBeDefined();
+      expect(c.newLine).toBeDefined();
+      expect(c.oldLine).toBeUndefined();
     }
-    // line ありは newLine/oldLine が付与される
     const withLine = comments.find((c) => c.filePath === "src/a.ts");
     expect(withLine?.newLine).toBe(10);
-    const withoutLine = comments.find((c) => c.filePath === "src/b.ts");
-    expect(withoutLine?.newLine).toBeUndefined();
-    expect(withoutLine?.oldLine).toBeUndefined();
-    const oldLine = comments.find((c) => c.filePath === "src/c.ts");
-    expect(oldLine?.oldLine).toBe(5);
+    const withLine2 = comments.find((c) => c.filePath === "src/d.ts");
+    expect(withLine2?.newLine).toBe(99);
+    // filtered: b.ts / c.ts / e.ts は生成されない
+    expect(comments.find((c) => c.filePath === "src/b.ts")).toBeUndefined();
+    expect(comments.find((c) => c.filePath === "src/c.ts")).toBeUndefined();
+    expect(comments.find((c) => c.filePath === "src/e.ts")).toBeUndefined();
     // snapshot for stability
     expect(comments).toMatchSnapshot();
   });

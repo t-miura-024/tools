@@ -405,29 +405,6 @@ exports[`buildHunkComments integration generates markup and summary for mixed ax
     "summary": "🚨 must · 🐛 issue · 🎯 req-1 | src/a.ts:10 — essential must detail",
   },
   {
-    "filePath": "src/b.ts",
-    "markup": 
-"<box border border-color="warning" padding-x="1" padding-y="1" title="⚠️ should · 🙋 question · 🎯 req-1">
-<text><dim>📁 src/b.ts</dim></text>
-<spacer size="1" />
-<text>essential should detail</text>
-</box>"
-,
-    "summary": "⚠️ should · 🙋 question · 🎯 req-1 | src/b.ts — essential should detail",
-  },
-  {
-    "filePath": "src/c.ts",
-    "markup": 
-"<box border border-color="muted" padding-x="1" padding-y="1" title="💡 want · 🙋 question · 📋 req-2">
-<text><dim>📁 src/c.ts:5</dim></text>
-<spacer size="1" />
-<text>acceptance want detail</text>
-</box>"
-,
-    "oldLine": 5,
-    "summary": "💡 want · 🙋 question · 📋 req-2 | src/c.ts:5 — acceptance want detail",
-  },
-  {
     "filePath": "src/d.ts",
     "markup": 
 "<box border border-color="danger" padding-x="1" padding-y="1" title="🚨 must · 🐛 issue · 🧭 logic-3">
@@ -438,17 +415,6 @@ exports[`buildHunkComments integration generates markup and summary for mixed ax
 ,
     "newLine": 99,
     "summary": "🚨 must · 🐛 issue · 🧭 logic-3 | src/d.ts:99 — align must <escape> & test",
-  },
-  {
-    "filePath": "src/e.ts",
-    "markup": 
-"<box border border-color="warning" padding-x="1" padding-y="1" title="⚠️ should · 🙋 question · 🧩 arch-1">
-<text><dim>📁 src/e.ts</dim></text>
-<spacer size="1" />
-<text>quality should detail<br/>second line</text>
-</box>"
-,
-    "summary": "⚠️ should · 🙋 question · 🧩 arch-1 | src/e.ts — quality should detail",
   },
 ]
 `;
