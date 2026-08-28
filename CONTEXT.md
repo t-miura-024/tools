@@ -161,3 +161,45 @@ _Avoid_: リネーム, プレフィックス付与
 **テスト基盤**:
 `bun:test` ビルトインランナー。`vitest` 依存を削除し `from "bun:test"` で実行する。`package.json` は不要。
 _Avoid_: vitest, npm test
+
+## 敵対的検証機構
+
+**effort**:
+検証強度の総称。width と depth の 2 軸で構成される。
+_Avoid_: 強度, intensity
+
+**width**:
+採用する検証観点の広がり。5 段階で値が大きいほど観点数が増える。
+_Avoid_: 幅, coverage
+
+**depth**:
+1 検証者 SubAgent が受け持つ観点数で決まる検証の深さ。担当観点数が少ないほど深い。値域は max 1:1〜low 1:all。
+_Avoid_: 深さ, thoroughness
+
+**検証観点**:
+差分を敵対的に崩す独立した視座。旧資材のマクロ/ミクロ/共通を正規化した 15 観点のプールで管理する。
+_Avoid_: レビュー観点, perspective
+
+**ティア**:
+検証観点プールの優先度階層。T1 最優先〜T5。width が採用するティア数を決める。低 width は T1 のみ、高 width は全ティア。
+_Avoid_: priority, level
+
+**hunk 方式**:
+`mt hunk` CLI（TUI 検証セッション）を使い、指摘を差分 hunk 上のコメントとして管理する方式。
+_Avoid_: hunk レビュー, 差分コメント方式
+
+**findings**:
+検証者 SubAgent が出力する生指摘の構造化データ。axis/severity/detail/position を持ち、findings.json として集約される。旧 agent-review.json の後継。
+_Avoid_: 指摘, review result
+
+**verdict**:
+敵対的検証後の判定結果。passed/blocked、blocking_threads、round 番号を持ち、verdict.json として出力される。
+_Avoid_: 判定, review result
+
+**Step import**:
+tado ワークフロー定義から個別の Step をモジュールとして他ワークフローへ取り込む再利用方式。新ワークフロー定義が SoT。
+_Avoid_: shared, 共通化
+
+**敵対的検証**:
+差分を「正しいことの確認」ではなく「崩せるかという反証」の視座で容赦なく突く検証スタンス。攻撃者・利用者・保守者の敵対的視点で弱点・前提崩れ・悪用可能性を暴露する。
+_Avoid_: レビュー, code review

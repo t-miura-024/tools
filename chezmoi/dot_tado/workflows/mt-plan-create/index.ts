@@ -1,5 +1,6 @@
 import type { WorkflowDef, CheckCtx, PromptCtx, CheckResult, InitCtx, ArtifactRecord } from "tado";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
+import fs from "node:fs";
 import { readFileSync, writeFileSync } from "node:fs";
 import { execSync } from "node:child_process";
 import { loadConfig } from "../_shared/mt-plan-init-config";
@@ -8,10 +9,58 @@ import { loadConfig } from "../_shared/mt-plan-init-config";
 // Helpers
 // ---------------------------------------------------------------------------
 
+function isPathInside(base: string, target: string): boolean {
+  const normalizedBase = resolve(base);
+  const normalizedTarget = resolve(target);
+  let realBase: string;
+  try {
+    realBase = fs.realpathSync(normalizedBase);
+  } catch {
+    realBase = normalizedBase;
+  }
+  let realTarget: string;
+  try {
+    realTarget = fs.realpathSync(normalizedTarget);
+  } catch {
+    try {
+      const sep = normalizedTarget.lastIndexOf("/");
+      const parent = sep > 0 ? normalizedTarget.slice(0, sep) : sep === 0 ? "/" : ".";
+      const realParent = fs.realpathSync(parent);
+      const rest = normalizedTarget.slice(parent.length);
+      realTarget = realParent + rest;
+    } catch {
+      realTarget = normalizedTarget;
+    }
+  }
+  return realTarget === realBase || realTarget.startsWith(realBase + "/");
+}
+
 function findArtifactText(artifacts: ArtifactRecord[], key: string): string {
   const match = artifacts.find((a) => a.artifactKey === key);
   if (!match) throw new Error(`Artifact not found: ${key}`);
-  return readFileSync(match.filePath, "utf-8");
+  const resolved = resolve(match.filePath);
+  if (match.filePath.includes("..")) {
+    throw new Error(`path traversal detected: ${match.filePath}`);
+  }
+  if (!isPathInside(process.cwd(), resolved) && resolved.includes("..")) {
+    throw new Error(`path traversal detected: ${match.filePath}`);
+  }
+  return readFileSync(resolved, "utf-8");
+}
+
+// oxlint-disable-next-line no-unused-vars
+function readSessionFile(sessionDir: string, fileName: string): string | undefined {
+  const fullPath = join(sessionDir, fileName);
+  if (!isPathInside(sessionDir, fullPath)) {
+    throw new Error(`path traversal detected: ${fullPath}`);
+  }
+  try {
+    return fs.readFileSync(fullPath, "utf-8") as string;
+  } catch (e) {
+    const err = e as NodeJS.ErrnoException;
+    if (err.code === "ENOENT") return undefined;
+    throw e;
+  }
 }
 
 interface RepoInfo {

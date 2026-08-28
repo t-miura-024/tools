@@ -2,7 +2,11 @@ import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import def, { buildHunkComments, formatComment } from "./index.ts";
+import def from "./index.ts";
+import {
+  buildHunkComments,
+  formatReviewComment as formatComment,
+} from "../_shared/mt-review-helpers.ts";
 import type { CheckCtx } from "tado";
 
 const stepCheck = (key: string) => def.steps.find((s) => s.key === key)!.check;
@@ -98,96 +102,144 @@ exit 1`,
     });
   });
 
-  describe("start_hunk_review", () => {
-    it("hunk-start.json が session:null の偽装なら fail", () => {
+  // 旧 start_hunk_review / await_review / check_hunk は Step import により
+  // resolve_effort / collect_context / run_reviewers / publish_findings / await_human_review / collect_verdict に置換されたため削除
+  // 新ワークフローの品質規律は mt-review-diff 側で純粋関数テストとして担保する
+  describe("publish_findings (Step import)", () => {
+    it("valid findings.json があれば pass", () => {
+      const findings = {
+        round: 1,
+        width: "medium",
+        depth: "medium",
+        findings: [],
+        counts: { must: 0, should: 0, want: 0 },
+      };
+      fs.writeFileSync(path.join(sessionDir, "findings.json"), JSON.stringify(findings));
       fakeMt({ statusOutput: "hunk review session: active" });
+      const result = stepCheck("publish_findings")(makeCtx());
+      expect(result.status).toBe("pass");
+    });
+
+    it("findings.json が不正なら error", () => {
+      fs.writeFileSync(path.join(sessionDir, "findings.json"), "not json");
+      fakeMt({ statusOutput: "hunk review session: active" });
+      const result = stepCheck("publish_findings")(makeCtx());
+      expect(result.status).toBe("error");
+    });
+
+    it("hunk-start.json が session:null なら fail", () => {
+      const findings = {
+        round: 1,
+        width: "medium",
+        depth: "medium",
+        findings: [],
+        counts: { must: 0, should: 0, want: 0 },
+      };
+      fs.writeFileSync(path.join(sessionDir, "findings.json"), JSON.stringify(findings));
       fs.writeFileSync(path.join(sessionDir, "hunk-start.json"), '{"session":null}\n');
-
-      const result = stepCheck("start_hunk_review")(makeCtx());
-
-      expect(result.status).toBe("fail");
-    });
-
-    it("session があり mt hunk status が active なら pass", () => {
       fakeMt({ statusOutput: "hunk review session: active" });
-      fs.writeFileSync(
-        path.join(sessionDir, "hunk-start.json"),
-        '{"session":{"sessionId":"s1"},"comments":[]}\n',
-      );
-
-      const result = stepCheck("start_hunk_review")(makeCtx());
-
-      expect(result.status).toBe("pass");
+      const result = stepCheck("publish_findings")(makeCtx());
+      expect(result.status).toBe("fail");
     });
   });
 
-  describe("await_review", () => {
-    it("mt hunk status が inactive なら fail", () => {
+  describe("await_human_review (Step import)", () => {
+    // strict: none は fail — hunk セッション未起動の厳密検出
+    it("hunk session none なら fail (strict)", () => {
       fakeMt({ statusOutput: "hunk review session: none" });
-
-      const result = stepCheck("await_review")(makeCtx());
-
-      expect(result.status).toBe("fail");
+      const resultNone = stepCheck("await_human_review")(makeCtx());
+      expect(resultNone.status).toBe("fail");
     });
 
-    it("mt hunk status が active なら pass", () => {
+    // 寛容: active は pass — tracer bullet で hunk が active なら即 pass
+    it("hunk session active なら pass (tracer bullet 寛容)", () => {
       fakeMt({ statusOutput: "hunk review session: active" });
-
-      const result = stepCheck("await_review")(makeCtx());
-
-      expect(result.status).toBe("pass");
+      const resultActive = stepCheck("await_human_review")(makeCtx());
+      expect(resultActive.status).toBe("pass");
     });
   });
 
-  describe("check_hunk", () => {
-    it("正実 pass なら pass し gate JSON を永続化する", () => {
-      const gate = { passes: true, blocking_threads: [] };
+  describe("collect_verdict (Step import, round上限3)", () => {
+    it("findings must=0 なら pass（合成）", () => {
+      const findings = {
+        round: 1,
+        width: "medium",
+        depth: "medium",
+        findings: [],
+        counts: { must: 0, should: 0, want: 0 },
+      };
+      const verdict = {
+        round: 1,
+        width: "medium",
+        depth: "medium",
+        passed: true,
+        blocking_threads: [],
+      };
+      fs.writeFileSync(path.join(sessionDir, "findings.json"), JSON.stringify(findings));
+      fs.writeFileSync(path.join(sessionDir, "verdict.json"), JSON.stringify(verdict));
       fakeMt({
         statusOutput: "hunk review session: active",
-        checkJson: JSON.stringify(gate),
+        checkJson: JSON.stringify({ passes: true, blocking_threads: [] }),
         checkExit: 0,
       });
-
-      const result = stepCheck("check_hunk")(
-        makeCtx({ attemptResult: { status: "completed", subagentOutput: JSON.stringify(gate) } }),
+      const result = stepCheck("collect_verdict")(
+        makeCtx({
+          attemptResult: { status: "completed", subagentOutput: JSON.stringify(verdict) },
+        }),
       );
-
       expect(result.status).toBe("pass");
-      const persisted = JSON.parse(
-        fs.readFileSync(path.join(sessionDir, "hunk-check.json"), "utf-8"),
-      );
-      expect(persisted).toEqual(gate);
     });
 
-    it("正実 block なら blocking_threads を reasons にして fail", () => {
-      const gate = {
-        passes: false,
-        blocking_threads: [
-          {
-            id: "n1",
-            file: "a.ts",
-            line: 10,
-            taxonomy: "question",
-            body: "[question] fix me",
-            replies: [],
-          },
-        ],
+    it("round 4 は limit exceeded で fail/error", () => {
+      const findings = {
+        round: 4,
+        width: "medium",
+        depth: "medium",
+        findings: [],
+        counts: { must: 0, should: 0, want: 0 },
       };
+      const verdict = {
+        round: 4,
+        width: "medium",
+        depth: "medium",
+        passed: true,
+        blocking_threads: [],
+      };
+      fs.writeFileSync(path.join(sessionDir, "findings.json"), JSON.stringify(findings));
+      fs.writeFileSync(path.join(sessionDir, "verdict.json"), JSON.stringify(verdict));
       fakeMt({
         statusOutput: "hunk review session: active",
-        checkJson: JSON.stringify(gate),
-        checkExit: 1,
+        checkJson: JSON.stringify({ passes: true, blocking_threads: [] }),
+        checkExit: 0,
       });
-
-      const result = stepCheck("check_hunk")(
-        makeCtx({ attemptResult: { status: "completed", subagentOutput: JSON.stringify(gate) } }),
+      const result = stepCheck("collect_verdict")(
+        makeCtx({
+          attemptResult: { status: "completed", subagentOutput: JSON.stringify(verdict) },
+        }),
       );
-
-      expect(result.status).toBe("fail");
-      expect(result.reasons.join("\n")).toContain("[question] fix me");
+      expect(["fail", "error"]).toContain(result.status);
+      expect(result.reasons.join("\n")).toContain("round limit");
     });
 
-    it("report が pass 偽装でも daemon が block なら不一致 fail", () => {
+    it("daemon が block なのに verdict が pass 偽装なら fail (daemon 偽装検出)", () => {
+      const findings = {
+        round: 1,
+        width: "medium",
+        depth: "medium",
+        findings: [],
+        counts: { must: 0, should: 0, want: 0 },
+      };
+      // verdict に passes を含めて daemon 照合を発火させる（validateVerdict は passed を見るが parseHunkCheck は passes を見る）
+      const verdict = {
+        round: 1,
+        width: "medium",
+        depth: "medium",
+        passed: true,
+        passes: true,
+        blocking_threads: [],
+      } as unknown as Record<string, unknown>;
+      fs.writeFileSync(path.join(sessionDir, "findings.json"), JSON.stringify(findings));
+      fs.writeFileSync(path.join(sessionDir, "verdict.json"), JSON.stringify(verdict));
       const daemonGate = {
         passes: false,
         blocking_threads: [{ id: "n1", taxonomy: "issue", body: "[issue] real", replies: [] }],
@@ -197,21 +249,24 @@ exit 1`,
         checkJson: JSON.stringify(daemonGate),
         checkExit: 1,
       });
-
-      const result = stepCheck("check_hunk")(
+      const result = stepCheck("collect_verdict")(
         makeCtx({
-          attemptResult: {
-            status: "completed",
-            subagentOutput: JSON.stringify({ passes: true, blocking_threads: [] }),
-          },
+          attemptResult: { status: "completed", subagentOutput: JSON.stringify(verdict) },
         }),
       );
-
       expect(result.status).toBe("fail");
       expect(result.reasons.join("\n")).toContain("does not match");
     });
 
-    it("blocking_threads を改変した report は不一致 fail", () => {
+    it("blocking_threads を改変した verdict は不一致 fail (daemon 偽装検出)", () => {
+      const findings = {
+        round: 1,
+        width: "medium",
+        depth: "medium",
+        findings: [],
+        counts: { must: 0, should: 0, want: 0 },
+      };
+      fs.writeFileSync(path.join(sessionDir, "findings.json"), JSON.stringify(findings));
       const daemonGate = {
         passes: false,
         blocking_threads: [{ id: "n1", taxonomy: "issue", body: "[issue] real", replies: [] }],
@@ -222,16 +277,19 @@ exit 1`,
         checkExit: 1,
       });
       const tampered = {
+        round: 1,
+        width: "medium",
+        depth: "medium",
+        passed: false,
         passes: false,
         blocking_threads: [{ id: "n1", taxonomy: "issue", body: "[issue] rewritten", replies: [] }],
-      };
-
-      const result = stepCheck("check_hunk")(
+      } as unknown as Record<string, unknown>;
+      fs.writeFileSync(path.join(sessionDir, "verdict.json"), JSON.stringify(tampered));
+      const result = stepCheck("collect_verdict")(
         makeCtx({
           attemptResult: { status: "completed", subagentOutput: JSON.stringify(tampered) },
         }),
       );
-
       expect(result.status).toBe("fail");
       expect(result.reasons.join("\n")).toContain("does not match");
     });
@@ -239,7 +297,7 @@ exit 1`,
 });
 
 describe("formatComment snapshots", () => {
-  const axes = ["essentiality", "acceptance", "scope", "alignment", "quality"] as const;
+  const axes = ["req-1", "req-2", "logic-1", "logic-2", "arch-1"] as const;
   const severities = ["must", "should", "want"] as const;
   const detail = "サンプルの詳細テキスト。レビュー指摘の内容がここに入ります。";
 
@@ -273,7 +331,7 @@ describe("formatComment snapshots", () => {
     const longDetail = "a".repeat(100) + " 詳細続き";
     const result = formatComment({
       severity: "must",
-      axis: "acceptance",
+      axis: "req-2",
       detail: longDetail,
       filePath: "src/long.ts",
       line: 10,
@@ -285,7 +343,7 @@ describe("formatComment snapshots", () => {
   it("escapes STML special chars in markup", () => {
     const result = formatComment({
       severity: "should",
-      axis: "scope",
+      axis: "logic-1",
       detail: "if (a < b && c > d) { & check }",
       filePath: "src/escape.ts",
       line: 5,
@@ -299,7 +357,7 @@ describe("formatComment snapshots", () => {
   it("renders suggestions as list when provided", () => {
     const result = formatComment({
       severity: "want",
-      axis: "quality",
+      axis: "arch-1",
       detail: "改善提案あり",
       filePath: "src/with-suggest.ts",
       line: 7,
@@ -313,7 +371,7 @@ describe("formatComment snapshots", () => {
   it("omits list when suggestions empty", () => {
     const result = formatComment({
       severity: "must",
-      axis: "essentiality",
+      axis: "req-1",
       detail: "詳細のみ",
       filePath: "src/no-suggest.ts",
       line: 1,
@@ -324,7 +382,7 @@ describe("formatComment snapshots", () => {
   it("handles multiline detail with br", () => {
     const result = formatComment({
       severity: "should",
-      axis: "alignment",
+      axis: "logic-3",
       detail: "1行目\n2行目\n3行目",
       filePath: "src/multi.ts",
       line: 3,
@@ -337,7 +395,7 @@ describe("formatComment snapshots", () => {
   it("handles general target when filePath missing", () => {
     const result = formatComment({
       severity: "must",
-      axis: "scope",
+      axis: "logic-1",
       detail: "ファイルレベル指摘",
     });
     expect(result.summary).toContain("general");
@@ -347,46 +405,49 @@ describe("formatComment snapshots", () => {
 
 describe("buildHunkComments integration", () => {
   it("generates markup and summary for mixed axes with and without line", () => {
-    const review = {
+    // findings 形式（新 SoT）に合わせて構築 — axes ではなく findings 配列
+    const review = JSON.stringify({
       round: 1,
-      axes: {
-        essentiality: [
-          {
-            severity: "must",
-            detail: "essential must detail",
-            filePath: "src/a.ts",
-            position: { side: "new", line: 10 },
-          },
-          { severity: "should", detail: "essential should detail", filePath: "src/b.ts" },
-        ],
-        acceptance: [
-          {
-            severity: "want",
-            detail: "acceptance want detail",
-            filePath: "src/c.ts",
-            position: { side: "old", line: 5 },
-          },
-        ],
-        scope: [],
-        alignment: [
-          {
-            severity: "must",
-            detail: "align must <escape> & test",
-            filePath: "src/d.ts",
-            position: { side: "new", line: 99 },
-          },
-        ],
-        quality: [
-          {
-            severity: "should",
-            detail: "quality should detail\nsecond line",
-            filePath: "src/e.ts",
-          },
-        ],
-      },
+      width: "medium",
+      depth: "medium",
+      findings: [
+        {
+          axis: "req-1",
+          severity: "must",
+          detail: "essential must detail",
+          filePath: "src/a.ts",
+          position: { side: "new", line: 10 },
+        },
+        {
+          axis: "req-1",
+          severity: "should",
+          detail: "essential should detail",
+          filePath: "src/b.ts",
+        },
+        {
+          axis: "req-2",
+          severity: "want",
+          detail: "acceptance want detail",
+          filePath: "src/c.ts",
+          position: { side: "old", line: 5 },
+        },
+        {
+          axis: "logic-3",
+          severity: "must",
+          detail: "align must <escape> & test",
+          filePath: "src/d.ts",
+          position: { side: "new", line: 99 },
+        },
+        {
+          axis: "arch-1",
+          severity: "should",
+          detail: "quality should detail\nsecond line",
+          filePath: "src/e.ts",
+        },
+      ],
       counts: { must: 2, should: 2, want: 1 },
-    };
-    const comments = buildHunkComments(JSON.stringify(review));
+    });
+    const comments = buildHunkComments(review);
     expect(comments).toHaveLength(5);
     for (const c of comments) {
       expect(c.summary).toBeDefined();
@@ -408,26 +469,23 @@ describe("buildHunkComments integration", () => {
   });
 
   it("ignores suggestion field gracefully when present", () => {
-    const review = {
+    const review = JSON.stringify({
       round: 1,
-      axes: {
-        essentiality: [
-          {
-            severity: "must",
-            detail: "detail with suggestion",
-            filePath: "src/f.ts",
-            position: { side: "new", line: 1 },
-            suggestions: ["do X", "do Y"],
-          },
-        ],
-        acceptance: [],
-        scope: [],
-        alignment: [],
-        quality: [],
-      },
+      width: "medium",
+      depth: "medium",
+      findings: [
+        {
+          axis: "req-1",
+          severity: "must",
+          detail: "detail with suggestion",
+          filePath: "src/f.ts",
+          position: { side: "new", line: 1 },
+          suggestions: ["do X", "do Y"],
+        },
+      ],
       counts: { must: 1, should: 0, want: 0 },
-    };
-    const comments = buildHunkComments(JSON.stringify(review));
+    });
+    const comments = buildHunkComments(review);
     expect(comments).toHaveLength(1);
     expect(comments[0].markup as string).toContain("<list>");
     expect(comments[0].markup as string).toContain("do X");
@@ -445,9 +503,9 @@ describe("buildHunkComments integration", () => {
       axis: string;
       expectedEmoji: string;
     }> = [
-      { severity: "must", axis: "essentiality", expectedEmoji: "🚨" },
-      { severity: "should", axis: "acceptance", expectedEmoji: "⚠️" },
-      { severity: "want", axis: "quality", expectedEmoji: "💡" },
+      { severity: "must", axis: "req-1", expectedEmoji: "🚨" },
+      { severity: "should", axis: "req-2", expectedEmoji: "⚠️" },
+      { severity: "want", axis: "logic-1", expectedEmoji: "💡" },
     ];
     for (const c of cases) {
       const r = formatComment({
@@ -460,11 +518,11 @@ describe("buildHunkComments integration", () => {
       expect(r.summary).toContain(c.expectedEmoji);
     }
     const axisCases = [
-      { axis: "essentiality", emoji: "🎯" },
-      { axis: "acceptance", emoji: "✅" },
-      { axis: "scope", emoji: "📦" },
-      { axis: "alignment", emoji: "🧭" },
-      { axis: "quality", emoji: "✨" },
+      { axis: "req-1", emoji: "🎯" },
+      { axis: "req-2", emoji: "📋" },
+      { axis: "logic-1", emoji: "🛡️" },
+      { axis: "logic-2", emoji: "🔒" },
+      { axis: "arch-1", emoji: "🧩" },
     ];
     for (const c of axisCases) {
       const r = formatComment({
