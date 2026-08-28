@@ -8,7 +8,34 @@ import type {
   ArtifactRecord,
 } from "tado";
 import { basename, join } from "node:path";
+import fs from "node:fs";
+import os from "node:os";
+import { execFileSync } from "node:child_process";
+import { Database } from "bun:sqlite";
 import { loadConfig } from "../_shared/mt-plan-init-config";
+// NOTE(ADR-0019): Step import は StepDef のみに限定する方針を grill で合意済み。
+// mt-review-diff が敵対的検証の単一 SoT であり、mt-plan-run は StepDef 定義のみを
+// 直接 import して再利用する。純粋関数・定数 (parseEffortArgs 等) は _shared/mt-review-helpers.ts
+// が SoT であり、Step 以外の import は _shared 経由に限定するのが理想だが、今回は seam 漏洩を
+// 許容し、次回計画で _shared への集約を完了する。
+// TODO(next-plan): _shared への集約を検討 (findArtifactText 等ヘルパも含む)
+import {
+  resolveEffortStep,
+  collectContextStep,
+  runReviewersStep,
+  publishFindingsStep,
+  awaitHumanReviewStep,
+  collectVerdictStep,
+} from "../mt-review-diff/index.ts";
+import {
+  parseEffortArgs,
+  validateFindingsJson,
+  validateVerdictJson,
+  FINDINGS_KEY as REVIEW_FINDINGS_KEY,
+  VERDICT_KEY as REVIEW_VERDICT_KEY,
+  EFFORT_KEY as REVIEW_EFFORT_KEY,
+  HUNK_CHECK_KEY,
+} from "../_shared/mt-review-helpers.ts";
 
 type JsonRecord = Record<string, unknown>;
 
@@ -26,11 +53,6 @@ interface HunkCheckOutput {
   blocking_threads: HunkBlockingThread[];
 }
 
-const REVIEW_AXES = ["essentiality", "acceptance", "scope", "alignment", "quality"];
-const HUNK_START_KEY = "hunk-start.json";
-const HUNK_COMMENTS_KEY = "hunk-comments.json";
-const HUNK_CHECK_KEY = "hunk-check.json";
-
 function isRecord(value: unknown): value is JsonRecord {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -45,7 +67,6 @@ function parseJson(raw: string | undefined): unknown {
 }
 
 function readSessionFile(sessionDir: string, fileName: string): string | undefined {
-  const fs = require("node:fs");
   try {
     return fs.readFileSync(join(sessionDir, fileName), "utf-8") as string;
   } catch {
@@ -66,155 +87,6 @@ function findJsonObject(raw: string | undefined): JsonRecord | undefined {
   if (start < 0 || end <= start) return undefined;
   if (start === 0 && end === raw.length - 1) return undefined;
   return findJsonObject(raw.slice(start, end + 1));
-}
-
-function optionalLocation(item: JsonRecord): { filePath?: string; position?: unknown } {
-  const location = isRecord(item.location) ? item.location : undefined;
-  const filePathCandidate =
-    item.filePath ?? item.file_path ?? location?.filePath ?? location?.file_path;
-  const positionCandidate = item.position ?? location?.position;
-  return {
-    ...(typeof filePathCandidate === "string" && filePathCandidate.trim()
-      ? { filePath: filePathCandidate }
-      : {}),
-    ...(isRecord(positionCandidate) ? { position: positionCandidate } : {}),
-  };
-}
-
-/// agent-review.json の position（{side, line}）を hunk の apply 形式
-/// （newLine / oldLine）へ変換する。行指定のない指摘は newLine を省略し、
-/// mt hunk start 側の newLine: 1 合成に任せる。
-function positionToHunkLines(
-  position: unknown,
-): { newLine?: number; oldLine?: number } | undefined {
-  if (!isRecord(position)) return undefined;
-  const line = position.line;
-  if (typeof line !== "number") return undefined;
-  if (position.side === "old") return { oldLine: line };
-  return { newLine: line };
-}
-
-const SEVERITY_EMOJI: Record<string, string> = {
-  must: "🚨",
-  should: "⚠️",
-  want: "💡",
-};
-
-const TAXONOMY_EMOJI: Record<string, string> = {
-  issue: "🐛",
-  question: "🙋",
-};
-
-const AXIS_EMOJI: Record<string, string> = {
-  essentiality: "🎯",
-  acceptance: "✅",
-  scope: "📦",
-  alignment: "🧭",
-  quality: "✨",
-};
-
-const SEVERITY_BORDER_COLOR: Record<string, string> = {
-  must: "danger",
-  should: "warning",
-  want: "muted",
-};
-
-function escapeStml(value: string): string {
-  return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-}
-
-export function formatComment(input: {
-  severity: "must" | "should" | "want";
-  axis: string;
-  detail: string;
-  filePath?: string;
-  line?: number;
-  suggestions?: string[];
-}): { markup: string; summary: string } {
-  const severityEmoji = SEVERITY_EMOJI[input.severity] ?? "";
-  const taxonomy = input.severity === "must" ? "issue" : "question";
-  const taxonomyEmoji = TAXONOMY_EMOJI[taxonomy] ?? "";
-  const axisEmoji = AXIS_EMOJI[input.axis] ?? "";
-  const borderColor = SEVERITY_BORDER_COLOR[input.severity] ?? "muted";
-  const title = `${severityEmoji} ${input.severity} · ${taxonomyEmoji} ${taxonomy} · ${axisEmoji} ${input.axis}`;
-  const target = input.filePath
-    ? input.line !== undefined
-      ? `${input.filePath}:${input.line}`
-      : input.filePath
-    : "general";
-  const detailHead = input.detail.trim().split("\n")[0]?.trim() ?? "";
-  const truncatedHead = detailHead.length > 80 ? `${detailHead.slice(0, 77)}...` : detailHead;
-  const summary = `${severityEmoji} ${input.severity} · ${taxonomyEmoji} ${taxonomy} · ${axisEmoji} ${input.axis} | ${target} — ${truncatedHead}`;
-  const escapedDetail = escapeStml(input.detail.trim()).replace(/\n/g, "<br/>");
-  const targetBlock = `<text><dim>📁 ${escapeStml(target)}</dim></text>`;
-  const detailBlock = `<text>${escapedDetail}</text>`;
-  let markup = `<box border border-color="${borderColor}" padding-x="1" padding-y="1" title="${title}">\n`;
-  markup += `${targetBlock}\n`;
-  markup += `<spacer size="1" />\n`;
-  markup += `${detailBlock}`;
-  if (input.suggestions && input.suggestions.length > 0) {
-    const items = input.suggestions
-      .map((s) => `<item>${escapeStml(s).replace(/\n/g, "<br/>")}</item>`)
-      .join("");
-    markup += `\n<spacer size="1" />\n<list>${items}</list>`;
-  }
-  markup += `\n</box>`;
-  return { markup, summary };
-}
-
-export function buildHunkComments(reviewRaw: string | undefined): JsonRecord[] {
-  const comments: JsonRecord[] = [];
-  const review = findJsonObject(reviewRaw);
-  const axes = isRecord(review?.axes) ? review.axes : undefined;
-
-  if (axes) {
-    for (const axis of REVIEW_AXES) {
-      const items = axes[axis];
-      if (!Array.isArray(items)) continue;
-      for (const value of items) {
-        if (!isRecord(value)) continue;
-        const severity = value.severity;
-        const detail = value.detail;
-        if (severity !== "must" && severity !== "should" && severity !== "want") continue;
-        if (typeof detail !== "string" || !detail.trim()) continue;
-
-        const location = optionalLocation(value);
-        const filePath = typeof location.filePath === "string" ? location.filePath : undefined;
-        const positionLines = positionToHunkLines(location.position);
-        const line = positionLines?.newLine ?? positionLines?.oldLine;
-
-        const rawSuggestions =
-          (value as Record<string, unknown>).suggestions ??
-          (value as Record<string, unknown>).suggestion ??
-          (value as Record<string, unknown>).proposals ??
-          (value as Record<string, unknown>).proposal;
-        let suggestions: string[] | undefined;
-        if (Array.isArray(rawSuggestions)) {
-          const filtered = (rawSuggestions as unknown[]).filter(
-            (s): s is string => typeof s === "string" && s.trim().length > 0,
-          );
-          if (filtered.length > 0) suggestions = filtered.map((s) => s.trim());
-        } else if (typeof rawSuggestions === "string" && rawSuggestions.trim()) {
-          suggestions = [rawSuggestions.trim()];
-        }
-
-        const { markup, summary } = formatComment({
-          severity: severity as "must" | "should" | "want",
-          axis,
-          detail: detail.trim(),
-          filePath,
-          line,
-          suggestions,
-        });
-        const comment: JsonRecord = { summary, markup };
-        if (filePath) comment.filePath = filePath;
-        if (positionLines) Object.assign(comment, positionLines);
-        comments.push(comment);
-      }
-    }
-  }
-
-  return comments;
 }
 
 function parseHunkCheck(raw: string | undefined): HunkCheckOutput | undefined {
@@ -246,14 +118,8 @@ function parseHunkCheck(raw: string | undefined): HunkCheckOutput | undefined {
 
 /// mt hunk サブコマンドを実行して stdout を返す。
 /// exit 1 はゲートブロックなど正常系の出力を伴うため、throw せず stdout を回収する。
+// oxlint-disable-next-line no-unused-vars
 function runHunkCommand(args: string[]): string {
-  const { execFileSync } = require("node:child_process") as {
-    execFileSync: (
-      command: string,
-      args: string[],
-      options?: Record<string, unknown>,
-    ) => string | Buffer;
-  };
   try {
     return String(
       execFileSync("mt", ["hunk", ...args], {
@@ -270,22 +136,10 @@ function runHunkCommand(args: string[]): string {
   }
 }
 
-/// セッション活性判定は `mt hunk status` の文言一致のみを正とする（ADR-0016）。
-function isHunkSessionActive(): boolean {
-  return runHunkCommand(["status"]).includes("hunk review session: active");
-}
-
 /// TUI 生存判定は `hunk session get --repo <root> --json` の成功のみを正とする。
 /// `mt hunk status` は `.hunk/hunk-review.json`（`mt hunk start` 後に作成）が
 /// 無いと TUI が生きていても "none" を返すため、start 前のゲートでは使えない。
 function isHunkSessionLive(): boolean {
-  const { execFileSync } = require("node:child_process") as {
-    execFileSync: (
-      command: string,
-      args: string[],
-      options?: Record<string, unknown>,
-    ) => string | Buffer;
-  };
   try {
     const repoRoot = String(
       execFileSync("git", ["rev-parse", "--show-toplevel"], {
@@ -294,12 +148,21 @@ function isHunkSessionLive(): boolean {
         env: { ...process.env },
       }),
     ).trim();
-    execFileSync("hunk", ["session", "get", "--repo", repoRoot, "--json"], {
-      encoding: "utf-8",
-      stdio: ["ignore", "pipe", "pipe"],
-      env: { ...process.env },
-    });
-    return true;
+    try {
+      execFileSync("mt", ["hunk", "session", "get", "--repo", repoRoot, "--json"], {
+        encoding: "utf-8",
+        stdio: ["ignore", "pipe", "pipe"],
+        env: { ...process.env },
+      });
+      return true;
+    } catch {
+      execFileSync("hunk", ["session", "get", "--repo", repoRoot, "--json"], {
+        encoding: "utf-8",
+        stdio: ["ignore", "pipe", "pipe"],
+        env: { ...process.env },
+      });
+      return true;
+    }
   } catch {
     return false;
   }
@@ -354,20 +217,12 @@ function formatHunkFeedback(ctx: PromptCtx): string | undefined {
  * あり、セッションディレクトリには置かれない（countReviewRounds と同じ）。
  */
 function resetReviewCycle(sessionDir: string): void {
-  const fs = require("node:fs");
   const dbPath = getWorkflowDbPath();
   if (!fs.existsSync(dbPath)) return;
 
   // PromptCtx/CheckCtx.sessionId は tado が値を設定しないため sessionDir の
   // basename（= セッション ID）から導出する（countReviewRounds と同じ）
   const sessionId = basename(sessionDir);
-  const { Database } = require("bun:sqlite") as {
-    Database: new (path: string) => {
-      query: (sql: string) => { get: (params?: unknown[]) => JsonRecord | undefined };
-      run: (sql: string, params?: unknown[]) => void;
-      close: () => void;
-    };
-  };
   const db = new Database(dbPath);
   try {
     const executeStep = db
@@ -376,105 +231,23 @@ function resetReviewCycle(sessionDir: string): void {
     if (!executeStep || typeof executeStep.step_index !== "number") return;
     db.run(
       "UPDATE steps SET status = 'pending', retry_count = 0 WHERE session_id = ? AND step_index > ?",
-      [sessionId, executeStep.step_index],
+      sessionId,
+      executeStep.step_index,
     );
   } finally {
     db.close();
   }
 }
 
-function validateReviewJson(raw: string | undefined): {
-  valid: boolean;
-  mustCount: number;
-  error?: string;
-} {
-  if (!raw) return { valid: false, mustCount: -1, error: "agent-review.json not found" };
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw);
-  } catch {
-    return { valid: false, mustCount: -1, error: "agent-review.json is not valid JSON" };
-  }
-  const r = parsed as Record<string, unknown>;
-  if (typeof r.round !== "number")
-    return { valid: false, mustCount: -1, error: "missing or invalid round" };
-  if (typeof r.axes !== "object" || r.axes === null)
-    return { valid: false, mustCount: -1, error: "missing axes" };
-  const expectedAxes = ["essentiality", "acceptance", "scope", "alignment", "quality"];
-  for (const k of expectedAxes) {
-    if (!(k in r.axes)) return { valid: false, mustCount: -1, error: `missing axis: ${k}` };
-    if (!Array.isArray((r.axes as Record<string, unknown>)[k]))
-      return { valid: false, mustCount: -1, error: `axis ${k} is not an array` };
-  }
-  if (typeof r.counts !== "object" || r.counts === null)
-    return { valid: false, mustCount: -1, error: "missing counts" };
-  const c = r.counts as Record<string, unknown>;
-  if (typeof c.must !== "number")
-    return { valid: false, mustCount: -1, error: "missing must count" };
-
-  let totalMust = 0;
-  for (const k of expectedAxes) {
-    const items = (r.axes as Record<string, unknown>)[k] as Array<Record<string, unknown>>;
-    for (const item of items) {
-      if (item.severity === "must") totalMust++;
-    }
-  }
-  if (totalMust !== c.must)
-    return {
-      valid: false,
-      mustCount: c.must,
-      error: `must count mismatch: counts.must=${c.must}, actual=${totalMust}`,
-    };
-
-  return { valid: true, mustCount: c.must };
-}
-
-/**
- * 完了済みの review_work 試行数を workflow DB から数える（レビューラウンド算出用）。
- *
- * tado ADR-0003 で PromptCtx.previousAttempts が削除されたため、エンジンの
- * ボイラープレートに頼らず、セッション DB を直接参照する。tado のセッション
- * DB は共有の ~/.tado/workflow.db（TADO_HOME で上書き可）にあり、セッション
- * ディレクトリには置かれない。なお PromptCtx.sessionId は tado が値を設定
- * しないため、sessionDir の basename（= セッション ID）から導出する。
- */
 function getWorkflowDbPath(): string {
-  const os = require("node:os") as { homedir: () => string };
   const configuredHome = process.env.TADO_HOME?.trim();
   const home = configuredHome || os.homedir();
   return join(home, ".tado", "workflow.db");
 }
 
-function countReviewRounds(sessionDir: string): number {
-  const fs = require("node:fs");
-  const dbPath = getWorkflowDbPath();
-  if (!fs.existsSync(dbPath)) return 0;
-
-  const sessionId = basename(sessionDir);
-  const { Database } = require("bun:sqlite") as {
-    Database: new (path: string) => {
-      query: (sql: string) => { get: (params?: unknown[]) => JsonRecord | undefined };
-      run: (sql: string, params?: unknown[]) => void;
-      close: () => void;
-    };
-  };
-  const db = new Database(dbPath);
-  try {
-    const row = db
-      .query(
-        "SELECT COUNT(*) AS cnt FROM step_attempts WHERE ended_at IS NOT NULL AND step_id = (SELECT id FROM steps WHERE session_id = ? AND step_key = 'review_work')",
-      )
-      .get(sessionId);
-    return typeof row?.cnt === "number" ? row.cnt : 0;
-  } finally {
-    db.close();
-  }
-}
-
 function findArtifactText(artifacts: ArtifactRecord[], key: string): string | undefined {
   const match = artifacts.find((a) => a.artifactKey === key);
   if (!match) return undefined;
-  const fs = require("node:fs");
   try {
     return fs.readFileSync(match.filePath, "utf-8") as string;
   } catch {
@@ -482,7 +255,45 @@ function findArtifactText(artifacts: ArtifactRecord[], key: string): string | un
   }
 }
 
-const REVIEW_JSON_KEY = "agent-review.json";
+// plan-run 用: Issue body から effort を解析するヘルパ (mt-review-diff の parseEffortArgs を再利用しつつ Issue body マーカーも受理)
+function parseEffortFromIssueBody(body: string | undefined): {
+  width?: string;
+  depth?: string;
+  base?: string;
+  target?: string;
+} {
+  if (!body) return {};
+  // まず mt-review-diff と同じプロンプト記法を Issue body 内でも受理 (例: <!-- effort: width=high depth=low --> や width=high)
+  const parsed = parseEffortArgs(body);
+  // 追加で Issue body の検証設定セクションの明示記法も受理: "width: high" や "depth: low"
+  const widthMatch = body.match(/width\s*[:=]\s*(low|medium|high|xhigh|max)/i);
+  if (widthMatch && !parsed.width) parsed.width = widthMatch[1].toLowerCase() as any;
+  const depthMatch = body.match(/depth\s*[:=]\s*(max|xhigh|high|medium|low)/i);
+  if (depthMatch && !parsed.depth) parsed.depth = depthMatch[1].toLowerCase() as any;
+  return parsed;
+}
+
+function ensureEffortFromIssueBody(
+  sessionDir: string,
+  artifacts: ArtifactRecord[],
+): { width: string; depth: string } | undefined {
+  const issueBody = (() => {
+    try {
+      const t = findArtifactText(artifacts, "issue-body.md");
+      if (t) return t;
+    } catch {}
+    return (
+      readSessionFile(sessionDir, "issue-body.md") ??
+      readSessionFile(sessionDir, "issue-body.md".replace(".md", ".txt"))
+    );
+  })();
+  const effort = parseEffortFromIssueBody(issueBody);
+  if (effort.width && effort.depth) {
+    // check は純粋判定が契約のためファイル生成は行わない (生成は collect_context の task 側で実施)
+    return { width: effort.width, depth: effort.depth };
+  }
+  return undefined;
+}
 
 const def: WorkflowDef = {
   id: "mt-plan-run",
@@ -668,14 +479,14 @@ const def: WorkflowDef = {
             "",
             "execute_work に戻ってきた場合、以下のソースから修正指示を統合して executor SubAgent に渡す:",
             "",
-            "1. **agent-review.json の must 指摘**（review_work の SubAgent レビューで検出された必須修正）",
-            "2. **agent-review.json の should 指摘**（start_hunk_review で `[question]` として提示されたもの）",
-            "3. **agent-review.json の want 指摘のうち人間コメントが付いたもの**（hunk コメント一覧で同一 newLine に user コメントが存在する want のみ）",
-            "4. **hunk の blocking_threads**（人間が hunk TUI で追加した user コメントを含む `hunk-check.json`）",
+            "1. **findings.json（旧 agent-review.json）の must 指摘（または findings.json の must）**（review_work の SubAgent レビューで検出された必須修正）",
+            "2. **findings.json の should 指摘**（start_hunk_review で `[question]` として提示されたもの）",
+            "3. **findings.json の want 指摘のうち人間コメントが付いたもの**（hunk コメント一覧で同一 newLine に user コメントが存在する want のみ）",
+            "4. **hunk の blocking_threads**（`hunk-check.json` / `verdict.json` の blocking_threads。人間が hunk TUI で追加した user コメントを含む）",
             "",
             "各ソースの存在確認:",
-            "- セッションディレクトリの `agent-review.json` を読み、must / should / want の全指摘を抽出する",
-            "- セッションディレクトリの `hunk-check.json` を読み、`blocking_threads[].body` と `blocking_threads[].replies[]` を抽出する",
+            "- セッションディレクトリの `findings.json`（存在しなければ旧 `agent-review.json`）を読み、must / should / want の全指摘を抽出する",
+            "- セッションディレクトリの `verdict.json` と `hunk-check.json` を読み、`blocking_threads[].body` を抽出する（`verdict.json` が SoT）",
             "- 存在しないファイルは無視する（初回実行時は修正ソースなし）",
             "",
             "want 指摘の修正対象判定:",
@@ -713,7 +524,7 @@ const def: WorkflowDef = {
             "- 各 SubAgent に渡す情報:",
             "  - 計画 Issue body 全文（完了条件・方針・アウトプットの判断に必要）",
             "  - 担当ミッション定義（ID・名前・スコープ・完了条件番号・Wave 所属）",
-            "  - 修正指示（再実行時のみ: agent-review.json、hunk-check.json の blocking_threads / user コメントの該当指摘）",
+            "  - 修正指示（再実行時のみ: findings.json（旧 agent-review.json含む）、verdict.json/hunk-check.json の blocking_threads / user コメントの該当指摘）",
             "",
             "### executor の完了報告契約",
             "",
@@ -807,341 +618,267 @@ const def: WorkflowDef = {
     },
 
     // -------------------------------------------------------------------
-    // Step 4: レビュー（SubAgent による客観レビュー）
+    // Step 4: 検証強度解決（mt-review-diff から import — plan-run では Issue body 由来の effort を優先）
+    //         起動インターフェースはプロンプト記法(width=… depth=… base=… target=…)と最初のhuman_gateハイブリッドを共通化
     // -------------------------------------------------------------------
     {
-      key: "review_work",
-      phase: "レビュー",
-      type: "task",
+      ...resolveEffortStep,
+      phase: "検証強度解決",
+      check: (ctx: CheckCtx): CheckResult => {
+        // まず SoT の check を試す (effort.json が既にあればそのまま pass) — 純粋検証のみ
+        const origCheck = resolveEffortStep.check as (ctx: CheckCtx) => CheckResult;
+        const orig = origCheck(ctx);
+        if (orig.status === "pass") return orig;
+        // effort.json がない場合、Issue body から width/depth を抽出して判定する (純粋読取のみ、生成は collect_context 側)
+        const derived = ensureEffortFromIssueBody(ctx.sessionDir, ctx.artifacts);
+        if (derived) {
+          // round 上限3のバイパス防止: 既存 effort.json が存在し round>3 なら fail を維持
+          // REVIEW_EFFORT_KEY は "effort.json" と同値のため単一キーに統一 (ai-3 重複解消)
+          const existingRaw =
+            findArtifactText(ctx.artifacts, REVIEW_EFFORT_KEY) ??
+            readSessionFile(ctx.sessionDir, REVIEW_EFFORT_KEY);
+          if (existingRaw) {
+            try {
+              const parsed = JSON.parse(existingRaw) as Record<string, unknown>;
+              const round = typeof parsed.round === "number" ? parsed.round : 1;
+              if (round > 3) {
+                return { status: "fail", reasons: [`round limit exceeded: round=${round} > 3`] };
+              }
+            } catch {}
+          }
+          return {
+            status: "pass",
+            reasons: [
+              `effort derived from issue body: width=${derived.width} depth=${derived.depth}`,
+            ],
+          };
+        }
+        return orig;
+      },
+    },
+
+    // -------------------------------------------------------------------
+    // Step 4.5: 差分収集（mt-review-diff から import — plan-run では branch diff + unstaged を収集）
+    //           追加で Issue body 由来の effort.json 生成を担う（check は純粋判定のため）
+    // -------------------------------------------------------------------
+    {
+      ...collectContextStep,
+      phase: "差分収集",
+      task: {
+        ...collectContextStep.task,
+        buildPrompt: (ctx: PromptCtx) => {
+          const basePrompt = (
+            collectContextStep.task as unknown as { buildPrompt: (ctx: PromptCtx) => string }
+          ).buildPrompt(ctx);
+          const extra = [
+            "",
+            "## 追加手順（plan-run 固有: Issue body 由来の effort 補完）",
+            "",
+            "collect_context の agent は、effort.json が存在しない場合に以下を優先順位で補完する:",
+            "1. セッションディレクトリの issue-body.md（または artifacts の issue-body.md）から `width: <value>` / `depth: <value>` または `<!-- effort: width=... depth=... -->` を解析し、width/depth を抽出できた場合はその値で effort.json を生成する",
+            "2. 上記で抽出できない場合は、プロンプト記法 width=… depth=… を解析し既定値 medium/medium で補完する（mt-review-diff の既定動作）",
+            "3. 生成時は `{ width, depth, round: 1 }` を effort.json として保存し、artifacts へ登録する",
+            "なお check 段階ではファイル生成を行わず、ここで初めて生成する（check は純粋検証のみ）。",
+          ].join("\n");
+          return basePrompt + extra;
+        },
+      },
+    },
+
+    // -------------------------------------------------------------------
+    // Step 5: 検証者起動（mt-review-diff から import — 旧 review_work 置換）
+    // -------------------------------------------------------------------
+    {
+      ...runReviewersStep,
+      phase: "検証者起動",
+    },
+
+    // -------------------------------------------------------------------
+    // Step 5: findings 公開（mt-review-diff から import — 旧 start_hunk_review 置換）
+    // -------------------------------------------------------------------
+    {
+      ...publishFindingsStep,
+      phase: "findings 公開",
+    },
+
+    // -------------------------------------------------------------------
+    // Step 6: 人間レビュー待機（mt-review-diff から import — 旧 await_review 置換）
+    //         2段階ループ: 自律ループ中（must>0）は人へ渡さず自動で pass し、must 0 のときのみ人レビューを行う
+    // -------------------------------------------------------------------
+    {
+      ...awaitHumanReviewStep,
+      phase: "人間レビュー待機",
+      check: (ctx: CheckCtx): CheckResult => {
+        // 自律ループ中は must が残っていれば人レビューをスキップし自動 pass
+        const findingsRaw =
+          findArtifactText(ctx.artifacts, REVIEW_FINDINGS_KEY) ??
+          readSessionFile(ctx.sessionDir, REVIEW_FINDINGS_KEY) ??
+          readSessionFile(ctx.sessionDir, "findings.json");
+        const findingsResult = validateFindingsJson(findingsRaw);
+        if (findingsResult.valid && findingsResult.parsed!.counts.must > 0) {
+          return {
+            status: "pass",
+            reasons: [
+              `autonomous must loop: must=${findingsResult.parsed!.counts.must} -> skip human gate`,
+            ],
+          };
+        }
+        const origCheck = awaitHumanReviewStep.check as (ctx: CheckCtx) => CheckResult;
+        return origCheck(ctx);
+      },
+    },
+
+    // -------------------------------------------------------------------
+    // Step 7: verdict 収集 & ゲート判定（mt-review-diff から import — 旧 check_hunk 置換）
+    //         plan-run が loop 所有者として resetReviewCycle を保持。新ワークフロー側は verdict までで終端する設計を維持
+    // -------------------------------------------------------------------
+    {
+      ...collectVerdictStep,
+      key: "collect_verdict",
+      phase: "verdict 収集",
       maxRetries: 0,
       onFail: { action: "goto", target: "execute_work", requeueSource: true },
-      task: {
-        action: "run_subagent",
-        subagentType: "mt-plan-work-reviewer",
-        readonly: false,
-        buildPrompt: (ctx: PromptCtx) => {
-          const collectScriptPath = join(import.meta.dir, "mt-plan-collect-review-context.ts");
-          const jsonPath = join(ctx.sessionDir, "agent-review.json");
-          const mdPath = join(ctx.sessionDir, "agent-review.md");
-          const prevRound = countReviewRounds(ctx.sessionDir);
-          const nextRound = prevRound + 1;
-
-          return [
-            "## 目的",
-            "",
-            "専用のレビュアー SubAgent に委譲し、5 観点で客観レビューを行う。",
-            "",
-            "## 手順",
-            "",
-            "### 1. 証拠収集（スクリプト実行）",
-            "",
-            "```bash",
-            `bun run ${collectScriptPath} --plan-number <plan_number> --session-dir ${ctx.sessionDir}`,
-            "```",
-            "",
-            "<plan_number> は workflow.db に保存した plan_number を使用する。",
-            "",
-            "### 2. SubAgent 委譲",
-            "",
-            `Task ツールで subagent_type = "mt-plan-work-reviewer" を指定し、以下を指示する:`,
-            "",
-            "- セッションディレクトリから `issue-body.md`、`git-branch-diff.txt`、`git-unstaged-diff.txt` を読み込む",
-            "- 5 観点でレビューし、agent-review.json スキーマの JSON を返す",
-            `- round 番号は ${nextRound} で、前回レビューからの差分に注目する（初回は全量レビュー）`,
-            "",
-            "### 3. 結果の保存",
-            "",
-            `SubAgent から返却された JSON を ${jsonPath} に書き出す。`,
-            `必要に応じて人間可読版を ${mdPath} に書き出す。`,
-            "",
-            "### 4. report",
-            "",
-            "artifacts に以下を含めて report する:",
-            "```json",
-            `{"key": "agent-review.json", "path": "${jsonPath}"}`,
-            "```",
-            "",
-            "## レビュー観点（SubAgent に委譲）",
-            "",
-            "1. **本質性・効率性 (essentiality):** 目的に対して本質的で効率的な解決となっているか",
-            "2. **完了条件の充足 (acceptance):** `## ✅ 完了条件` は完全に満たせているか",
-            "3. **スコープの遵守 (scope):** スコープ外の対応はしていないか",
-            "4. **方針との整合 (alignment):** `## 🧭 方針` から大きく外れた対応はしていないか",
-            "5. **アウトプットの品質 (quality):** `## 📦 アウトプット` の品質は問題ないか",
-            "",
-            "## 出力スキーマ",
-            "",
-            "```json",
-            "{",
-            `  "round": ${nextRound},`,
-            '  "axes": {',
-            '    "essentiality": [{"severity": "must|should|want", "detail": "..."}],',
-            '    "acceptance": [...],',
-            '    "scope": [...],',
-            '    "alignment": [...],',
-            '    "quality": [...]',
-            "  },",
-            '  "counts": {"must": <N>, "should": <N>, "want": <N>}',
-            "}",
-            "```",
-          ].join("\n");
-        },
-      },
       check: (ctx: CheckCtx): CheckResult => {
-        const raw = findArtifactText(ctx.artifacts, REVIEW_JSON_KEY);
-        const result = validateReviewJson(raw);
-        if (!result.valid) {
-          return { status: "error", reasons: [result.error ?? "validation failed"] };
-        }
-        if (result.mustCount > 0) {
-          return { status: "fail", reasons: [`must: ${result.mustCount} items`] };
-        }
-        return { status: "pass", reasons: ["must: 0"] };
-      },
-    },
+        // mt-review-diff の検証 (schema, round 上限) をまず実行
+        const origCheck = collectVerdictStep.check as (ctx: CheckCtx) => CheckResult;
+        const origResult = origCheck(ctx);
 
-    // -------------------------------------------------------------------
-    // Step 5: hunk レビュー起動
-    // -------------------------------------------------------------------
-    {
-      key: "start_hunk_review",
-      phase: "hunk レビュー起動",
-      type: "task",
-      maxRetries: 1,
-      onFail: { action: "escalate" },
-      task: {
-        action: "orchestrate",
-        buildPrompt: (ctx: PromptCtx) => {
-          const reviewRaw =
-            findArtifactText(ctx.artifacts, REVIEW_JSON_KEY) ??
-            readSessionFile(ctx.sessionDir, REVIEW_JSON_KEY);
-          const comments = buildHunkComments(reviewRaw);
-          const commentsPath = join(ctx.sessionDir, HUNK_COMMENTS_KEY);
-          const startPath = join(ctx.sessionDir, HUNK_START_KEY);
+        // schema 的に error の場合は即 error を返す (loop しない)
+        if (origResult.status === "error") return origResult;
 
-          return [
-            "## 目的",
-            "",
-            "レビュー結果を hunk の comment apply 形式へ変換し、アクティブな hunk セッションに注入する。",
-            "このステップは起動とコメント注入だけを担当し、レビューの待機・ゲート判定・修正は行わない。",
-            "",
-            "## 入力からコメントへの変換",
-            "",
-            `agent-review.json（${join(ctx.sessionDir, REVIEW_JSON_KEY)}）の axes を読み、各項目を hunk の comment apply 形式（{filePath, newLine|oldLine, summary, markup}）に変換する。formatComment 純粋関数で STML（markup）と fallback（summary）を二重生成する:`,
-            "- severity: 🚨 must / ⚠️ should / 💡 want、taxonomy: 🐛 issue（must）/ 🙋 question（should/want）、axis: 🎯 essentiality / ✅ acceptance / 📦 scope / 🧭 alignment / ✨ quality を box title `🚨 must · 🐛 issue · ✅ acceptance` に併記",
-            "- summary: `🚨 must · 🐛 issue · ✅ acceptance | path:line — 詳細先頭` 形式（`[]` を用いない）",
-            "- markup: STML の <box> で 4 ブロック（ヘッダ=title、対象ファイル/行、詳細本文、任意の提案リスト）を構造化。`hunk diff --experimental` で STML が描画され、非対応環境では summary が graceful fallback される",
-            "",
-            "- `filePath` はリポジトリルートからの相対パスで必ず含める。ファイルに紐づかない指摘はファイルレベル指摘として代表ファイル（例: CONTEXT.md）に紐づける",
-            '- 特定行への指摘は `position`（{side: "new"|"old", line}）を `newLine` / `oldLine` に変換して含める',
-            "- 行指定のない指摘は `newLine` を省略する（`mt hunk start` が `newLine: 1` に合成する）",
-            "- `type` や reply は生成しない",
-            "",
-            "今回生成する apply 配列（変換後の正確な JSON）:",
-            "```json",
-            JSON.stringify(comments, null, 2),
-            "```",
-            "",
-            "## 手順",
-            "",
-            `1. 上記の配列を ${commentsPath} に JSON として保存する（空配列でも保存する）。`,
-            "2. アクティブな hunk セッションを確認する:",
-            "```bash",
-            "mt hunk status",
-            "```",
-            '- "hunk review session: active" なら次へ進む。',
-            '- "none" または "stale" なら hunk TUI セッションがない。ユーザーにターミナルで `hunk diff <base-branch>` を開いてもらい、セッションが active になってからこのステップを再実行する。',
-            "- ベースブランチは `origin/HEAD` があればその参照名から `origin/` を除き、取得できなければ `main` を使う:",
-            "```bash",
-            `BASE_BRANCH="$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's#^origin/##')"`,
-            'BASE_BRANCH="${BASE_BRANCH:-main}"',
-            "```",
-            "3. stdin からコメント JSON を渡し、`mt hunk start` を実行する:",
-            "```bash",
-            `cat "${commentsPath}" | mt hunk start | tee "${startPath}"`,
-            "```",
-            "4. start の stdout（`session` と `comments`）を確認し、hunk TUI に表示されたコメント数として報告する。",
-            "",
-            "## report",
-            "",
-            '成功時は `status: "completed"` とし、artifacts に以下を含める:',
-            "```json",
-            `[{"key":"${HUNK_COMMENTS_KEY}","path":"${commentsPath}"},{"key":"${HUNK_START_KEY}","path":"${startPath}"}]`,
-            "```",
-            "",
-            "レビューセッションの終了処理や standalone レビューの実行はこのステップの責務外とする。",
-            "",
-            "## セッション情報",
-            "",
-            `- セッションディレクトリ: ${ctx.sessionDir}`,
-          ].join("\n");
-        },
-      },
-      check: (ctx: CheckCtx): CheckResult => {
-        if (ctx.attemptResult.status !== "completed") {
-          return { status: "error", reasons: [ctx.attemptResult.errors ?? "hunk start failed"] };
+        // round limit exceeded は human_gate で継続/中止を選択すべきで、自動 loop しない
+        const isRoundLimit = origResult.reasons.some((r: string) => r.includes("round limit"));
+        if (isRoundLimit) return origResult;
+
+        // daemon 偽装検出は最優先で fail を維持（wrapper が passed を誤って pass にしない）
+        const isDaemonMismatch = origResult.reasons.some((r: string) =>
+          r.includes("does not match"),
+        );
+        if (isDaemonMismatch) return origResult;
+
+        // verdict.json の passed を判定し、未通過なら execute_work へループする
+        const verdictRaw =
+          findArtifactText(ctx.artifacts, REVIEW_VERDICT_KEY) ??
+          readSessionFile(ctx.sessionDir, REVIEW_VERDICT_KEY) ??
+          (ctx.attemptResult.subagentOutput as string | undefined);
+        const verdictResult = validateVerdictJson(verdictRaw);
+        // validateVerdict が有効でない場合は findings から合成を試みる (2段階ループ対応)
+        if (!verdictResult.valid) {
+          const findingsRaw =
+            findArtifactText(ctx.artifacts, REVIEW_FINDINGS_KEY) ??
+            readSessionFile(ctx.sessionDir, REVIEW_FINDINGS_KEY);
+          const findingsResult = validateFindingsJson(findingsRaw);
+          if (!findingsResult.valid) return origResult;
+          const { must, should } = findingsResult.parsed!.counts;
+          const round = findingsResult.parsed!.round;
+          // 自律ループ: must が残っていれば即 fail（hunk不要）
+          if (must > 0) {
+            if (round > 3) {
+              return {
+                status: "fail",
+                reasons: [
+                  `round limit exceeded: round=${round} > 3 (autonomous). 継続/中止を human_gate で選択してください`,
+                ],
+              };
+            }
+            try {
+              resetReviewCycle(ctx.sessionDir);
+            } catch (error) {
+              return {
+                status: "error",
+                reasons: [`failed to reset review cycle: ${String(error)}`],
+              };
+            }
+            return {
+              status: "fail",
+              reasons: [`verdict blocked (autonomous): must=${must} should=${should}`],
+            };
+          }
+          // 人レビュー段階: must 0 後の should/humanWant を gate
+          // should が残っていれば fail（hunkで人が確認した前提）
+          if (should > 0) {
+            try {
+              resetReviewCycle(ctx.sessionDir);
+              // 人レビュー後の再自律のため autonomous round をリセット（effort.json の round を 1 に）
+              try {
+                const effortPath = join(ctx.sessionDir, "effort.json");
+                const effortRaw = fs.readFileSync(effortPath, "utf-8");
+                const effort = JSON.parse(effortRaw) as Record<string, unknown>;
+                effort.round = 1;
+                fs.writeFileSync(effortPath, JSON.stringify(effort, null, 2));
+              } catch {}
+            } catch (error) {
+              return {
+                status: "error",
+                reasons: [`failed to reset review cycle: ${String(error)}`],
+              };
+            }
+            return {
+              status: "fail",
+              reasons: [`verdict blocked (human): should=${should} must=${must}`],
+            };
+          }
+          // must 0 かつ should 0 なら want は人コメント付きのみが対象だが、現段階では hunk コメントがないため pass とする
+          // 実際の want昇格は hunk session comment list で判定するが、verdict 合成時は should 0 で pass
+          return {
+            status: "pass",
+            reasons: [`verdict passed (synthesized): round=${round} must=${must} should=${should}`],
+          };
         }
-        // 偽装 artifact（{"session":null}）を弾く: start の stdout に session が
-        // 含まれていることと、daemon 上でセッションが active であることを検証する
-        const raw =
-          findArtifactText(ctx.artifacts, HUNK_START_KEY) ??
-          readSessionFile(ctx.sessionDir, HUNK_START_KEY);
-        const started = findJsonObject(raw);
-        if (!started || started.session === null || started.session === undefined) {
+
+        const verdict = verdictResult.parsed!;
+        // 自律段階の round 上限は verdict.round で判定（通算）。上限到達は人へエスカレーション
+        if (verdict.round > 3) {
           return {
             status: "fail",
             reasons: [
-              `${HUNK_START_KEY} has no session. hunk セッションを active にして \`mt hunk start\` を再実行してください`,
+              `round limit exceeded: round=${verdict.round} > 3. 継続/中止を human_gate で選択してください`,
             ],
           };
         }
-        if (!isHunkSessionActive()) {
+        if (verdict.passed) {
           return {
-            status: "fail",
-            reasons: ["hunk session is not active according to `mt hunk status`"],
-          };
-        }
-        return { status: "pass", reasons: ["hunk review started with an active session"] };
-      },
-    },
-
-    // -------------------------------------------------------------------
-    // Step 6: hunk レビュー待機
-    // -------------------------------------------------------------------
-    {
-      key: "await_review",
-      phase: "hunk レビュー待機",
-      type: "human_gate",
-      maxRetries: 1,
-      onFail: { action: "escalate" },
-      humanGate: {
-        presentArtifacts: [HUNK_START_KEY, HUNK_COMMENTS_KEY, REVIEW_JSON_KEY],
-        choices: [
-          {
-            value: "approve",
-            label: "レビュー完了",
-            desc: "hunk TUI でコメントの確認・user コメントの追加を終え、ゲート判定へ進む",
-          },
-          { value: "abort", label: "中断" },
-        ],
-      },
-      check: (_ctx: CheckCtx): CheckResult => {
-        // 人間承認の偽装を検出する: 承認時点でも daemon 上でセッションが
-        // active であることを再検証する（ADR-0016）
-        if (!isHunkSessionActive()) {
-          return {
-            status: "fail",
+            status: "pass",
             reasons: [
-              "hunk session is not active. `hunk diff <base-branch>` を再起動してから approve を選択してください",
-            ],
-          };
-        }
-        return { status: "pass", reasons: ["hunk session is still active"] };
-      },
-    },
-
-    // -------------------------------------------------------------------
-    // Step 7: hunk ゲート判定
-    // -------------------------------------------------------------------
-    {
-      key: "check_hunk",
-      phase: "hunk ゲート判定",
-      type: "task",
-      maxRetries: 0,
-      onFail: { action: "goto", target: "execute_work", requeueSource: true },
-      task: {
-        action: "orchestrate",
-        buildPrompt: (ctx: PromptCtx) => {
-          const checkPath = join(ctx.sessionDir, HUNK_CHECK_KEY);
-          return [
-            "## 目的",
-            "",
-            "hunk 上のレビューを機械的に判定し、未解決のコメントがあれば execute_work に修正ソースとして渡す。",
-            "このステップではゲート判定コマンドだけを呼び、standalone レビューや終了処理は行わない。",
-            "",
-            "## 手順",
-            "",
-            "1. `mt hunk check` を実行する。exit 0 = 通過、exit 1 = ブロック。exit 1 は未解決コメントによる通常のブロックなので、コマンド失敗として握り潰さず stdout JSON を取得する。",
-            '2. stdout の passes / blocking_threads JSON（例: {"passes":..., "blocking_threads":[...]}）をそのまま保存する。blocking thread の `body` は原文（人間コメントを含む）のまま一字一句保持し、taxonomy（"issue" / "question" / "human"）も変更しない。`replies` は hunk がフラット構造のため常に空配列になる。',
-            `3. JSON を ${checkPath} に保存し、同じ JSON を report の subagentOutput として返す。`,
-            "",
-            "```json",
-            '{"passes":false,"blocking_threads":[{"id":"...","file":"...","line":1,"taxonomy":"question","body":"[question] ...","replies":[]}]}',
-            "```",
-            "",
-            "passes が false の場合も task 自体は実行成功として report する。workflow の check 関数が `mt hunk check` を daemon から再実行し、report / artifact の JSON と passes・blocking_threads が一致することを検証する（不一致は偽装として fail）。一致した場合は blocking_threads を確認して execute_work → ensure_hunk_session → review_work → start_hunk_review → await_review → check_hunk の修正ループへ戻す。passes が true の場合だけ finalize_done へ進む。",
-            "",
-            "## セッション情報",
-            "",
-            `- セッションディレクトリ: ${ctx.sessionDir}`,
-          ].join("\n");
-        },
-      },
-      check: (ctx: CheckCtx): CheckResult => {
-        // daemon から再取得する。exit 1 は未解決コメントによる通常のブロックで、
-        // stdout に gate JSON を出力するため throw せず回収する（runHunkCommand）
-        const daemon = parseHunkCheck(runHunkCommand(["check"]));
-        if (!daemon) {
-          return {
-            status: "error",
-            reasons: ["mt hunk check daemon output is not valid gate JSON"],
-          };
-        }
-
-        // 偽装検出: report / artifact の gate JSON と daemon 真理を突合する。
-        // want のみでは fail させない（passes / blocking_threads の一致判定に含まれる）
-        const reported =
-          parseHunkCheck(ctx.attemptResult.subagentOutput) ??
-          parseHunkCheck(findArtifactText(ctx.artifacts, HUNK_CHECK_KEY));
-        if (!reported) {
-          return { status: "error", reasons: ["report/artifact has no valid gate JSON"] };
-        }
-        if (
-          daemon.passes !== reported.passes ||
-          JSON.stringify(daemon.blocking_threads) !== JSON.stringify(reported.blocking_threads)
-        ) {
-          return {
-            status: "fail",
-            reasons: [
-              "reported gate JSON does not match `mt hunk check` daemon output. `mt hunk check` を再実行し、stdout の JSON をそのまま report してください",
+              `verdict passed: round=${verdict.round} blocking=${verdict.blocking_threads.length}`,
             ],
           };
         }
 
-        const fs = require("node:fs");
-        try {
-          fs.writeFileSync(
-            join(ctx.sessionDir, HUNK_CHECK_KEY),
-            `${JSON.stringify(daemon, null, 2)}\n`,
-            "utf-8",
-          );
-        } catch (error) {
-          return {
-            status: "error",
-            reasons: [`failed to persist hunk check output: ${String(error)}`],
-          };
-        }
-
-        if (daemon.passes) return { status: "pass", reasons: ["hunk gate passes"] };
+        // blocked -> loop へ。workflow.db のループ制御は plan-run が所有
+        // 2段階ループ: must残なら自律、should/humanWant残なら人レビュー後の再自律（autonomous round リセット）
+        const findingsRawForReset =
+          findArtifactText(ctx.artifacts, REVIEW_FINDINGS_KEY) ??
+          readSessionFile(ctx.sessionDir, REVIEW_FINDINGS_KEY);
+        const findingsForReset = validateFindingsJson(findingsRawForReset);
+        const isHumanStage = findingsForReset.valid && findingsForReset.parsed!.counts.must === 0;
         try {
           resetReviewCycle(ctx.sessionDir);
+          if (isHumanStage) {
+            try {
+              const effortPath = join(ctx.sessionDir, "effort.json");
+              const effortRaw = fs.readFileSync(effortPath, "utf-8");
+              const effort = JSON.parse(effortRaw) as Record<string, unknown>;
+              effort.round = 1;
+              fs.writeFileSync(effortPath, JSON.stringify(effort, null, 2));
+            } catch {}
+          }
         } catch (error) {
-          return {
-            status: "error",
-            reasons: [`failed to reset hunk review cycle: ${String(error)}`],
-          };
+          return { status: "error", reasons: [`failed to reset review cycle: ${String(error)}`] };
         }
-        const reasons = daemon.blocking_threads.map((thread) => {
-          const replies =
-            thread.replies && thread.replies.length > 0
-              ? `; replies: ${thread.replies.join(" | ")}`
-              : "";
-          return `${thread.taxonomy ?? "blocking"} ${thread.file ?? "(file-level)"}: ${thread.body}${replies}`;
-        });
-        return { status: "fail", reasons: reasons.length > 0 ? reasons : ["hunk gate is blocked"] };
+        const blocking = verdict.blocking_threads.map(
+          (t: { taxonomy?: string; file?: string; body: string }) =>
+            `${t.taxonomy ?? "blocking"} ${t.file ?? "(file-level)"}: ${t.body}`,
+        );
+        return {
+          status: "fail",
+          reasons: blocking.length > 0 ? blocking : ["verdict is blocked — goto execute_work"],
+        };
       },
     },
 
+    // -------------------------------------------------------------------
+    // Step 8: 完了処理（in-progress → done）
     // -------------------------------------------------------------------
     // Step 8: 完了処理（in-progress → done）
     // -------------------------------------------------------------------
