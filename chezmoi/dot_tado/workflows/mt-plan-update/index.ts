@@ -248,20 +248,29 @@ const def: WorkflowDef = {
       onFail: { action: "abort" },
       humanGate: {
         presentArtifacts: [GRILL_MAP_KEY, ANALYSIS_KEY, EVIDENCE_KEY],
-        choices: [
-          {
-            value: "approve",
-            label: "分析を承認してgrillへ進む",
-            desc: "走査結果が妥当。grill質問へ進む",
-          },
-          {
-            value: "revise",
-            label: "走査をやり直す",
-            desc: "スコープが的外れ。grillに戻って再走査する",
-          },
-          { value: "abort", label: "中断" },
-        ],
+        outcomeQuestionKey: "decision",
         reviseTargetStep: "grill",
+        questions: [
+          {
+            key: "decision",
+            title: "判定",
+            type: "choice_with_input",
+            choices: [
+              {
+                value: "approve",
+                label: "分析を承認してgrillへ進む",
+                desc: "走査結果が妥当。grill質問へ進む",
+              },
+              {
+                value: "revise",
+                label: "走査をやり直す",
+                desc: "スコープが的外れ。grillに戻って再走査する",
+                input: { required: true, placeholder: "修正理由を入力", maxLength: 500 },
+              },
+              { value: "abort", label: "中断" },
+            ],
+          },
+        ],
       },
       check: (ctx: CheckCtx): CheckResult => {
         try {
@@ -392,16 +401,29 @@ const def: WorkflowDef = {
       onFail: { action: "abort" },
       humanGate: {
         presentArtifacts: [ISSUE_BODY_KEY, BODY_DIFF_KEY, GRILL_MAP_KEY],
-        choices: [
-          {
-            value: "approve",
-            label: "差分を承認して更新する",
-            desc: "body-diffが妥当。Issue更新へ進む",
-          },
-          { value: "revise", label: "本文を修正する", desc: "差分が誤り。draft_bodyに戻る" },
-          { value: "abort", label: "中断" },
-        ],
+        outcomeQuestionKey: "decision",
         reviseTargetStep: "draft_body",
+        questions: [
+          {
+            key: "decision",
+            title: "判定",
+            type: "choice_with_input",
+            choices: [
+              {
+                value: "approve",
+                label: "差分を承認して更新する",
+                desc: "body-diffが妥当。Issue更新へ進む",
+              },
+              {
+                value: "revise",
+                label: "本文を修正する",
+                desc: "差分が誤り。draft_bodyに戻る",
+                input: { required: true, placeholder: "修正理由を入力", maxLength: 500 },
+              },
+              { value: "abort", label: "中断" },
+            ],
+          },
+        ],
       },
       check: (ctx: CheckCtx): CheckResult => {
         try {

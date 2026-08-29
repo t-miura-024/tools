@@ -227,12 +227,25 @@ const def: WorkflowDef = {
       onFail: { action: "escalate" },
       humanGate: {
         presentArtifacts: ["plan.md"],
-        choices: [
-          { value: "approve", label: "承認", desc: "plan.md の内容で調査を開始する" },
-          { value: "revise", label: "修正が必要", desc: "Planner を再実行する" },
-          { value: "abort", label: "中断" },
-        ],
+        outcomeQuestionKey: "decision",
         reviseTargetStep: "phase3_planner",
+        questions: [
+          {
+            key: "decision",
+            title: "判定",
+            type: "choice_with_input",
+            choices: [
+              { value: "approve", label: "承認", desc: "plan.md の内容で調査を開始する" },
+              {
+                value: "revise",
+                label: "修正が必要",
+                desc: "Planner を再実行する",
+                input: { required: true, placeholder: "修正理由を入力", maxLength: 500 },
+              },
+              { value: "abort", label: "中断" },
+            ],
+          },
+        ],
       },
       check: (_ctx: CheckCtx): CheckResult => ({ status: "pass", reasons: [] }),
     },

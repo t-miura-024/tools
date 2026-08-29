@@ -477,20 +477,29 @@ const def: WorkflowDef = {
       onFail: { action: "abort" },
       humanGate: {
         presentArtifacts: ["issue-number.txt"],
-        choices: [
-          {
-            value: "approve",
-            label: "refined へ昇格する",
-            desc: "内容が完成・実行可能。refined へ昇格して完了する",
-          },
-          {
-            value: "revise",
-            label: "修正する",
-            desc: "Grill Phase に戻って内容を再検討する（Draft Issue は残し、更新する）",
-          },
-          { value: "abort", label: "中断", desc: "Draft Issue を残してセッションを終了する" },
-        ],
+        outcomeQuestionKey: "decision",
         reviseTargetStep: "grill",
+        questions: [
+          {
+            key: "decision",
+            title: "判定",
+            type: "choice_with_input",
+            choices: [
+              {
+                value: "approve",
+                label: "refined へ昇格する",
+                desc: "内容が完成・実行可能。refined へ昇格して完了する",
+              },
+              {
+                value: "revise",
+                label: "修正する",
+                desc: "Grill Phase に戻って内容を再検討する（Draft Issue は残し、更新する）",
+                input: { required: true, placeholder: "修正理由を入力", maxLength: 500 },
+              },
+              { value: "abort", label: "中断", desc: "Draft Issue を残してセッションを終了する" },
+            ],
+          },
+        ],
       },
       check: (_ctx: CheckCtx): CheckResult => ({ status: "pass", reasons: [] }),
     },

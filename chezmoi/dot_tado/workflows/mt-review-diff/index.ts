@@ -100,13 +100,21 @@ const def: WorkflowDef = {
       onFail: { action: "abort" },
       humanGate: {
         presentArtifacts: [],
-        choices: [
+        outcomeQuestionKey: "decision",
+        questions: [
           {
-            value: "approve",
-            label: "effort を確定して次へ",
-            desc: "width/depth/base を確認し検証を開始する",
+            key: "decision",
+            title: "判定",
+            type: "single_choice",
+            choices: [
+              {
+                value: "approve",
+                label: "effort を確定して次へ",
+                desc: "width/depth/base を確認し検証を開始する",
+              },
+              { value: "abort", label: "中断" },
+            ],
           },
-          { value: "abort", label: "中断" },
         ],
       },
       check: (ctx: CheckCtx): CheckResult => {
@@ -527,13 +535,21 @@ const def: WorkflowDef = {
       onFail: { action: "abort" },
       humanGate: {
         presentArtifacts: [FINDINGS_KEY, HUNK_START_KEY, HUNK_COMMENTS_KEY],
-        choices: [
+        outcomeQuestionKey: "decision",
+        questions: [
           {
-            value: "approve",
-            label: "レビュー完了",
-            desc: "hunk TUI で指摘の確認・人間コメントの追加を終え、verdict 判定へ進む",
+            key: "decision",
+            title: "判定",
+            type: "single_choice",
+            choices: [
+              {
+                value: "approve",
+                label: "レビュー完了",
+                desc: "hunk TUI で指摘の確認・人間コメントの追加を終え、verdict 判定へ進む",
+              },
+              { value: "abort", label: "中断" },
+            ],
           },
-          { value: "abort", label: "中断" },
         ],
       },
       check: (_ctx: CheckCtx): CheckResult => {

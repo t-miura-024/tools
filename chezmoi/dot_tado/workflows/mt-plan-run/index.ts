@@ -322,9 +322,17 @@ const def: WorkflowDef = {
       onFail: { action: "abort" },
       humanGate: {
         presentArtifacts: [],
-        choices: [
-          { value: "approve", label: "計画を特定した", desc: "Issue番号を確認し次へ進む" },
-          { value: "abort", label: "中断" },
+        outcomeQuestionKey: "decision",
+        questions: [
+          {
+            key: "decision",
+            title: "判定",
+            type: "single_choice",
+            choices: [
+              { value: "approve", label: "計画を特定した", desc: "Issue番号を確認し次へ進む" },
+              { value: "abort", label: "中断" },
+            ],
+          },
         ],
       },
       check: (_ctx: CheckCtx): CheckResult => ({ status: "pass", reasons: [] }),
@@ -593,13 +601,21 @@ const def: WorkflowDef = {
       onFail: { action: "escalate" },
       humanGate: {
         presentArtifacts: [],
-        choices: [
+        outcomeQuestionKey: "decision",
+        questions: [
           {
-            value: "approve",
-            label: "hunk TUI を起動した（ready）",
-            desc: `ターミナルで \`BASE_BRANCH="$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's#^origin/##')"\` と \`hunk diff "$BASE_BRANCH"\` を実行してセッションを active にする。report 後、check が \`hunk session get\` で再検証し失敗ならリトライされる`,
+            key: "decision",
+            title: "判定",
+            type: "single_choice",
+            choices: [
+              {
+                value: "approve",
+                label: "hunk TUI を起動した（ready）",
+                desc: `ターミナルで \`BASE_BRANCH="$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's#^origin/##')"\` と \`hunk diff "$BASE_BRANCH"\` を実行してセッションを active にする。report 後、check が \`hunk session get\` で再検証し失敗ならリトライされる`,
+              },
+              { value: "abort", label: "中断" },
+            ],
           },
-          { value: "abort", label: "中断" },
         ],
       },
       check: (_ctx: CheckCtx): CheckResult => {
