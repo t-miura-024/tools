@@ -66,6 +66,35 @@ cargo install --path .
 | [docker/README.md](docker/README.md) | Docker Compose サービス群（SearXNG / Qdrant） |
 | [docs/adr/](docs/adr/) | アーキテクチャ決定記録（ADR） |
 
+## tado ワークフロー (human_gate)
+
+`chezmoi/dot_tado/workflows/*/index.ts` が正本で、`chezmoi apply` で `~/.tado/workflows` へ同期される。`tado 0.1.0` で `HumanGateStepDef` が破壊的再設計されたため、旧 `choices` 直下のコードパスは削除済み。
+
+### HumanGate 新仕様
+
+- `HumanGateStepDef`: `presentArtifacts: string[]` + `outcomeQuestionKey: string` + `questions: GateQuestion[]` + `reviseTargetStep?: string`
+- `GateQuestion`: `{ key, title, description?, type: "single_choice" | "free_text" | "choice_with_input", required?, placeholder?, maxLength?, choices?: GateChoice[] }`
+- `GateChoice`: `{ value, label, desc?, input?: { title?, placeholder?, required?, maxLength? } }`
+- `GateAnswer = string | { value: string; input?: string }`
+- `ConditionCtx.gateAnswers: Record<stepKey, Record<questionKey, GateAnswer>>`（旧 `gateChoices` / `choice` は廃止）
+- 永続化: `gate_events.answersJson` / `stepAttempts.resultJson` にオブジェクト保存
+- `tado confirm` は TTY 必須、設問を `Qn/M` 進捗付きで順次提示、条件付き text 入力・バリデーション・原子キャンセル
+
+### choice_with_input 統一ルール
+
+- `revise`: `input: { required: true, placeholder: "修正理由を入力", maxLength: 500 }`（必須）
+- `approve`: `input: { required: false, maxLength: 500 }`（任意コメント）
+- `abort`: `input` なし
+- `free_text` 型は今回見送り（`choice_with_input` で代替）
+
+### 複数設問化 (width / depth)
+
+- `mt-review-diff:resolve_effort` / `mt-plan-run:resolve_effort` / `mt-plan-create:review_gate` のみ 3設問化: Q1 `width` (single_choice: low/medium/high/xhigh/max) + Q2 `depth` (single_choice: low/medium/high/xhigh/max) + Q3 `decision` (choice_with_input)
+- `outcomeQuestionKey` は `decision` に統一、`presentArtifacts: ["effort.json"]`
+- その他 gate は単一設問 `decision` の `choice_with_input` 化に留める
+
+詳細は [ADR 0024](docs/adr/0024-human-gate-multi-questions-choice-with-input.md) と [CONTEXT.md](CONTEXT.md) の `gate` / `question` / `choice_with_input` / `outcomeQuestionKey` / `gateAnswers` 項を参照。
+
 ## Vector Search (Markdown ベクトル検索)
 
 `mt vector` はローカルの Markdown 群を Qdrant に投入し、ベクトル検索する。設定は `vector.config.toml` 1 つで完結し、Qdrant の URL や埋め込みモデル、チャンク戦略を切り替えられる。

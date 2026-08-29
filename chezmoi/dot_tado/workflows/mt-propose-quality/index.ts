@@ -291,9 +291,14 @@ const def: WorkflowDef = {
           {
             key: "decision",
             title: "判定",
-            type: "single_choice",
+            type: "choice_with_input",
             choices: [
-              { value: "approve", label: "選択した", desc: "起票する候補を選択した" },
+              {
+                value: "approve",
+                label: "選択した",
+                desc: "起票する候補を選択した",
+                input: { required: false, maxLength: 500 },
+              },
               { value: "abort", label: "中断", desc: "起票せず終了する" },
             ],
           },
@@ -388,9 +393,14 @@ const def: WorkflowDef = {
           {
             key: "decision",
             title: "判定",
-            type: "single_choice",
+            type: "choice_with_input",
             choices: [
-              { value: "approve", label: "Done", desc: "完了として終了する" },
+              {
+                value: "approve",
+                label: "Done",
+                desc: "完了として終了する",
+                input: { required: false, maxLength: 500 },
+              },
               { value: "abort", label: "中断" },
             ],
           },

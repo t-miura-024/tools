@@ -235,7 +235,13 @@ const def: WorkflowDef = {
             title: "判定",
             type: "choice_with_input",
             choices: [
-              { value: "approve", label: "承認", desc: "plan.md の内容で調査を開始する" },
+              {
+                value: "approve",
+                label: "承認",
+                desc: "plan.md の内容で調査を開始する",
+                // NOTE(plan93): secret masking / sanitization is handled at tado engine/dashboard layer (gate_events.answersJson display escaping), not workflow; maxLength 500 is sufficient per plan 93 unified rule scope.
+                input: { required: false, maxLength: 500 },
+              },
               {
                 value: "revise",
                 label: "修正が必要",
