@@ -1,10 +1,8 @@
 ---
-description: "mt-review-diff の敵対的検証者 SubAgent。割り当てられた検証観点のみで差分を敵対的に反証し、findings スキーマで結果を返す。"
-mode: "subagent"
-color: "warning"
-permission:
-  edit: "deny"
-  bash: "deny"
+name: mt-review-diff-reviewer
+description: mt-review-diff の敵対的検証者 SubAgent。割り当てられた検証観点のみで差分を敵対的に反証し、findings スキーマで結果を返す。
+readonly: true
+color: yellow
 ---
 
 # mt-review-diff-reviewer

@@ -48,6 +48,8 @@ Issue #28 に基づき、固定した `mattpocock/skills@66898f60e8c744e269f8ce0
 | [`grill-me`](https://github.com/mattpocock/skills/blob/66898f60e8c744e269f8ce06c2b2b99ce7660d5f/skills/productivity/grill-me/SKILL.md) | 統合 | `mt-grill-me` | 既存 Skill と同責務。確認が済むまで実行しない原則を補う。 |
 | [`grilling`](https://github.com/mattpocock/skills/blob/66898f60e8c744e269f8ce06c2b2b99ce7660d5f/skills/productivity/grilling/SKILL.md) | 統合 | `mt-grill-me` | 一問ずつの選択肢提示は既に実装済みで、探索で答えられることは質問しない規則を補う。 |
 | [`handoff`](https://github.com/mattpocock/skills/blob/66898f60e8c744e269f8ce06c2b2b99ce7660d5f/skills/productivity/handoff/SKILL.md) | 新規 | `mt-handoff` | セッションの会話文脈を次回へ渡す手順は、`mt-workflow` の状態管理と別責務である。 |
+
+> **Note:** `mt-grill-me` は [ADR 0023](./0023-abolish-mt-grill-me.md) で廃止。上記2行の統合先は歴史的記録として残す。
 | [`teach`](https://github.com/mattpocock/skills/blob/66898f60e8c744e269f8ce06c2b2b99ce7660d5f/skills/productivity/teach/SKILL.md) | 見送り | - | ユーザー判断により不要。 |
 | [`writing-great-skills`](https://github.com/mattpocock/skills/blob/66898f60e8c744e269f8ce06c2b2b99ce7660d5f/skills/productivity/writing-great-skills/SKILL.md) | 統合 | `mt-create-skill` | progressive disclosure と no-op 評価を Skill 作成規約に取り込む。 |
 | [`git-guardrails-claude-code`](https://github.com/mattpocock/skills/blob/66898f60e8c744e269f8ce06c2b2b99ce7660d5f/skills/misc/git-guardrails-claude-code/SKILL.md) | 見送り | - | Claude Code 専用 hook であり、既存の canonical 設定管理と競合する。 |
