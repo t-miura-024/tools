@@ -327,9 +327,20 @@ const def: WorkflowDef = {
           {
             key: "decision",
             title: "判定",
-            type: "single_choice",
+            type: "choice_with_input",
             choices: [
-              { value: "approve", label: "計画を特定した", desc: "Issue番号を確認し次へ進む" },
+              {
+                value: "approve",
+                label: "計画を特定した",
+                desc: "Issue番号を確認し次へ進む",
+                input: { required: false, maxLength: 500 },
+              },
+              {
+                value: "revise",
+                label: "修正する",
+                desc: "計画の特定をやり直す",
+                input: { required: true, placeholder: "修正理由を入力", maxLength: 500 },
+              },
               { value: "abort", label: "中断" },
             ],
           },
@@ -606,12 +617,19 @@ const def: WorkflowDef = {
           {
             key: "decision",
             title: "判定",
-            type: "single_choice",
+            type: "choice_with_input",
             choices: [
               {
                 value: "approve",
                 label: "hunk TUI を起動した（ready）",
                 desc: `ターミナルで \`BASE_BRANCH="$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's#^origin/##')"\` と \`hunk diff "$BASE_BRANCH"\` を実行してセッションを active にする。report 後、check が \`hunk session get\` で再検証し失敗ならリトライされる`,
+                input: { required: false, maxLength: 500 },
+              },
+              {
+                value: "revise",
+                label: "修正する",
+                desc: "hunk セッション設定を修正する",
+                input: { required: true, placeholder: "修正理由を入力", maxLength: 500 },
               },
               { value: "abort", label: "中断" },
             ],

@@ -165,16 +165,36 @@ _Avoid_: vitest, npm test
 ## 敵対的検証機構
 
 **effort**:
-検証強度の総称。width と depth の 2 軸で構成される。
+検証強度の総称。width と depth の2軸で構成。
 _Avoid_: 強度, intensity
 
 **width**:
-採用する検証観点の広がり。5 段階で値が大きいほど観点数が増える。
-_Avoid_: 幅, coverage
+累積ティア制で採用観点集合を決定する effort の軸。low=4〜max=15。
+_Avoid_: 広さ
 
 **depth**:
-1 検証者 SubAgent が受け持つ観点数で決まる検証の深さ。担当観点数が少ないほど深い。値域は max 1:1〜low 1:all。
-_Avoid_: 深さ, thoroughness
+担当観点数で深さを制御する effort の軸。max 1:1〜low 1:all。
+_Avoid_: 深さ
+
+**gate**:
+`tado confirm` で TTY 必須の人間判定。human_gate ステップの総称。
+_Avoid_: check, validation
+
+**question**:
+gate内の設問単位。type: single_choice | choice_with_input | free_text。
+_Avoid_: 設問
+
+**choice_with_input**:
+選択肢単位で付帯入力（input:{required,placeholder,maxLength}）を持つ GateChoice。revise=必須、approve=任意で統一。
+_Avoid_: 入力付き選択肢
+
+**outcomeQuestionKey**:
+複数設問時の判定代表キー。本計画では `decision` に統一。
+_Avoid_: 代表設問
+
+**gateAnswers**:
+ConditionCtx.gateAnswers[stepKey][questionKey] の新参照形式。旧 gateChoices/choice は廃止。
+_Avoid_: gateChoices
 
 **検証観点**:
 差分を敵対的に崩す独立した視座。旧資材のマクロ/ミクロ/共通を正規化した 15 観点のプールで管理する。

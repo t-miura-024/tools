@@ -99,18 +99,55 @@ const def: WorkflowDef = {
       maxRetries: 3,
       onFail: { action: "abort" },
       humanGate: {
-        presentArtifacts: [],
+        // presentArtifacts wiring: effort.json is optional at gate time; missing is pass with defaults (generated in collect_context). See check below.
+        // NOTE(plan93): width/depth choices duplicated with mt-plan-create/review_gate — future extraction to _shared/effort.ts
+        presentArtifacts: ["effort.json"],
         outcomeQuestionKey: "decision",
         questions: [
           {
+            key: "width",
+            title: "width",
+            description: "検証広さ: 累積ティアで採用観点数を決定 (low=4 → max=15)",
+            type: "single_choice",
+            required: true,
+            choices: [
+              { value: "low", label: "low", desc: "4観点 (Tier1)" },
+              { value: "medium", label: "medium", desc: "8観点 (Tier1-2)" },
+              { value: "high", label: "high", desc: "12観点 (Tier1-3)" },
+              { value: "xhigh", label: "xhigh", desc: "14観点 (Tier1-4)" },
+              { value: "max", label: "max", desc: "15観点 (全観点)" },
+            ],
+          },
+          {
+            key: "depth",
+            title: "depth",
+            description: "検証深さ: 担当観点数で深さを制御 (max=1:1 → low=1:all)",
+            type: "single_choice",
+            required: true,
+            choices: [
+              { value: "low", label: "low", desc: "全観点/レビュアー (最浅)" },
+              { value: "medium", label: "medium", desc: "4観点/レビュアー" },
+              { value: "high", label: "high", desc: "3観点/レビュアー" },
+              { value: "xhigh", label: "xhigh", desc: "2観点/レビュアー" },
+              { value: "max", label: "max", desc: "1観点/レビュアー (最深)" },
+            ],
+          },
+          {
             key: "decision",
             title: "判定",
-            type: "single_choice",
+            type: "choice_with_input",
             choices: [
               {
                 value: "approve",
                 label: "effort を確定して次へ",
                 desc: "width/depth/base を確認し検証を開始する",
+                input: { required: false, maxLength: 500 },
+              },
+              {
+                value: "revise",
+                label: "修正する",
+                desc: "effort を修正する",
+                input: { required: true, placeholder: "修正理由を入力", maxLength: 500 },
               },
               { value: "abort", label: "中断" },
             ],
@@ -118,6 +155,7 @@ const def: WorkflowDef = {
         ],
       },
       check: (ctx: CheckCtx): CheckResult => {
+        // wiring: presentArtifacts effort.json may be absent at resolve_effort — pass with defaults, collect_context generates it
         const raw =
           findArtifactText(ctx.artifacts as ArtifactRecord[], EFFORT_KEY, ctx.sessionDir) ??
           readSessionFile(ctx.sessionDir, EFFORT_KEY);
@@ -540,12 +578,19 @@ const def: WorkflowDef = {
           {
             key: "decision",
             title: "判定",
-            type: "single_choice",
+            type: "choice_with_input",
             choices: [
               {
                 value: "approve",
                 label: "レビュー完了",
                 desc: "hunk TUI で指摘の確認・人間コメントの追加を終え、verdict 判定へ進む",
+                input: { required: false, maxLength: 500 },
+              },
+              {
+                value: "revise",
+                label: "修正する",
+                desc: "レビュー指摘を修正する",
+                input: { required: true, placeholder: "修正理由を入力", maxLength: 500 },
               },
               { value: "abort", label: "中断" },
             ],

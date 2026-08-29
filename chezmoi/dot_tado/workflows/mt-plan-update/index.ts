@@ -260,6 +260,7 @@ const def: WorkflowDef = {
                 value: "approve",
                 label: "分析を承認してgrillへ進む",
                 desc: "走査結果が妥当。grill質問へ進む",
+                input: { required: false, maxLength: 500 },
               },
               {
                 value: "revise",
@@ -413,6 +414,7 @@ const def: WorkflowDef = {
                 value: "approve",
                 label: "差分を承認して更新する",
                 desc: "body-diffが妥当。Issue更新へ進む",
+                input: { required: false, maxLength: 500 },
               },
               {
                 value: "revise",
