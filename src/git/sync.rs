@@ -46,20 +46,26 @@ pub fn sync_in(
     }
     spinner.finish_with_message("fetch 完了");
 
-    let spinner = style::spinner(&format!("git merge --ff-only origin/{current} ..."));
     let upstream = format!("origin/{current}");
-    if let Err(e) = command_output_in(cwd, "git", &["merge", "--ff-only", &upstream]) {
-        spinner.finish_with_message("ff-only merge 失敗");
-        handle_failure_in(
-            cwd,
-            "ff-only merge",
-            &format!("{e} ({upstream} への fast-forward merge に失敗)"),
-            &current,
-            selector,
-        )?;
-        return Ok(());
+    if !crate::git::common::command_status_in(cwd, "git", &["rev-parse", "--verify", &upstream]) {
+        style::warn(&format!(
+            "upstream {upstream} がリモートに存在しないため、ステップ 1 をスキップします（初回 push 前のブランチです）"
+        ));
+    } else {
+        let spinner = style::spinner(&format!("git merge --ff-only {upstream} ..."));
+        if let Err(e) = command_output_in(cwd, "git", &["merge", "--ff-only", &upstream]) {
+            spinner.finish_with_message("ff-only merge 失敗");
+            handle_failure_in(
+                cwd,
+                "ff-only merge",
+                &format!("{e} ({upstream} への fast-forward merge に失敗)"),
+                &current,
+                selector,
+            )?;
+            return Ok(());
+        }
+        spinner.finish_with_message("ff-only merge 完了");
     }
-    spinner.finish_with_message("ff-only merge 完了");
 
     style::info("ステップ 2/2: target branch の変更を現在のブランチに取り込みます");
     style::info(&format!("target: {target_branch}"));
