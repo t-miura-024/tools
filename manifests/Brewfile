@@ -58,6 +58,7 @@ cask "displaylink"
 cask "font-symbols-only-nerd-font"
 cask "font-udev-gothic-hs"
 cask "font-udev-gothic-nf"
+cask "azookey"
 cask "ghostty"
 
 mas "Kindle", id: 302584613
