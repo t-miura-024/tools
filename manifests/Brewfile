@@ -41,7 +41,6 @@ brew "lefthook"
 brew "duckdb"
 
 cask "arc"
-cask "claude-code"
 cask "docker-desktop"
 cask "font-fira-code"
 cask "google-chrome"
