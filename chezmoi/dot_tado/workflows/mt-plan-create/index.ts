@@ -1,65 +1,9 @@
 import type { WorkflowDef, CheckCtx, PromptCtx, CheckResult, InitCtx, ArtifactRecord } from "tado";
-import { join, resolve, dirname, relative } from "node:path";
-import fs from "node:fs";
-import { readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { writeFileSync } from "node:fs";
 import { execSync } from "node:child_process";
 import { loadConfig } from "../_shared/mt-plan-init-config";
-
-// ---------------------------------------------------------------------------
-// Helpers — fixed isPathInside truncation (logic-3:27) and path traversal && bug (logic-1:51)
-// ---------------------------------------------------------------------------
-
-function isPathInside(base: string, target: string): boolean {
-  const normalizedBase = resolve(base);
-  const normalizedTarget = resolve(target);
-  let realBase: string;
-  try {
-    realBase = fs.realpathSync(normalizedBase);
-  } catch {
-    realBase = normalizedBase;
-  }
-  let realTarget: string;
-  try {
-    realTarget = fs.realpathSync(normalizedTarget);
-  } catch {
-    try {
-      const parent = dirname(normalizedTarget);
-      const realParent = fs.realpathSync(parent);
-      const rel = relative(parent, normalizedTarget);
-      realTarget = join(realParent, rel);
-    } catch {
-      realTarget = normalizedTarget;
-    }
-  }
-  if (realTarget === realBase) return true;
-  const rel = relative(realBase, realTarget);
-  return rel !== "" && !rel.startsWith("..") && !rel.startsWith("/");
-}
-
-function findArtifactText(artifacts: ArtifactRecord[], key: string): string {
-  const match = artifacts.find((a) => a.artifactKey === key);
-  if (!match) throw new Error(`Artifact not found: ${key}`);
-  const resolved = resolve(match.filePath);
-  if (!isPathInside(process.cwd(), resolved)) {
-    throw new Error(`path traversal detected: ${match.filePath}`);
-  }
-  return readFileSync(resolved, "utf-8");
-}
-
-// oxlint-disable-next-line no-unused-vars
-function readSessionFile(sessionDir: string, fileName: string): string | undefined {
-  const fullPath = join(sessionDir, fileName);
-  if (!isPathInside(sessionDir, fullPath)) {
-    throw new Error(`path traversal detected: ${fullPath}`);
-  }
-  try {
-    return fs.readFileSync(fullPath, "utf-8") as string;
-  } catch (e) {
-    const err = e as NodeJS.ErrnoException;
-    if (err.code === "ENOENT") return undefined;
-    throw e;
-  }
-}
+import { findArtifactText } from "../_shared/mt-review-helpers.ts";
 
 interface RepoInfo {
   owner: string;
@@ -67,13 +11,14 @@ interface RepoInfo {
   nameWithOwner: string;
 }
 
-function readRepoInfo(artifacts: ArtifactRecord[]): RepoInfo {
-  const raw = findArtifactText(artifacts, REPO_INFO_KEY);
+function readRepoInfo(artifacts: ArtifactRecord[], sessionDir: string): RepoInfo {
+  const raw = findArtifactText(artifacts, REPO_INFO_KEY, sessionDir);
+  if (!raw) throw new Error(`Artifact not found: ${REPO_INFO_KEY}`);
   return JSON.parse(raw) as RepoInfo;
 }
 
-function isTMiura024(artifacts: ArtifactRecord[]): boolean {
-  return readRepoInfo(artifacts).owner === "t-miura-024";
+function isTMiura024(artifacts: ArtifactRecord[], sessionDir: string): boolean {
+  return readRepoInfo(artifacts, sessionDir).owner === "t-miura-024";
 }
 
 // ---------------------------------------------------------------------------
@@ -148,7 +93,7 @@ const def: WorkflowDef = {
       task: {
         action: "orchestrate",
         buildPrompt: (ctx: PromptCtx) => {
-          const withDocs = isTMiura024(ctx.artifacts);
+          const withDocs = isTMiura024(ctx.artifacts, ctx.sessionDir);
           const grillMapPath = join(ctx.sessionDir, GRILL_MAP_KEY);
 
           const hearingSection = withDocs
@@ -229,7 +174,7 @@ const def: WorkflowDef = {
       task: {
         action: "orchestrate",
         buildPrompt: (ctx: PromptCtx) => {
-          const withDocs = isTMiura024(ctx.artifacts);
+          const withDocs = isTMiura024(ctx.artifacts, ctx.sessionDir);
 
           return [
             "## 目的",
@@ -310,7 +255,7 @@ const def: WorkflowDef = {
       task: {
         action: "orchestrate",
         buildPrompt: (ctx: PromptCtx) => {
-          const repoInfo = readRepoInfo(ctx.artifacts);
+          const repoInfo = readRepoInfo(ctx.artifacts, ctx.sessionDir);
 
           return [
             "## 目的",

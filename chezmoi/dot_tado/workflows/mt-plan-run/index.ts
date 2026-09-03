@@ -15,10 +15,8 @@ import { Database } from "bun:sqlite";
 import { loadConfig } from "../_shared/mt-plan-init-config";
 // NOTE(ADR-0019): Step import は StepDef のみに限定する方針を grill で合意済み。
 // mt-review-diff が敵対的検証の単一 SoT であり、mt-plan-run は StepDef 定義のみを
-// 直接 import して再利用する。純粋関数・定数 (parseEffortArgs 等) は _shared/mt-review-helpers.ts
-// が SoT であり、Step 以外の import は _shared 経由に限定するのが理想だが、今回は seam 漏洩を
-// 許容し、次回計画で _shared への集約を完了する。
-// TODO(next-plan): _shared への集約を検討 (findArtifactText 等ヘルパも含む)
+// 直接 import して再利用する。純粋関数・定数 (parseEffortArgs・findArtifactText 等) は
+// _shared/mt-review-helpers.ts が SoT であり、Step 以外は _shared 経由で import する。
 import {
   resolveEffortStep,
   collectContextStep,
@@ -28,7 +26,9 @@ import {
   collectVerdictStep,
 } from "../mt-review-diff/index.ts";
 import {
+  findArtifactText,
   parseEffortArgs,
+  readSessionFile,
   validateFindingsJson,
   validateVerdictJson,
   FINDINGS_KEY as REVIEW_FINDINGS_KEY,
@@ -61,14 +61,6 @@ function parseJson(raw: string | undefined): unknown {
   if (!raw) return undefined;
   try {
     return JSON.parse(raw);
-  } catch {
-    return undefined;
-  }
-}
-
-function readSessionFile(sessionDir: string, fileName: string): string | undefined {
-  try {
-    return fs.readFileSync(join(sessionDir, fileName), "utf-8") as string;
   } catch {
     return undefined;
   }
@@ -170,7 +162,7 @@ function isHunkSessionLive(): boolean {
 
 function formatHunkFeedback(ctx: PromptCtx): string | undefined {
   const raw =
-    findArtifactText(ctx.artifacts, HUNK_CHECK_KEY) ??
+    findArtifactText(ctx.artifacts, HUNK_CHECK_KEY, ctx.sessionDir) ??
     readSessionFile(ctx.sessionDir, HUNK_CHECK_KEY);
   const result = parseHunkCheck(raw);
   if (!result || result.passes || result.blocking_threads.length === 0) return undefined;
@@ -245,16 +237,6 @@ function getWorkflowDbPath(): string {
   return join(home, ".tado", "workflow.db");
 }
 
-function findArtifactText(artifacts: ArtifactRecord[], key: string): string | undefined {
-  const match = artifacts.find((a) => a.artifactKey === key);
-  if (!match) return undefined;
-  try {
-    return fs.readFileSync(match.filePath, "utf-8") as string;
-  } catch {
-    return undefined;
-  }
-}
-
 // plan-run 用: Issue body から effort を解析するヘルパ (mt-review-diff の parseEffortArgs を再利用しつつ Issue body マーカーも受理)
 function parseEffortFromIssueBody(body: string | undefined): {
   width?: string;
@@ -279,7 +261,7 @@ function ensureEffortFromIssueBody(
 ): { width: string; depth: string } | undefined {
   const issueBody = (() => {
     try {
-      const t = findArtifactText(artifacts, "issue-body.md");
+      const t = findArtifactText(artifacts, "issue-body.md", sessionDir);
       if (t) return t;
     } catch {}
     return (
@@ -439,7 +421,7 @@ const def: WorkflowDef = {
       maxRetries: 1,
       onFail: { action: "escalate" },
       condition: (ctx: ConditionCtx): boolean => {
-        const body = findArtifactText(ctx.artifacts, "issue-body.md");
+        const body = findArtifactText(ctx.artifacts, "issue-body.md", ctx.sessionDir);
         return body?.includes("## 📄 ドキュメント") ?? false;
       },
       task: {
@@ -669,7 +651,7 @@ const def: WorkflowDef = {
           // round 上限3のバイパス防止: 既存 effort.json が存在し round>3 なら fail を維持
           // REVIEW_EFFORT_KEY は "effort.json" と同値のため単一キーに統一 (ai-3 重複解消)
           const existingRaw =
-            findArtifactText(ctx.artifacts, REVIEW_EFFORT_KEY) ??
+            findArtifactText(ctx.artifacts, REVIEW_EFFORT_KEY, ctx.sessionDir) ??
             readSessionFile(ctx.sessionDir, REVIEW_EFFORT_KEY);
           if (existingRaw) {
             try {
@@ -745,7 +727,7 @@ const def: WorkflowDef = {
       check: (ctx: CheckCtx): CheckResult => {
         // 自律ループ中は must が残っていれば人レビューをスキップし自動 pass
         const findingsRaw =
-          findArtifactText(ctx.artifacts, REVIEW_FINDINGS_KEY) ??
+          findArtifactText(ctx.artifacts, REVIEW_FINDINGS_KEY, ctx.sessionDir) ??
           readSessionFile(ctx.sessionDir, REVIEW_FINDINGS_KEY) ??
           readSessionFile(ctx.sessionDir, "findings.json");
         const findingsResult = validateFindingsJson(findingsRaw);
@@ -792,14 +774,14 @@ const def: WorkflowDef = {
 
         // verdict.json の passed を判定し、未通過なら execute_work へループする
         const verdictRaw =
-          findArtifactText(ctx.artifacts, REVIEW_VERDICT_KEY) ??
+          findArtifactText(ctx.artifacts, REVIEW_VERDICT_KEY, ctx.sessionDir) ??
           readSessionFile(ctx.sessionDir, REVIEW_VERDICT_KEY) ??
           (ctx.attemptResult.subagentOutput as string | undefined);
         const verdictResult = validateVerdictJson(verdictRaw);
         // validateVerdict が有効でない場合は findings から合成を試みる (2段階ループ対応)
         if (!verdictResult.valid) {
           const findingsRaw =
-            findArtifactText(ctx.artifacts, REVIEW_FINDINGS_KEY) ??
+            findArtifactText(ctx.artifacts, REVIEW_FINDINGS_KEY, ctx.sessionDir) ??
             readSessionFile(ctx.sessionDir, REVIEW_FINDINGS_KEY);
           const findingsResult = validateFindingsJson(findingsRaw);
           if (!findingsResult.valid) return origResult;
@@ -882,7 +864,7 @@ const def: WorkflowDef = {
         // blocked -> loop へ。workflow.db のループ制御は plan-run が所有
         // 2段階ループ: must残なら自律、should/humanWant残なら人レビュー後の再自律（autonomous round リセット）
         const findingsRawForReset =
-          findArtifactText(ctx.artifacts, REVIEW_FINDINGS_KEY) ??
+          findArtifactText(ctx.artifacts, REVIEW_FINDINGS_KEY, ctx.sessionDir) ??
           readSessionFile(ctx.sessionDir, REVIEW_FINDINGS_KEY);
         const findingsForReset = validateFindingsJson(findingsRawForReset);
         const isHumanStage = findingsForReset.valid && findingsForReset.parsed!.counts.must === 0;

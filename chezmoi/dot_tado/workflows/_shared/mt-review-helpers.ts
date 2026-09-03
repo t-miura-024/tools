@@ -1,36 +1,11 @@
-import { resolve, join, dirname, relative } from "node:path";
-import fs from "node:fs";
 import { execFileSync } from "node:child_process";
+
+// 成果物の安全な読み取りの正典は tado 本体の `tado/artifacts`。
+// この共有処理は後方互換の入口として再公開する。
+export { findArtifactText, isPathInside, readSessionFile } from "tado/artifacts";
 
 export function shellQuote(p: string): string {
   return "'" + p.replace(/'/g, "'\\''") + "'";
-}
-
-export function isPathInside(base: string, target: string): boolean {
-  const normalizedBase = resolve(base);
-  const normalizedTarget = resolve(target);
-  let realBase: string;
-  try {
-    realBase = fs.realpathSync(normalizedBase);
-  } catch {
-    realBase = normalizedBase;
-  }
-  let realTarget: string;
-  try {
-    realTarget = fs.realpathSync(normalizedTarget);
-  } catch {
-    try {
-      const parent = dirname(normalizedTarget);
-      const realParent = fs.realpathSync(parent);
-      const rel = relative(parent, normalizedTarget);
-      realTarget = join(realParent, rel);
-    } catch {
-      realTarget = normalizedTarget;
-    }
-  }
-  if (realTarget === realBase) return true;
-  const rel = relative(realBase, realTarget);
-  return rel !== "" && !rel.startsWith("..") && !rel.startsWith("/");
 }
 
 // =============================================================================
@@ -326,20 +301,6 @@ export function parseJson(raw: string | undefined): unknown {
   }
 }
 
-export function readSessionFile(sessionDir: string, fileName: string): string | undefined {
-  const fullPath = join(sessionDir, fileName);
-  if (!isPathInside(sessionDir, fullPath)) {
-    throw new Error(`path traversal detected: ${fullPath}`);
-  }
-  try {
-    return fs.readFileSync(fullPath, "utf-8") as string;
-  } catch (e) {
-    const err = e as NodeJS.ErrnoException;
-    if (err.code === "ENOENT") return undefined;
-    throw e;
-  }
-}
-
 export function findJsonObject(raw: string | undefined): JsonRecord | undefined {
   const parsed = parseJson(raw);
   if (isRecord(parsed)) return parsed;
@@ -349,32 +310,6 @@ export function findJsonObject(raw: string | undefined): JsonRecord | undefined 
   if (start < 0 || end <= start) return undefined;
   if (start === 0 && end === raw.length - 1) return undefined;
   return findJsonObject(raw.slice(start, end + 1));
-}
-
-export function findArtifactText(
-  artifacts: { artifactKey: string; filePath: string }[],
-  key: string,
-  sessionDir?: string,
-): string | undefined {
-  const match = artifacts.find((a) => a.artifactKey === key);
-  if (!match) return undefined;
-  const rawPath = match.filePath;
-  if (typeof rawPath !== "string" || !rawPath.trim()) return undefined;
-  const resolved = resolve(rawPath);
-  if (sessionDir) {
-    if (!isPathInside(sessionDir, resolved)) {
-      return undefined;
-    }
-  } else {
-    if (rawPath.includes("..")) return undefined;
-  }
-  try {
-    return fs.readFileSync(resolved, "utf-8") as string;
-  } catch (e) {
-    const err = e as NodeJS.ErrnoException;
-    if (err.code === "ENOENT") return undefined;
-    throw e;
-  }
 }
 
 // findings.json の機械検証 (純粋関数)
