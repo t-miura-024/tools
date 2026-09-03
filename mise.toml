@@ -12,7 +12,7 @@ run = "scripts/docker.sh logs"
 
 [tasks.ts-test]
 description = "TS テストを bun:test で実行"
-run = "bun test"
+run = "bun test --path-ignore-patterns \"tmp/**\""
 
 [tasks.ts-typecheck]
 description = "TS 型チェックを tsc --noEmit で実行"
