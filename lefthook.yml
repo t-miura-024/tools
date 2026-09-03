@@ -48,7 +48,7 @@ pre-push:
         -u GIT_OBJECT_DIRECTORY
         -u GIT_ALTERNATE_OBJECT_DIRECTORIES
         -u GIT_PREFIX
-        bun test
+        bun test --path-ignore-patterns "tmp/**"
     ts-typecheck-gate:
       run: >-
         env -u GIT_DIR
