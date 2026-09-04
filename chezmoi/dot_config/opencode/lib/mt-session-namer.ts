@@ -5,9 +5,14 @@
 // このディレクトリは opencode のプラグイン自動検出対象外のため、
 // 値エクスポートを含めてもローダーに誤って呼び出されることはない。
 
-import type { Provider } from "@opencode-ai/sdk";
+export type ModelCosts = {
+  cost?: {
+    input?: unknown;
+    output?: unknown;
+  };
+};
 
-function comparableCost(value: number | undefined): number | undefined {
+function comparableCost(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : undefined;
 }
 
@@ -18,7 +23,7 @@ function compareCost(a: number | undefined, b: number | undefined): number {
   return a - b;
 }
 
-export function orderModelIDs(models: Provider["models"] | undefined): string[] {
+export function orderModelIDs(models: Record<string, ModelCosts> | undefined): string[] {
   return Object.entries(models ?? {})
     .map(([modelID, model], index) => ({ modelID, model, index }))
     .sort((a, b) => {
