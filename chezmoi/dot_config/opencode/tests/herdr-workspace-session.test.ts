@@ -6,7 +6,7 @@ import {
   sessionDisplayValue,
   type HerdrRunResult,
   type RootSession,
-} from "../plugins/herdr-workspace-session";
+} from "../lib/herdr-workspace-session";
 
 const project = {
   id: "project-1",

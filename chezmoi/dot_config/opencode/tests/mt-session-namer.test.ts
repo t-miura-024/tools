@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { orderModelIDs, SessionNamer } from "../plugins/mt-session-namer";
+import SessionNamer from "../plugins/mt-session-namer";
+import { orderModelIDs } from "../lib/mt-session-namer";
 
 function rootSession(title = "New session - 2026-08-10T00:00:00.000Z") {
   return {
