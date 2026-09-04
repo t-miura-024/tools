@@ -2,12 +2,13 @@
 //
 // Mirrors the active OpenCode root session into a Herdr workspace metadata token.
 //
-// NOTE: このファイルは default エクスポートのみを持つこと。opencode のローダーは
-// モジュールの全エクスポートをプラグイン関数として呼び出すため、値の名前付き
-// エクスポート（特に class）があるとロード全体が失敗する。純粋ロジックは
-// ../lib/herdr-workspace-session.ts に置き、テストはそちらを参照する。
-import type { Event } from "@opencode-ai/sdk";
-import type { Plugin } from "@opencode-ai/plugin";
+// NOTE: このファイルは default エクスポート（Plugin.define の結果）のみを持つこと。
+// opencode のローダーはこの形式を要求し、他の値エクスポートがあると
+// ロード全体が失敗する。純粋ロジックは ../lib/herdr-workspace-session.ts に置く。
+//
+// V2 制約: プラグイン API に session.list がないため、起動時の既存セッションは
+// シードできない。ロード後に届くイベントから追跡を開始する。
+import { Plugin } from "@opencode-ai/plugin";
 import {
   createHerdrMetadataReporter,
   errorMessage,
@@ -16,144 +17,165 @@ import {
   isRootSession,
   resolveHerdrBinary,
   sessionDisplayValue,
-  sessionFromInfo,
   SessionTracker,
+  type SessionInfo,
 } from "../lib/herdr-workspace-session";
 
-const HerdrWorkspaceSessionPlugin: Plugin = async ({ client, project, directory }) => {
-  const environment = process.env;
-  const workspaceID = getWorkspaceID(environment);
-  const herdrBinary = resolveHerdrBinary(environment);
-  if (!workspaceID || !herdrBinary) {
-    return {};
-  }
+type SessionClient = Plugin.Context["session"];
 
-  const tracker = new SessionTracker(project, directory);
-  const queue = { current: Promise.resolve() };
-
-  function enqueue(queue: { current: Promise<void> }, task: () => Promise<void>): Promise<void> {
-    const next = queue.current.then(task, task);
-    queue.current = next.catch(() => {});
-    return next;
-  }
-
-  async function warn(operation: string, error: string): Promise<void> {
-    try {
-      await client.app.log({
-        body: {
-          service: "herdr-workspace-session",
-          level: "warn",
-          message: `Herdr ${operation} failed: ${error}`,
-        },
-      });
-    } catch {
-      // Logging must never affect the OpenCode event loop.
-    }
-  }
-
-  const reporter = createHerdrMetadataReporter({
-    workspaceID,
-    herdrBinary,
-    onFailure: warn,
-  });
-
-  async function publish(): Promise<void> {
-    const value = tracker.current();
-    if (value) {
-      await reporter.set(sessionDisplayValue(value));
-    } else {
-      await reporter.clear();
-    }
-  }
-
-  async function loadSessions(): Promise<void> {
-    try {
-      const response = await client.session.list();
-      tracker.seed(
-        (response.data ?? []).filter((session) => {
-          return isRootSession(session) && isCurrentProject(session, project, directory);
-        }),
-      );
-      await publish();
-    } catch (error) {
-      await warn("session list", errorMessage(error));
-    }
-  }
-
-  async function ensureTrackedRootSession(sessionID: string): Promise<boolean> {
-    if (tracker.has(sessionID)) return true;
-
-    try {
-      const response = await client.session.get({ path: { id: sessionID } });
-      const session = response.data;
-      if (!session || session.parentID || !isCurrentProject(session, project, directory)) {
-        return false;
-      }
-      tracker.addOrUpdate(session);
-      return tracker.has(sessionID);
-    } catch (error) {
-      await warn("session lookup", errorMessage(error));
-      return false;
-    }
-  }
-
-  async function handleEvent(event: Event): Promise<void> {
-    switch (event.type) {
-      case "session.created":
-      case "session.updated": {
-        const session = sessionFromInfo(event.properties.info);
-        if (session?.parentID) return;
-        if (session) {
-          tracker.addOrUpdate(session);
-          await publish();
-        }
-        return;
-      }
-      case "session.status": {
-        const sessionID = event.properties.sessionID;
-        if (await ensureTrackedRootSession(sessionID)) {
-          tracker.updateStatus(sessionID, event.properties.status);
-          await publish();
-        }
-        return;
-      }
-      case "session.idle":
-        if (await ensureTrackedRootSession(event.properties.sessionID)) {
-          tracker.markIdle(event.properties.sessionID);
-          await publish();
-        }
-        return;
-      case "session.deleted": {
-        const session = sessionFromInfo(event.properties.info);
-        if (session) {
-          tracker.remove(session);
-          await publish();
-        }
-        return;
-      }
-      default:
-        return;
-    }
-  }
-
-  enqueue(queue, loadSessions);
-
-  return {
-    event: async ({ event }: { event: Event }) => {
-      await enqueue(queue, async () => {
-        try {
-          await handleEvent(event);
-        } catch (error) {
-          await warn("event handling", errorMessage(error));
-        }
-      });
-    },
-    dispose: async () => {
-      await enqueue(queue, async () => {
-        await reporter.clear();
-      });
-    },
-  };
+type SessionDetails = {
+  id: string;
+  title?: string;
+  projectID: string;
+  parentID?: string;
+  location: { directory: string };
+  time: { created: number; updated: number };
 };
 
-export default HerdrWorkspaceSessionPlugin;
+function toSessionInfo(details: SessionDetails): SessionInfo {
+  return {
+    id: details.id,
+    title: details.title ?? details.id,
+    directory: details.location.directory,
+    projectID: details.projectID,
+    parentID: details.parentID,
+    time: { created: details.time.created, updated: details.time.updated },
+  };
+}
+
+export default Plugin.define({
+  id: "mt-herdr-workspace-session",
+  setup(ctx) {
+    const environment = process.env;
+    const workspaceID = getWorkspaceID(environment);
+    const herdrBinary = resolveHerdrBinary(environment);
+    if (!workspaceID || !herdrBinary) {
+      return;
+    }
+
+    const project = { id: ctx.location.project.id };
+    const directory = ctx.location.directory;
+    const tracker = new SessionTracker(project, directory);
+    const queue = { current: Promise.resolve() };
+
+    function enqueue(task: () => Promise<void>): Promise<void> {
+      const next = queue.current.then(task, task);
+      queue.current = next.catch(() => {});
+      return next;
+    }
+
+    async function warn(operation: string, error: string): Promise<void> {
+      try {
+        console.warn(`[herdr-workspace-session] Herdr ${operation} failed: ${error}`);
+      } catch {
+        // Logging must never affect the OpenCode event loop.
+      }
+    }
+
+    const reporter = createHerdrMetadataReporter({
+      workspaceID,
+      herdrBinary,
+      onFailure: warn,
+    });
+
+    async function publish(): Promise<void> {
+      const value = tracker.current();
+      if (value) {
+        await reporter.set(sessionDisplayValue(value));
+      } else {
+        await reporter.clear();
+      }
+    }
+
+    function isCurrent(info: SessionInfo): boolean {
+      return isRootSession(info) && isCurrentProject(info, project, directory);
+    }
+
+    async function trackSession(session: SessionClient, sessionID: string): Promise<boolean> {
+      if (tracker.has(sessionID)) return true;
+      try {
+        const details = (await session.get({ sessionID })) as unknown as SessionDetails;
+        const info = toSessionInfo(details);
+        if (!isCurrent(info)) return false;
+        tracker.addOrUpdate(info);
+        return tracker.has(sessionID);
+      } catch (error) {
+        await warn("session lookup", errorMessage(error));
+        return false;
+      }
+    }
+
+    const controller = new AbortController();
+    void (async () => {
+      try {
+        for await (const event of ctx.event.subscribe({ signal: controller.signal })) {
+          await enqueue(async () => {
+            try {
+              switch (event.type) {
+                case "session.created": {
+                  if (event.data.parentID) break;
+                  if (await trackSession(ctx.session, event.data.sessionID)) {
+                    await publish();
+                  }
+                  break;
+                }
+                case "session.renamed": {
+                  if (!tracker.has(event.data.sessionID)) break;
+                  try {
+                    const details = (await ctx.session.get({
+                      sessionID: event.data.sessionID,
+                    })) as unknown as SessionDetails;
+                    const info = toSessionInfo(details);
+                    if (!isCurrent(info)) {
+                      tracker.removeByID(info.id);
+                    } else {
+                      tracker.addOrUpdate(info);
+                    }
+                    await publish();
+                  } catch (error) {
+                    await warn("session lookup", errorMessage(error));
+                  }
+                  break;
+                }
+                case "session.status": {
+                  if (await trackSession(ctx.session, event.data.sessionID)) {
+                    tracker.updateStatus(event.data.sessionID, event.data.status);
+                    await publish();
+                  }
+                  break;
+                }
+                case "session.idle": {
+                  if (await trackSession(ctx.session, event.data.sessionID)) {
+                    tracker.markIdle(event.data.sessionID);
+                    await publish();
+                  }
+                  break;
+                }
+                case "session.deleted": {
+                  if (tracker.has(event.data.sessionID)) {
+                    tracker.removeByID(event.data.sessionID);
+                    await publish();
+                  }
+                  break;
+                }
+                default:
+                  break;
+              }
+            } catch (error) {
+              await warn("event handling", errorMessage(error));
+            }
+          });
+        }
+      } catch {
+        // Aborted on dispose; nothing to report.
+      }
+    })();
+
+    return () => {
+      controller.abort();
+      void enqueue(async () => {
+        await reporter.clear();
+      });
+    };
+  },
+});

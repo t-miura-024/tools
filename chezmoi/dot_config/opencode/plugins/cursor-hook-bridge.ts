@@ -1,13 +1,17 @@
 // Managed by chezmoi: tools/chezmoi/dot_config/opencode/plugins/cursor-hook-bridge.ts
-// Source of Truth: tools/chezmoi/dot_config/opencode/plugins/agent-hooks/block-chezmoi-direct-edit.ts
 //
 // Cursor の hooks.json 形式を opencode の plugin 形式に bridge する。
-// tool.execute.before で HANDLERS の command を spawn して結果 JSON を解釈する。
+// tool.execute hook で HANDLERS の command を spawn して結果 JSON を解釈する。
 //
 // 動作保証: OpenCode のみ（下記 HANDLERS の command が参照する agent-hooks スクリプトは
 // OpenCode 経由で実機検証済み。Cursor / Claude Code 経由は未検証）。
+//
+// NOTE: このファイルは default エクスポート（Plugin.define の結果）のみを持つこと。
+// opencode のローダーはこの形式を要求し、他の値エクスポートがあると
+// ロード全体が失敗する。
 import { spawnSync } from "node:child_process";
 import * as path from "node:path";
+import { Plugin } from "@opencode-ai/plugin";
 
 type HookDefinition = {
   command: string;
@@ -56,24 +60,22 @@ function evaluateHook(definition: HookDefinition, toolName: string, input: unkno
   }
 }
 
-export default async function plugin() {
-  return {
-    "tool.execute.before": async (
-      input: { tool: string; sessionID: string; callID: string },
-      output: { args: unknown },
-    ) => {
+export default Plugin.define({
+  id: "mt-cursor-hook-bridge",
+  async setup(ctx) {
+    await ctx.tool.hook("execute.before", async (event) => {
       for (const definition of HANDLERS["tool.execute.before"] ?? []) {
-        const hookInput = { tool: input.tool, args: output.args };
-        const outcome = evaluateHook(definition, input.tool, hookInput);
+        const hookInput = { tool: event.tool, args: event.input };
+        const outcome = evaluateHook(definition, event.tool, hookInput);
         if (outcome.permission === "deny") {
           throw new Error(outcome.user_message ?? outcome.agent_message ?? "blocked by hook");
         }
       }
-    },
-    "tool.execute.after": async (input: { tool: string; args: unknown }) => {
+    });
+    await ctx.tool.hook("execute.after", async (event) => {
       for (const definition of HANDLERS["tool.execute.after"] ?? []) {
-        evaluateHook(definition, input.tool, input);
+        evaluateHook(definition, event.tool, { tool: event.tool, args: event.input });
       }
-    },
-  };
-}
+    });
+  },
+});

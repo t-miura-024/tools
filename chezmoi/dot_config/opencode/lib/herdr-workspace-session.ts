@@ -6,8 +6,24 @@
 // 値エクスポートを含めてもローダーに誤って呼び出されることはない。
 
 import { spawn } from "node:child_process";
-import type { Session } from "@opencode-ai/sdk";
-import type { PluginInput } from "@opencode-ai/plugin";
+
+export type SessionTime = {
+  created: number;
+  updated: number;
+};
+
+export type SessionInfo = {
+  id: string;
+  title: string;
+  directory: string;
+  projectID: string;
+  parentID?: string;
+  time: SessionTime;
+};
+
+export type SessionProject = {
+  id: string;
+};
 
 const SOURCE = "user:opencode-session";
 const TOKEN = "agent_session";
@@ -29,11 +45,6 @@ export type RootSession = {
   status?: SessionStatus;
   statusSequence: number;
 };
-
-export type SessionInfo = Pick<
-  Session,
-  "id" | "title" | "directory" | "projectID" | "parentID" | "time"
->;
 
 export type HerdrRunResult = { ok: true } | { ok: false; error: string };
 
@@ -66,7 +77,7 @@ export function isRootSession(session: SessionInfo): boolean {
 
 export function isCurrentProject(
   session: SessionInfo,
-  project: PluginInput["project"],
+  project: SessionProject,
   directory: string,
 ): boolean {
   return (
@@ -99,7 +110,7 @@ export class SessionTracker {
   private primaryID: string | undefined;
 
   constructor(
-    private readonly project: PluginInput["project"],
+    private readonly project: SessionProject,
     private readonly directory: string,
   ) {}
 
@@ -145,8 +156,12 @@ export class SessionTracker {
 
   remove(session: SessionInfo): void {
     if (!isRootSession(session)) return;
-    this.sessions.delete(session.id);
-    if (this.primaryID === session.id) {
+    this.removeByID(session.id);
+  }
+
+  removeByID(sessionID: string): void {
+    this.sessions.delete(sessionID);
+    if (this.primaryID === sessionID) {
       this.primaryID = this.selectPrimary()?.id;
     }
   }

@@ -90,6 +90,17 @@ describe("SessionTracker", () => {
 
     expect(tracker.current()?.id).toBe("second");
   });
+
+  test("removes by ID without a session lookup", () => {
+    const tracker = new SessionTracker(project, "/repo");
+    tracker.seed([info(session("first", 2)), info(session("second", 1))]);
+    tracker.removeByID("first");
+
+    expect(tracker.current()?.id).toBe("second");
+
+    tracker.removeByID("missing");
+    expect(tracker.current()?.id).toBe("second");
+  });
 });
 
 describe("Herdr invocation seam", () => {
