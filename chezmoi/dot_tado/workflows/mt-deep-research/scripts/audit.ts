@@ -128,6 +128,24 @@ function countCitationNumbers(content: string): number {
   return matches.length;
 }
 
+/**
+ * 番号引用 `[N]` と sources.source_number の値照合。
+ * 一次資料が存在しない番号への引用（捏造引用）を決定論的に検出する。
+ */
+function citationSourcesMissing(db: Database, content: string): number[] {
+  const known = new Set<number>();
+  for (const row of db
+    .query<{ source_number: number }, []>("SELECT DISTINCT source_number FROM sources")
+    .all()) {
+    known.add(Number(row.source_number));
+  }
+  const cited = new Set<number>();
+  for (const m of content.match(/\[(\d+)\]/g) ?? []) {
+    cited.add(Number(m.slice(1, -1)));
+  }
+  return [...cited].filter((n) => !known.has(n)).sort((a, b) => a - b);
+}
+
 function deriveDefaultPath(dbPath: string, filename: string): string {
   return resolve(dirname(dbPath), filename);
 }
@@ -296,6 +314,16 @@ export function auditWriter(db: Database, reportPath: string): AuditCheck[] {
       mermaidErrors.length === 0
         ? "mermaid block found"
         : `mermaid errors: ${mermaidErrors.map((e) => e.message).join("; ")}`,
+  });
+  // 番号引用と sources.source_number の値照合（捏造引用の検出）
+  const citedWithoutSource = citationSourcesMissing(db, content);
+  checks.push({
+    check_name: "report_md_citations_match_sources",
+    status: citedWithoutSource.length === 0 ? "pass" : "fail",
+    detail:
+      citedWithoutSource.length === 0
+        ? "all cited [N] numbers exist in sources"
+        : `cited numbers not in sources: ${citedWithoutSource.join(", ")}`,
   });
   return checks;
 }

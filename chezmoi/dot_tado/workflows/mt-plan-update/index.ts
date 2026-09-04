@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 import { createHash } from "node:crypto";
 import { loadConfig } from "../_shared/mt-plan-init-config";
 import { shellQuote, findArtifactText, readSessionFile } from "../_shared/mt-review-helpers";
+import { requireStepArtifacts } from "../_shared/artifact-check";
 
 interface RepoInfo {
   owner: string;
@@ -454,7 +455,7 @@ const def: WorkflowDef = {
       key: "update_issue",
       phase: "Issue 更新",
       type: "task",
-      maxRetries: 2,
+      maxRetries: 3,
       onFail: { action: "escalate" },
       task: {
         action: "orchestrate",
@@ -513,6 +514,10 @@ const def: WorkflowDef = {
             `gh issue comment "$ISSUE_NUMBER" --body-file ${shellQuote(join(ctx.sessionDir, "summary.masked.md"))}`,
             "```",
             "投稿は最小権限トークンで実行し、内容は人間が承認した差分サマリのみとする。（check でマスキング漏れを再スキャンする）",
+            "マスク済みサマリを `summary.masked.md` として保存したことを report 時の `artifacts` に含める（申告漏れは check で fail になる）:",
+            "```json",
+            `[{"key": "${ISSUE_NUMBER_KEY}", "path": "${join(ctx.sessionDir, ISSUE_NUMBER_KEY)}"}, {"key": "summary.masked.md", "path": "${join(ctx.sessionDir, "summary.masked.md")}"}]`,
+            "```",
             "",
             "### 5. ラベル付与",
             "",
@@ -566,6 +571,11 @@ const def: WorkflowDef = {
             readSessionFile(ctx.sessionDir, ISSUE_BODY_KEY) ??
             findArtifactText(ctx.artifacts, ISSUE_BODY_KEY, ctx.sessionDir);
           if (!body) return { status: "fail", reasons: [`${ISSUE_BODY_KEY} not verified`] };
+          // 統一最低ライン: マスク済みサマリの申告・実在を強制
+          const maskedCheck = requireStepArtifacts(ctx, [
+            { key: "summary.masked.md", form: "markdown" },
+          ]);
+          if (maskedCheck.status !== "pass") return maskedCheck;
           // 追加: 事前ガードの code 検証（req-2:315, logic-2:321, req-2:596）
           try {
             const repoInfo = readRepoInfo(ctx.artifacts, ctx.sessionDir);
@@ -629,7 +639,7 @@ const def: WorkflowDef = {
       key: "report",
       phase: "レポート",
       type: "task",
-      maxRetries: 1,
+      maxRetries: 3,
       onFail: { action: "escalate" },
       task: {
         action: "orchestrate",
@@ -646,6 +656,13 @@ const def: WorkflowDef = {
             "### 1. レポート生成",
             "",
             `セッションディレクトリの \`${GRILL_MAP_KEY}\`, \`${ANALYSIS_KEY}\`, \`${EVIDENCE_KEY}\`, \`${BODY_DIFF_KEY}\`, \`${ISSUE_NUMBER_KEY}\` をもとに、\`${REPORT_KEY}\` を生成する。`,
+            "",
+            "レポートは以下の必須見出しを持つこと:",
+            "- `## 走査サマリ`",
+            "- `## 前提崩れ一覧`",
+            "- `## grill 決定ログ`",
+            "- `## 更新差分サマリ`",
+            "- `## 次アクション`",
             "",
             "内容:",
             "- 走査サマリ（対象ファイル数、関連Issue/PR、走査手法、evidence の query/tool/timestamp）",
@@ -688,6 +705,21 @@ const def: WorkflowDef = {
             readSessionFile(ctx.sessionDir, REPORT_KEY) ??
             findArtifactText(ctx.artifacts, REPORT_KEY, ctx.sessionDir);
           if (!report) return { status: "fail", reasons: [`${REPORT_KEY} not found`] };
+          // 統一最低ライン: 必須見出しを含めることを強制
+          const minimum = requireStepArtifacts(ctx, [
+            {
+              key: REPORT_KEY,
+              form: "markdown",
+              sections: [
+                "## 走査サマリ",
+                "## 前提崩れ一覧",
+                "## grill 決定ログ",
+                "## 更新差分サマリ",
+                "## 次アクション",
+              ],
+            },
+          ]);
+          if (minimum.status !== "pass") return minimum;
           return { status: "pass", reasons: ["report generated"] };
         } catch (e) {
           return { status: "fail", reasons: [e instanceof Error ? e.message : String(e)] };
