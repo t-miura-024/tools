@@ -1,9 +1,6 @@
 {
   "$schema": "https://opencode.ai/config.json",
   "shell": "zsh",
-  "plugin": [
-    "./plugins/cursor-hook-bridge.ts"
-  ],
   "agent": {
     "title": {
       "disable": true

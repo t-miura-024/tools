@@ -144,7 +144,7 @@ async function isMainSession(client: PluginInput["client"], sessionID: string): 
   }
 }
 
-export const CmuxNotifyPlugin: Plugin = async ({ client }) => {
+const CmuxNotifyPlugin: Plugin = async ({ client }) => {
   // Reflect "idle" state immediately on opencode startup. Fire-and-forget so
   // plugin initialization does not block the opencode boot path; ordering is
   // preserved by the shared queue, so any later event-driven updates will

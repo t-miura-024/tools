@@ -1,8 +1,14 @@
 // Managed by chezmoi: tools/chezmoi/dot_config/opencode/plugins/mt-session-namer.ts
 //
 // Dynamically renames root sessions based on conversation content.
-import type { Event, Provider, Session } from "@opencode-ai/sdk";
+//
+// NOTE: このファイルは default エクスポートのみを持つこと。opencode のローダーは
+// モジュールの全エクスポートをプラグイン関数として呼び出すため、値の名前付き
+// エクスポートがあると誤動作の原因になる。純粋ロジックは
+// ../lib/mt-session-namer.ts に置き、テストはそちらを参照する。
+import type { Event, Session } from "@opencode-ai/sdk";
 import type { Plugin } from "@opencode-ai/plugin";
+import { orderModelIDs } from "../lib/mt-session-namer";
 
 const TEMP_TITLE = "session-namer-temp";
 const THROTTLE_MS = 60_000;
@@ -81,37 +87,7 @@ function sessionFromInfo(value: unknown): SessionInfo | undefined {
   return session as SessionInfo;
 }
 
-function comparableCost(value: number | undefined): number | undefined {
-  return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : undefined;
-}
-
-function compareCost(a: number | undefined, b: number | undefined): number {
-  if (a === undefined && b === undefined) return 0;
-  if (a === undefined) return 1;
-  if (b === undefined) return -1;
-  return a - b;
-}
-
-export function orderModelIDs(models: Provider["models"] | undefined): string[] {
-  return Object.entries(models ?? {})
-    .map(([modelID, model], index) => ({ modelID, model, index }))
-    .sort((a, b) => {
-      const inputCost = compareCost(
-        comparableCost(a.model.cost?.input),
-        comparableCost(b.model.cost?.input),
-      );
-      if (inputCost !== 0) return inputCost;
-
-      const outputCost = compareCost(
-        comparableCost(a.model.cost?.output),
-        comparableCost(b.model.cost?.output),
-      );
-      return outputCost !== 0 ? outputCost : a.index - b.index;
-    })
-    .map(({ modelID }) => modelID);
-}
-
-export const SessionNamer: Plugin = async ({ client, project, directory }) => {
+const SessionNamer: Plugin = async ({ client, project, directory }) => {
   const queue = { current: Promise.resolve() };
   const sessions = new Map<string, SessionInfo>();
   const lastSetTitles = new Map<string, string>();
