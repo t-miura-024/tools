@@ -30,6 +30,7 @@ import {
   VALID_DEPTHS,
 } from "../_shared/mt-review-helpers.ts";
 import type { Width, Depth } from "../_shared/mt-review-helpers.ts";
+import { requireStepArtifacts } from "../_shared/artifact-check";
 
 // Re-export pure helpers for backward compatibility (mt-plan-run, tests)
 export {
@@ -286,7 +287,7 @@ const def: WorkflowDef = {
       key: "run_reviewers",
       phase: "検証者起動",
       type: "task",
-      maxRetries: 1,
+      maxRetries: 3,
       onFail: { action: "escalate" },
       task: {
         action: "orchestrate",
@@ -409,7 +410,11 @@ const def: WorkflowDef = {
         if (ctx.attemptResult.status !== "completed") {
           return { status: "error", reasons: [ctx.attemptResult.errors ?? "run_reviewers failed"] };
         }
-        return { status: "pass", reasons: ["reviewers executed"] };
+        // 統一最低ライン: 生 findings 集約物の申告・実在・配列形式を強制。
+        // findings の実質検証（正規化・差分限定・counts 照合）は publish_findings が担当
+        return requireStepArtifacts(ctx, [
+          { key: "reviewer-outputs.json", form: "json", minItems: 1 },
+        ]);
       },
     },
 

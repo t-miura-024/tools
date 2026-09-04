@@ -13,6 +13,7 @@ import {
   auditWriterReviewerCycle,
 } from "./scripts/audit";
 import type { AuditCheck } from "./scripts/audit";
+import { requireStepArtifacts } from "../_shared/artifact-check";
 
 const SCRIPTS_DIR = join(import.meta.dir, "scripts");
 
@@ -151,7 +152,11 @@ const def: WorkflowDef = {
           });
         },
       },
-      check: (_ctx: CheckCtx): CheckResult => ({ status: "pass", reasons: [] }),
+      // 統一最低ライン: 申告義務・実在・非空を強制（DB 直書きステップは
+      // 既存 SQLite 監査が最低ライン相当。ファイル成果物を持つのは phase1 のみ）
+      check: (ctx: CheckCtx): CheckResult => {
+        return requireStepArtifacts(ctx, [{ key: "hearing.md", form: "markdown" }]);
+      },
     },
 
     // -----------------------------------------------------------------------

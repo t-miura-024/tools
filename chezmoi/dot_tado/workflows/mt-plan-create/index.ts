@@ -4,6 +4,8 @@ import { writeFileSync } from "node:fs";
 import { execSync } from "node:child_process";
 import { loadConfig } from "../_shared/mt-plan-init-config";
 import { findArtifactText } from "../_shared/mt-review-helpers.ts";
+import { requireStepArtifacts } from "../_shared/artifact-check";
+import { verifyIssueOpen, fetchIssueBody } from "../_shared/gh-issue-verify";
 
 interface RepoInfo {
   owner: string;
@@ -29,6 +31,9 @@ const PREPARE_DECISION_KEY = "prepare-decision.json";
 const ISSUE_BODY_KEY = "issue-body.md";
 const GRILL_MAP_KEY = "grill-map.md";
 const REPO_INFO_KEY = "repo-info.json";
+const ISSUE_NUMBER_KEY = "issue-number.txt";
+const EFFORT_PATTERN =
+  /<!--\s*effort:\s*width=(low|medium|high|xhigh|max)\s+depth=(low|medium|high|xhigh|max)\s*-->/;
 const mtGrillRoundsDir = join(import.meta.dir, "..", "mt-grill-rounds");
 const mtDomainModelingDir = join(import.meta.dir, "..", "mt-domain-modeling");
 
@@ -159,7 +164,11 @@ const def: WorkflowDef = {
           ].join("\n");
         },
       },
-      check: (_ctx: CheckCtx): CheckResult => ({ status: "pass", reasons: [] }),
+      // 統一最低ライン: ライブ地図の申告・実在・非空を強制する。
+      // 地図の構造（見出し・セクション）は mt-grill-rounds が適応的に決めるため固定しない。
+      check: (ctx: CheckCtx): CheckResult => {
+        return requireStepArtifacts(ctx, [{ key: GRILL_MAP_KEY, form: "markdown" }]);
+      },
     },
 
     // -----------------------------------------------------------------
@@ -240,7 +249,16 @@ const def: WorkflowDef = {
           ].join("\n");
         },
       },
-      check: (_ctx: CheckCtx): CheckResult => ({ status: "pass", reasons: [] }),
+      check: (ctx: CheckCtx): CheckResult => {
+        return requireStepArtifacts(ctx, [
+          {
+            key: ISSUE_BODY_KEY,
+            form: "markdown",
+            sections: ["## ✅ 完了条件", "## 🧭 方針"],
+            patterns: [EFFORT_PATTERN],
+          },
+        ]);
+      },
     },
 
     // -----------------------------------------------------------------
@@ -250,7 +268,7 @@ const def: WorkflowDef = {
       key: "prepare",
       phase: "起票準備",
       type: "task",
-      maxRetries: 1,
+      maxRetries: 3,
       onFail: { action: "escalate" },
       task: {
         action: "orchestrate",
@@ -322,7 +340,15 @@ const def: WorkflowDef = {
           ].join("\n");
         },
       },
-      check: (_ctx: CheckCtx): CheckResult => ({ status: "pass", reasons: [] }),
+      check: (ctx: CheckCtx): CheckResult => {
+        return requireStepArtifacts(ctx, [
+          {
+            key: PREPARE_DECISION_KEY,
+            form: "json",
+            keys: ["mode", "fromIssue", "issueNumber", "repo"],
+          },
+        ]);
+      },
     },
 
     // -----------------------------------------------------------------
@@ -332,7 +358,7 @@ const def: WorkflowDef = {
       key: "create_draft",
       phase: "Draft Issue 作成",
       type: "task",
-      maxRetries: 2,
+      maxRetries: 3,
       onFail: { action: "escalate" },
       task: {
         action: "orchestrate",
@@ -411,7 +437,19 @@ const def: WorkflowDef = {
           ].join("\n");
         },
       },
-      check: (_ctx: CheckCtx): CheckResult => ({ status: "pass", reasons: [] }),
+      check: (ctx: CheckCtx): CheckResult => {
+        const result = requireStepArtifacts(ctx, [
+          { key: ISSUE_NUMBER_KEY, form: "text", pattern: /^[0-9]+$/ },
+        ]);
+        if (result.status !== "pass") return result;
+        // 副作用実照合: 起票・更新した Issue が GitHub 上に OPEN で存在するか
+        const raw = findArtifactText(ctx.artifacts, ISSUE_NUMBER_KEY, ctx.sessionDir);
+        const number = (raw ?? "").trim();
+        const ghReasons = verifyIssueOpen(number);
+        return ghReasons.length > 0
+          ? { status: "fail", reasons: ghReasons }
+          : { status: "pass", reasons: [`issue #${number} is open on GitHub`] };
+      },
     },
 
     // -----------------------------------------------------------------
@@ -489,7 +527,7 @@ const def: WorkflowDef = {
       key: "finalize",
       phase: "完了処理",
       type: "task",
-      maxRetries: 1,
+      maxRetries: 3,
       onFail: { action: "escalate" },
       task: {
         action: "orchestrate",
@@ -538,7 +576,34 @@ const def: WorkflowDef = {
           ].join("\n");
         },
       },
-      check: (_ctx: CheckCtx): CheckResult => ({ status: "pass", reasons: [] }),
+      check: (ctx: CheckCtx): CheckResult => {
+        const result = requireStepArtifacts(ctx, [
+          { key: ISSUE_NUMBER_KEY, form: "text", pattern: /^[0-9]+$/ },
+        ]);
+        if (result.status !== "pass") return result;
+        // 副作用実照合: refined 昇格の痕跡（履歴エントリ + effort コメント）を GitHub 上で確認
+        const raw = findArtifactText(ctx.artifacts, ISSUE_NUMBER_KEY, ctx.sessionDir);
+        const number = (raw ?? "").trim();
+        let body: string;
+        try {
+          body = fetchIssueBody(number);
+        } catch (e) {
+          return {
+            status: "fail",
+            reasons: [`gh: failed to fetch issue #${number} (${String(e)})`],
+          };
+        }
+        const reasons: string[] = [];
+        if (!/\[[^\]]*refined[^\]]*\]/.test(body)) {
+          reasons.push(`issue #${number}: refined 昇格の履歴エントリが見つからない`);
+        }
+        if (!EFFORT_PATTERN.test(body)) {
+          reasons.push(`issue #${number}: effort コメントが確定していない`);
+        }
+        return reasons.length > 0
+          ? { status: "fail", reasons }
+          : { status: "pass", reasons: [`issue #${number} promoted to refined`] };
+      },
     },
   ],
 };

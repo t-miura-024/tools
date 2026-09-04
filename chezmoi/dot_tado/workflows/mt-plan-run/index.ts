@@ -39,6 +39,8 @@ import {
   VALID_WIDTHS,
   VALID_DEPTHS,
 } from "../_shared/mt-review-helpers.ts";
+import { requireStepArtifacts } from "../_shared/artifact-check";
+import { verifyIssueClosed } from "../_shared/gh-issue-verify";
 
 type JsonRecord = Record<string, unknown>;
 
@@ -353,7 +355,7 @@ const def: WorkflowDef = {
       key: "start_execution",
       phase: "実行開始",
       type: "task",
-      maxRetries: 1,
+      maxRetries: 3,
       onFail: { action: "escalate" },
       task: {
         action: "orchestrate",
@@ -412,9 +414,9 @@ const def: WorkflowDef = {
             "   - 主要な方針",
             "   - 未解決の `🤔 論点`（あれば着手前に方針へ取り込む）",
             "",
-            "8. 計画番号と Issue body を保存する: report 時の `artifacts` に以下を含めること:",
+            "8. 計画番号と Issue body を保存する。計画番号はセッションディレクトリの `plan-number.txt` に書き出し、report 時の `artifacts` に以下を含めること（申告漏れは check で fail になる）:",
             "```json",
-            `[{"key": "plan_number", "path": "<number>"}, {"key": "issue-body.md", "path": "${ctx.sessionDir}/issue-body.md"}]`,
+            `[{"key": "plan-number.txt", "path": "${ctx.sessionDir}/plan-number.txt"}, {"key": "issue-body.md", "path": "${ctx.sessionDir}/issue-body.md"}]`,
             "```",
             "",
             "## セッション情報",
@@ -423,7 +425,17 @@ const def: WorkflowDef = {
           ].join("\n");
         },
       },
-      check: (_ctx: CheckCtx): CheckResult => ({ status: "pass", reasons: [] }),
+      // 統一最低ライン: 計画番号・Issue body の申告・実在・形式を強制
+      check: (ctx: CheckCtx): CheckResult => {
+        return requireStepArtifacts(ctx, [
+          { key: "plan-number.txt", form: "text", pattern: /^[0-9]+$/ },
+          {
+            key: "issue-body.md",
+            form: "markdown",
+            sections: ["## ✅ 完了条件", "## 🧭 方針", "## 🐢 履歴"],
+          },
+        ]);
+      },
     },
 
     // -------------------------------------------------------------------
@@ -433,7 +445,7 @@ const def: WorkflowDef = {
       key: "transcribe_docs",
       phase: "ドキュメント転記",
       type: "task",
-      maxRetries: 1,
+      maxRetries: 3,
       onFail: { action: "escalate" },
       condition: (ctx: ConditionCtx): boolean => {
         const body = findArtifactText(ctx.artifacts, "issue-body.md", ctx.sessionDir);
@@ -441,7 +453,7 @@ const def: WorkflowDef = {
       },
       task: {
         action: "orchestrate",
-        buildPrompt: (_ctx: PromptCtx) => {
+        buildPrompt: (ctx: PromptCtx) => {
           return [
             "## 目的",
             "",
@@ -465,11 +477,41 @@ const def: WorkflowDef = {
             "",
             "書き出したファイル一覧（パス・新規/更新・マージの有無）を報告する。",
             "",
+            "## 成果物",
+            "",
+            "書き出したファイルの一覧をセッションディレクトリの `transcribed-docs.json` に保存する（パスはリポジトリルート相対）:",
+            "",
+            "```json",
+            '[{ "path": "docs/adr/0002-xxx.md", "action": "new" | "update" | "merge" }]',
+            "```",
+            "",
+            "report 時の `artifacts` に以下を含める（申告漏れは check で fail になる）:",
+            "```json",
+            `{"key": "transcribed-docs.json", "path": "${ctx.sessionDir}/transcribed-docs.json"}`,
+            "```",
+            "",
             // セッション情報はエンジンが自動付与する（ADR-0003）
           ].join("\n");
         },
       },
-      check: (_ctx: CheckCtx): CheckResult => ({ status: "pass", reasons: [] }),
+      // 統一最低ライン: 転記一覧の申告・実在・スキーマ + 転記先ファイルの実在を強制
+      check: (ctx: CheckCtx): CheckResult => {
+        const result = requireStepArtifacts(ctx, [
+          { key: "transcribed-docs.json", form: "json", minItems: 1, itemKeys: ["path", "action"] },
+        ]);
+        if (result.status !== "pass") return result;
+        const raw = fs.readFileSync(join(ctx.sessionDir, "transcribed-docs.json"), "utf-8");
+        const transcribed = JSON.parse(raw) as { path: unknown }[];
+        const reasons: string[] = [];
+        for (const entry of transcribed) {
+          if (typeof entry.path !== "string" || !fs.existsSync(entry.path)) {
+            reasons.push(`transcribed file does not exist: ${String(entry.path)}`);
+          }
+        }
+        return reasons.length > 0
+          ? { status: "fail", reasons }
+          : { status: "pass", reasons: [`${transcribed.length} file(s) transcribed`] };
+      },
     },
 
     // -------------------------------------------------------------------
@@ -556,6 +598,21 @@ const def: WorkflowDef = {
             "### 3. 完了報告の集約",
             "",
             "- 全ミッションの完了報告（変更ファイル一覧・検証結果・未解決事項）を集約する",
+            "- 集約結果をセッションディレクトリの `execution-result.json` に保存する（executor 返却 JSON をミッション単位でマージ）:",
+            "",
+            "```json",
+            "{",
+            '  "changedFiles": ["<repository-relative-path>"],',
+            '  "checks": [{"command": "<command>", "result": "<result>"}],',
+            '  "unresolvedIssues": []',
+            "}",
+            "```",
+            "",
+            "report 時の `artifacts` に以下を含める（申告漏れは check で fail になる）:",
+            "```json",
+            `{"key": "execution-result.json", "path": "${ctx.sessionDir}/execution-result.json"}`,
+            "```",
+            "",
             "- ミッションがスコープ外変更の必要を報告した場合は、作業を止めてユーザーに計画修正を提案する",
             '- いずれかのミッションが失敗した場合は report を `status: "failed"` とし、失敗内容を errors に含める',
             "",
@@ -594,7 +651,15 @@ const def: WorkflowDef = {
         if (ctx.attemptResult.status !== "completed") {
           return { status: "error", reasons: [ctx.attemptResult.errors ?? "execute_work failed"] };
         }
-        return { status: "pass", reasons: ["execution completed"] };
+        // 統一最低ライン: executor 返却 JSON の集約物を成果物として強制。
+        // 内容の妥当性検証は下流の reviewer/verdict（daemon 突合）に委譲する
+        return requireStepArtifacts(ctx, [
+          {
+            key: "execution-result.json",
+            form: "json",
+            keys: ["changedFiles", "checks", "unresolvedIssues"],
+          },
+        ]);
       },
     },
 
@@ -961,7 +1026,7 @@ const def: WorkflowDef = {
       key: "finalize_done",
       phase: "完了処理",
       type: "task",
-      maxRetries: 1,
+      maxRetries: 3,
       onFail: { action: "escalate" },
       task: {
         action: "orchestrate",
@@ -992,13 +1057,32 @@ const def: WorkflowDef = {
             "   - 完了した作業",
             "   - 残っている未決事項（あれば）",
             "",
+            "## 成果物",
+            "",
+            "report 時の `artifacts` に以下を含める（申告漏れは check で fail になる）:",
+            "```json",
+            `{"key": "plan-number.txt", "path": "${ctx.sessionDir}/plan-number.txt"}`,
+            "```",
+            "",
             "## セッション情報",
             "",
             `- セッションディレクトリ: ${ctx.sessionDir}`,
           ].join("\n");
         },
       },
-      check: (_ctx: CheckCtx): CheckResult => ({ status: "pass", reasons: [] }),
+      // 統一最低ライン+ 副作用実照合: done 遷移の実態（Issue が CLOSED）を gh で確認
+      check: (ctx: CheckCtx): CheckResult => {
+        const result = requireStepArtifacts(ctx, [
+          { key: "plan-number.txt", form: "text", pattern: /^[0-9]+$/ },
+        ]);
+        if (result.status !== "pass") return result;
+        const raw = findArtifactText(ctx.artifacts, "plan-number.txt", ctx.sessionDir);
+        const number = (raw ?? "").trim();
+        const ghReasons = verifyIssueClosed(number);
+        return ghReasons.length > 0
+          ? { status: "fail", reasons: ghReasons }
+          : { status: "pass", reasons: [`issue #${number} is closed on GitHub`] };
+      },
     },
   ],
 };

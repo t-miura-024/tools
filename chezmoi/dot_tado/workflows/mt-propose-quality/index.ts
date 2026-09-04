@@ -1,5 +1,8 @@
 import type { WorkflowDef, CheckCtx, PromptCtx, CheckResult } from "tado";
 import { join } from "node:path";
+import fs from "node:fs";
+import { requireStepArtifacts } from "../_shared/artifact-check";
+import { verifyIssueOpenLabeled } from "../_shared/gh-issue-verify";
 
 const def: WorkflowDef = {
   id: "mt-propose-quality",
@@ -11,7 +14,7 @@ const def: WorkflowDef = {
       key: "brainstorm",
       phase: "ブレスト",
       type: "task",
-      maxRetries: 1,
+      maxRetries: 3,
       onFail: { action: "escalate" },
       task: {
         action: "orchestrate",
@@ -82,6 +85,13 @@ const def: WorkflowDef = {
             "}",
             "```",
             "",
+            "## 成果物",
+            "",
+            "report 時の `artifacts` に以下を含める（申告漏れは check で fail になる）:",
+            "```json",
+            `{"key": "brainstorm-results.json", "path": "${ctx.sessionDir}/brainstorm-results.json"}`,
+            "```",
+            "",
             "## セッション情報",
             "",
             `- セッションディレクトリ: ${ctx.sessionDir}`,
@@ -94,14 +104,24 @@ const def: WorkflowDef = {
           ].join("\n");
         },
       },
-      check: (_ctx: CheckCtx): CheckResult => ({ status: "pass", reasons: [] }),
+      // 統一最低ライン: 申告義務・実在・スキーマ（15 案 = 各 SubAgent 5 案 × 3）を強制
+      check: (ctx: CheckCtx): CheckResult => {
+        return requireStepArtifacts(ctx, [
+          {
+            key: "brainstorm-results.json",
+            form: "json",
+            minItems: 15,
+            itemKeys: ["id", "title", "background", "evidence", "perspective"],
+          },
+        ]);
+      },
     },
 
     {
       key: "dedup_check",
       phase: "重複チェック",
       type: "task",
-      maxRetries: 1,
+      maxRetries: 3,
       onFail: { action: "escalate" },
       task: {
         action: "orchestrate",
@@ -154,20 +174,37 @@ const def: WorkflowDef = {
             "}",
             "```",
             "",
+            "## 成果物",
+            "",
+            "report 時の `artifacts` に以下を含める（申告漏れは check で fail になる）:",
+            "```json",
+            `{"key": "dedup-results.json", "path": "${ctx.sessionDir}/dedup-results.json"}`,
+            "```",
+            "",
             "## セッション情報",
             "",
             `- セッションディレクトリ: ${ctx.sessionDir}`,
           ].join("\n");
         },
       },
-      check: (_ctx: CheckCtx): CheckResult => ({ status: "pass", reasons: [] }),
+      // 統一最低ライン: 申告義務・実在・スキーマ（candidates/excluded）を強制
+      check: (ctx: CheckCtx): CheckResult => {
+        return requireStepArtifacts(ctx, [
+          {
+            key: "dedup-results.json",
+            form: "json",
+            keys: ["candidates", "excluded"],
+            itemKeys: ["id", "title"],
+          },
+        ]);
+      },
     },
 
     {
       key: "review_score",
       phase: "レビュー・採点",
       type: "task",
-      maxRetries: 1,
+      maxRetries: 3,
       onFail: { action: "escalate" },
       task: {
         action: "orchestrate",
@@ -238,6 +275,13 @@ const def: WorkflowDef = {
             "}",
             "```",
             "",
+            "## 成果物",
+            "",
+            "report 時の `artifacts` に以下を含める（申告漏れは check で fail になる）:",
+            "```json",
+            `{"key": "review-results.json", "path": "${ctx.sessionDir}/review-results.json"}`,
+            "```",
+            "",
             "### 5. present_gate での提示フォーマット",
             "",
             "present_gate では上位 5 案を以下のフォーマットでユーザーに提示する。",
@@ -275,7 +319,18 @@ const def: WorkflowDef = {
           ].join("\n");
         },
       },
-      check: (_ctx: CheckCtx): CheckResult => ({ status: "pass", reasons: [] }),
+      // 統一最低ライン: 申告義務・実在・スキーマ（ranked + scores）を強制
+      check: (ctx: CheckCtx): CheckResult => {
+        return requireStepArtifacts(ctx, [
+          {
+            key: "review-results.json",
+            form: "json",
+            keys: ["ranked"],
+            minItems: 1,
+            itemKeys: ["id", "title", "scores", "total"],
+          },
+        ]);
+      },
     },
 
     {
@@ -287,6 +342,7 @@ const def: WorkflowDef = {
       humanGate: {
         presentArtifacts: [],
         outcomeQuestionKey: "decision",
+        reviseTargetStep: "brainstorm",
         questions: [
           {
             key: "decision",
@@ -298,6 +354,12 @@ const def: WorkflowDef = {
                 label: "選択した",
                 desc: "起票する候補を選択した",
                 input: { required: false, maxLength: 500 },
+              },
+              {
+                value: "revise",
+                label: "候補をやり直す",
+                desc: "ブレストに戻って候補を再収集する",
+                input: { required: true, placeholder: "やり直す理由を入力", maxLength: 500 },
               },
               { value: "abort", label: "中断", desc: "起票せず終了する" },
             ],
@@ -311,7 +373,7 @@ const def: WorkflowDef = {
       key: "create_drafts",
       phase: "draft 起票",
       type: "task",
-      maxRetries: 1,
+      maxRetries: 3,
       onFail: { action: "escalate" },
       task: {
         action: "orchestrate",
@@ -366,6 +428,19 @@ const def: WorkflowDef = {
             "- 起票しなかった候補の一覧",
             "- 次ステップの案内: 「具体化は `mt-plan-create` の from-Issue フローで取り込めます」",
             "",
+            "## 成果物",
+            "",
+            "起票した Issue の一覧をセッションディレクトリの `issue-numbers.json` に保存する:",
+            "",
+            "```json",
+            '[{ "number": 123, "title": "<タイトル>" }]',
+            "```",
+            "",
+            "report 時の `artifacts` に以下を含める（申告漏れは check で fail になる）:",
+            "```json",
+            `{"key": "issue-numbers.json", "path": "${ctx.sessionDir}/issue-numbers.json"}`,
+            "```",
+            "",
             "## セッション情報",
             "",
             `- セッションディレクトリ: ${ctx.sessionDir}`,
@@ -377,7 +452,22 @@ const def: WorkflowDef = {
           ].join("\n");
         },
       },
-      check: (_ctx: CheckCtx): CheckResult => ({ status: "pass", reasons: [] }),
+      // 統一最低ライン+ 副作用実照合: 起票一覧の申告と GitHub 実態を突き合わせる
+      check: (ctx: CheckCtx): CheckResult => {
+        const result = requireStepArtifacts(ctx, [
+          { key: "issue-numbers.json", form: "json", minItems: 1, itemKeys: ["number", "title"] },
+        ]);
+        if (result.status !== "pass") return result;
+        const raw = fs.readFileSync(join(ctx.sessionDir, "issue-numbers.json"), "utf-8");
+        const created = JSON.parse(raw) as { number: unknown }[];
+        const reasons: string[] = [];
+        for (const entry of created) {
+          reasons.push(...verifyIssueOpenLabeled(String(entry.number), "kind/plan"));
+        }
+        return reasons.length > 0
+          ? { status: "fail", reasons }
+          : { status: "pass", reasons: [`${created.length} issue(s) verified on GitHub`] };
+      },
     },
 
     {

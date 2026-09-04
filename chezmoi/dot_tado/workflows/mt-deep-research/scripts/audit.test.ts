@@ -166,7 +166,12 @@ async function addEvidence(qid: number, withSources = true, withFacts = true): P
     round_number: 1,
     summary: "ok",
     self_evaluation: { coverage: 0.8 },
-    ...(withSources && { sources: [{ number: 1, title: "T", url: "https://e.x" }] }),
+    ...(withSources && {
+      sources: [
+        { number: 1, title: "T", url: "https://example.com" },
+        { number: 2, title: "U", url: "https://example.com" },
+      ],
+    }),
     ...(withFacts && { facts: [{ source_number: 1, fact_number: 1, content: "F" }] }),
   };
   const proc = Bun.spawn(
@@ -319,6 +324,9 @@ describe("phase audit: writer", () => {
   });
 
   it("passes when report.md is valid", async () => {
+    // 引用照合（report_md_citations_match_sources）が通るよう sources を登録する
+    const qid = await addQuestion("Q1", 1);
+    await addEvidence(qid);
     writeFileSync(reportPath, VALID_REPORT, "utf-8");
     const r = await cli([
       "phase",
@@ -331,6 +339,30 @@ describe("phase audit: writer", () => {
     ]);
     expect(r.exitCode).toBe(0);
     expect(JSON.parse(r.stdout).status).toBe("pass");
+  });
+
+  it("fails when a citation references a source_number that does not exist", async () => {
+    // 捏造引用（DB に存在しない番号への引用）は fail になる
+    const qid = await addQuestion("Q1", 1);
+    await addEvidence(qid);
+    const hallucinated = VALID_REPORT.replace("事実 [1] 事実 [2]", "事実 [1] 事実 [9]");
+    writeFileSync(reportPath, hallucinated, "utf-8");
+    const r = await cli([
+      "phase",
+      "--phase",
+      "writer",
+      "--db-path",
+      dbPath,
+      "--report-path",
+      reportPath,
+    ]);
+    expect(r.exitCode).toBe(1);
+    const out = JSON.parse(r.stdout);
+    const check = out.checks.find(
+      (c: { check_name: string }) => c.check_name === "report_md_citations_match_sources",
+    );
+    expect(check.status).toBe("fail");
+    expect(check.detail).toContain("9");
   });
 });
 
