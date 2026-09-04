@@ -453,7 +453,7 @@ const def: WorkflowDef = {
       },
       task: {
         action: "orchestrate",
-        buildPrompt: (_ctx: PromptCtx) => {
+        buildPrompt: (ctx: PromptCtx) => {
           return [
             "## 目的",
             "",
