@@ -105,6 +105,77 @@ exit 1`,
   // 旧 start_hunk_review / await_review / check_hunk は Step import により
   // resolve_effort / collect_context / run_reviewers / publish_findings / await_human_review / collect_verdict に置換されたため削除
   // 新ワークフローの品質規律は mt-review-diff 側で純粋関数テストとして担保する
+  describe("resolve_effort (human_gate 廃止 — Issue body コメント or medium/medium)", () => {
+    it("human_gate を持たず task 型である", () => {
+      const step = def.steps.find((s) => s.key === "resolve_effort")!;
+      expect(step.type).toBe("task");
+      expect((step as unknown as Record<string, unknown>).humanGate).toBeUndefined();
+    });
+
+    it("HTML コメントがあれば derived で pass", () => {
+      fs.writeFileSync(
+        path.join(sessionDir, "issue-body.md"),
+        "# plan\n\n<!-- effort: width=high depth=low -->\n",
+      );
+      const result = stepCheck("resolve_effort")(makeCtx());
+      expect(result.status).toBe("pass");
+      expect(result.reasons.join("\n")).toContain("width=high depth=low");
+    });
+
+    it("コメントがなければ medium/medium 既定で pass", () => {
+      fs.writeFileSync(path.join(sessionDir, "issue-body.md"), "# plan\n\n本文のみ\n");
+      const result = stepCheck("resolve_effort")(makeCtx());
+      expect(result.status).toBe("pass");
+      expect(result.reasons.join("\n")).toContain("medium/medium");
+    });
+
+    it("プロンプト記法 width=... は無視して medium/medium で pass", () => {
+      fs.writeFileSync(path.join(sessionDir, "issue-body.md"), "# plan\n\nwidth=high depth=max\n");
+      const result = stepCheck("resolve_effort")(makeCtx());
+      expect(result.status).toBe("pass");
+      expect(result.reasons.join("\n")).toContain("medium/medium");
+    });
+
+    it("width: セクション記法は無視して medium/medium で pass", () => {
+      fs.writeFileSync(
+        path.join(sessionDir, "issue-body.md"),
+        "# plan\n\nwidth: high\ndepth: max\n",
+      );
+      const result = stepCheck("resolve_effort")(makeCtx());
+      expect(result.status).toBe("pass");
+      expect(result.reasons.join("\n")).toContain("medium/medium");
+    });
+
+    it("片方欠落コメントは fail し create 修正を案内する", () => {
+      fs.writeFileSync(
+        path.join(sessionDir, "issue-body.md"),
+        "# plan\n\n<!-- effort: width=medium -->\n",
+      );
+      const result = stepCheck("resolve_effort")(makeCtx());
+      expect(result.status).toBe("fail");
+      expect(result.reasons.join("\n")).toContain("mt-plan-create");
+    });
+
+    it("enum 外コメントは fail し create 修正を案内する", () => {
+      fs.writeFileSync(
+        path.join(sessionDir, "issue-body.md"),
+        "# plan\n\n<!-- effort: width=super depth=medium -->\n",
+      );
+      const result = stepCheck("resolve_effort")(makeCtx());
+      expect(result.status).toBe("fail");
+      expect(result.reasons.join("\n")).toContain("mt-plan-create");
+    });
+
+    it("effort.json があればその検証に委譲する", () => {
+      fs.writeFileSync(
+        path.join(sessionDir, "effort.json"),
+        JSON.stringify({ width: "high", depth: "low", round: 1 }),
+      );
+      const result = stepCheck("resolve_effort")(makeCtx());
+      expect(result.status).toBe("pass");
+    });
+  });
+
   describe("publish_findings (Step import)", () => {
     it("valid findings.json があれば pass", () => {
       const findings = {
