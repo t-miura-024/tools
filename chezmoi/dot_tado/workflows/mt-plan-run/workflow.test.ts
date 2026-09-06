@@ -84,6 +84,43 @@ exit 1`,
     };
   }
 
+  function makeConditionCtx(
+    overrides: Partial<import("tado").ConditionCtx> = {},
+  ): import("tado").ConditionCtx {
+    return {
+      sessionDir,
+      gateAnswers: {},
+      artifacts: [],
+      ...overrides,
+    };
+  }
+
+  function writeFindings(counts: { must: number; should: number; want: number }): void {
+    const findings: Array<Record<string, unknown>> = [];
+    let line = 1;
+    for (const [severity, n] of Object.entries(counts)) {
+      for (let i = 0; i < (n as number); i += 1) {
+        findings.push({
+          axis: "req-1",
+          severity,
+          detail: `${severity} detail ${i}`,
+          filePath: "src/a.ts",
+          position: { side: "new", line: line++ },
+        });
+      }
+    }
+    fs.writeFileSync(
+      path.join(sessionDir, "findings.json"),
+      JSON.stringify({
+        round: 1,
+        width: "medium",
+        depth: "medium",
+        findings,
+        counts,
+      }),
+    );
+  }
+
   describe("ensure_hunk_session", () => {
     it("`hunk session get` 成功なら pass", () => {
       fakeGitAndHunkSessionGet(true);
@@ -102,8 +139,93 @@ exit 1`,
     });
   });
 
+  describe("ensure_hunk_session condition（live-only・must判定なし）", () => {
+    const stepCondition = (key: string) =>
+      def.steps.find((s) => s.key === key)!.condition as (
+        ctx: import("tado").ConditionCtx,
+      ) => boolean;
+
+    it("live済みは findings有無によらず skip=false", () => {
+      fakeGitAndHunkSessionGet(true);
+
+      expect(stepCondition("ensure_hunk_session")(makeConditionCtx())).toBe(false);
+    });
+
+    it("未liveは findings有無によらず実行=true", () => {
+      fakeGitAndHunkSessionGet(false);
+
+      expect(stepCondition("ensure_hunk_session")(makeConditionCtx())).toBe(true);
+    });
+
+    it("未liveでもmust>0なら実行=true（振り分けはagent_verdictの責務）", () => {
+      fakeGitAndHunkSessionGet(false);
+      writeFindings({ must: 2, should: 0, want: 0 });
+
+      expect(stepCondition("ensure_hunk_session")(makeConditionCtx())).toBe(true);
+    });
+  });
+
+  describe("agent_verdict（自律/人相の振り分け）", () => {
+    it("must>0 なら fail し execute_work 反復を示す", () => {
+      writeFindings({ must: 2, should: 1, want: 0 });
+
+      const result = stepCheck("agent_verdict")(makeCtx());
+
+      expect(result.status).toBe("fail");
+      expect(result.reasons.join("\n")).toContain("goto execute_work");
+    });
+
+    it("must==0 なら pass し人相へ進む", () => {
+      writeFindings({ must: 0, should: 1, want: 0 });
+
+      const result = stepCheck("agent_verdict")(makeCtx());
+
+      expect(result.status).toBe("pass");
+      expect(result.reasons.join("\n")).toContain("human phase");
+    });
+
+    it("findings.json が不正なら error", () => {
+      fs.writeFileSync(path.join(sessionDir, "findings.json"), "not json");
+
+      const result = stepCheck("agent_verdict")(makeCtx());
+
+      expect(result.status).toBe("error");
+    });
+
+    it("round 4 かつ must>0 は limit exceeded で fail", () => {
+      fs.writeFileSync(
+        path.join(sessionDir, "findings.json"),
+        JSON.stringify({
+          round: 4,
+          width: "medium",
+          depth: "medium",
+          findings: [
+            {
+              axis: "req-1",
+              severity: "must",
+              detail: "must detail",
+              filePath: "src/a.ts",
+              position: { side: "new", line: 1 },
+            },
+          ],
+          counts: { must: 1, should: 0, want: 0 },
+        }),
+      );
+
+      const result = stepCheck("agent_verdict")(makeCtx());
+
+      expect(result.status).toBe("fail");
+      expect(result.reasons.join("\n")).toContain("round limit");
+    });
+
+    it("goto 先が execute_work である", () => {
+      const step = def.steps.find((s) => s.key === "agent_verdict")!;
+      expect(step.onFail).toEqual({ action: "goto", target: "execute_work", requeueSource: true });
+    });
+  });
+
   // 旧 start_hunk_review / await_review / check_hunk は Step import により
-  // resolve_effort / collect_context / run_reviewers / publish_findings / await_human_review / collect_verdict に置換されたため削除
+  // resolve_effort / collect_context / run_reviewers / normalize_findings / await_human_review / collect_verdict に置換されたため削除
   // 新ワークフローの品質規律は mt-review-diff 側で純粋関数テストとして担保する
   describe("resolve_effort (human_gate 廃止 — Issue body コメント or medium/medium)", () => {
     it("human_gate を持たず task 型である", () => {
@@ -176,7 +298,7 @@ exit 1`,
     });
   });
 
-  describe("publish_findings (Step import)", () => {
+  describe("normalize_findings (Step import)", () => {
     it("valid findings.json があれば pass", () => {
       const findings = {
         round: 1,
@@ -187,18 +309,18 @@ exit 1`,
       };
       fs.writeFileSync(path.join(sessionDir, "findings.json"), JSON.stringify(findings));
       fakeMt({ statusOutput: "hunk review session: active" });
-      const result = stepCheck("publish_findings")(makeCtx());
+      const result = stepCheck("normalize_findings")(makeCtx());
       expect(result.status).toBe("pass");
     });
 
     it("findings.json が不正なら error", () => {
       fs.writeFileSync(path.join(sessionDir, "findings.json"), "not json");
       fakeMt({ statusOutput: "hunk review session: active" });
-      const result = stepCheck("publish_findings")(makeCtx());
+      const result = stepCheck("normalize_findings")(makeCtx());
       expect(result.status).toBe("error");
     });
 
-    it("hunk-start.json が session:null なら fail", () => {
+    it("hunk-start.json が無くても pass（注入は後段の責務）", () => {
       const findings = {
         round: 1,
         width: "medium",
@@ -207,9 +329,27 @@ exit 1`,
         counts: { must: 0, should: 0, want: 0 },
       };
       fs.writeFileSync(path.join(sessionDir, "findings.json"), JSON.stringify(findings));
-      fs.writeFileSync(path.join(sessionDir, "hunk-start.json"), '{"session":null}\n');
       fakeMt({ statusOutput: "hunk review session: active" });
-      const result = stepCheck("publish_findings")(makeCtx());
+      const result = stepCheck("normalize_findings")(makeCtx());
+      expect(result.status).toBe("pass");
+    });
+  });
+
+  describe("inject_hunk_comments (Step import)", () => {
+    it("hunk-start.json に session があれば pass", () => {
+      fs.writeFileSync(path.join(sessionDir, "hunk-start.json"), '{"session":"s1","comments":2}\n');
+      const result = stepCheck("inject_hunk_comments")(makeCtx());
+      expect(result.status).toBe("pass");
+    });
+
+    it("hunk-start.json が session:null なら fail", () => {
+      fs.writeFileSync(path.join(sessionDir, "hunk-start.json"), '{"session":null}\n');
+      const result = stepCheck("inject_hunk_comments")(makeCtx());
+      expect(result.status).toBe("fail");
+    });
+
+    it("hunk-start.json が無ければ fail", () => {
+      const result = stepCheck("inject_hunk_comments")(makeCtx());
       expect(result.status).toBe("fail");
     });
   });

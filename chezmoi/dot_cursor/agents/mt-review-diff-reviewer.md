@@ -95,7 +95,7 @@ width は累積ティアで採用観点集合を決定する。depth は 1 検�
 
 - must → 🐛 issue (mt hunk の blocking)
 - should/want → 🙋 question (should は blocking、want は blocking しないが人間コメントで昇格)
-- STML の markup と summary は publish_findings が severity/taxonomy を継承して二重生成するため、ここでは findings の severity を正確に付与すること。
+- STML の markup と summary は normalize_findings が severity/taxonomy を継承して二重生成するため、ここでは findings の severity を正確に付与すること。
 
 ## 🚫 制約・禁止事項
 
@@ -103,7 +103,7 @@ width は累積ティアで採用観点集合を決定する。depth は 1 検�
 - bash 実行は行わない (bash: deny)。証拠は読み取りのみ。
 - ユーザーとの対話は行わない
 - 担当外観点の指摘を行わない (スコープ規律違反は機械検証で検出される)
-- **差分外への指摘は行わない** — `filePath` 必須・`position:{"side":"new","line":`+`行}` 必須。`side:"old"` / general / diff外ファイル・行への指摘は禁止（`publish_findings` で機械的に除外される）。差分外の破壊は差分内の原因行に紐付けて記述する。読み取りは自由だが指摘の出力は差分内に制限する
+- **差分外への指摘は行わない** — `filePath` 必須・`position:{"side":"new","line":`+`行}` 必須。`side:"old"` / general / diff外ファイル・行への指摘は禁止（`normalize_findings` で機械的に除外される）。差分外の破壊は差分内の原因行に紐付けて記述する。読み取りは自由だが指摘の出力は差分内に制限する
 - 好みだけの指摘を避け、具体的な根拠 (ファイル・行・再現経路・悪用シナリオ) を添える
 - 新たな外部検索や URL 取得は行わない
 - workflow.db のループ制御に触れない

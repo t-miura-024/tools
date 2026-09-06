@@ -908,6 +908,38 @@ export function isHunkSessionActive(): boolean {
   return runHunkCommand(["status"]).includes("hunk review session: active");
 }
 
+/// TUI 生存判定は `hunk session get --repo <root> --json` の成功のみを正とする。
+/// `mt hunk status` は `.hunk/hunk-review.json`（`mt hunk start` 後に作成）が
+/// 無いと TUI が生きていても "none" を返すため、start 前のゲートでは使えない。
+export function isHunkSessionLive(): boolean {
+  try {
+    const repoRoot = String(
+      execFileSync("git", ["rev-parse", "--show-toplevel"], {
+        encoding: "utf-8",
+        stdio: ["ignore", "pipe", "pipe"],
+        env: { ...process.env },
+      }),
+    ).trim();
+    try {
+      execFileSync("mt", ["hunk", "session", "get", "--repo", repoRoot, "--json"], {
+        encoding: "utf-8",
+        stdio: ["ignore", "pipe", "pipe"],
+        env: { ...process.env },
+      });
+      return true;
+    } catch {
+      execFileSync("hunk", ["session", "get", "--repo", repoRoot, "--json"], {
+        encoding: "utf-8",
+        stdio: ["ignore", "pipe", "pipe"],
+        env: { ...process.env },
+      });
+      return true;
+    }
+  } catch {
+    return false;
+  }
+}
+
 // =============================================================================
 // effort base/target バリデーション
 // =============================================================================

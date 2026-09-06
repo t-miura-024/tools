@@ -1,4 +1,12 @@
-import type { WorkflowDef, StepDef, CheckCtx, PromptCtx, CheckResult, ArtifactRecord } from "tado";
+import type {
+  WorkflowDef,
+  StepDef,
+  CheckCtx,
+  ConditionCtx,
+  PromptCtx,
+  CheckResult,
+  ArtifactRecord,
+} from "tado";
 import { join } from "node:path";
 import fs from "node:fs";
 import {
@@ -19,6 +27,7 @@ import {
   parseHunkCheck,
   runHunkCommand,
   isHunkSessionActive,
+  isHunkSessionLive,
   validateEffortBaseTarget,
   HUNK_START_KEY,
   HUNK_COMMENTS_KEY,
@@ -59,6 +68,7 @@ export {
   parseHunkCheck,
   runHunkCommand,
   isHunkSessionActive,
+  isHunkSessionLive,
   isPathInside,
   shellQuote,
   isValidGitRefName,
@@ -366,11 +376,11 @@ const def: WorkflowDef = {
             "     - width/depth と担当観点数 (専念度の文脈)",
             "     - 対象差分 (diff.txt の内容。サイズガードで切り詰めたもの。要約は行わないが truncate は必須)",
             "     - セッションディレクトリのパス",
-            '     - **差分限定規律**: 指摘は diff.txt の `+` 行のみ。`filePath` 必須、`position` 必須（`side:"new"` かつ `line` は `+` 行の行番号）。`filePath` なし / `position` なし / `side:"old"` / diff外ファイル / `+` 行でない line は publish_findings で機械的に除外される。差分外の破壊（例: 呼び出し元が壊れる）は差分内の原因行に紐付けて記述し、差分外ファイルへの直接 `filePath` は禁止。読み取りは自由だが指摘の出力は差分内に制限。',
+            '     - **差分限定規律**: 指摘は diff.txt の `+` 行のみ。`filePath` 必須、`position` 必須（`side:"new"` かつ `line` は `+` 行の行番号）。`filePath` なし / `position` なし / `side:"old"` / diff外ファイル / `+` 行でない line は normalize_findings で機械的に除外される。差分外の破壊（例: 呼び出し元が壊れる）は差分内の原因行に紐付けて記述し、差分外ファイルへの直接 `filePath` は禁止。読み取りは自由だが指摘の出力は差分内に制限。',
             "   - 各 SubAgent は `edit: deny / bash: deny`相当の read-only で動作し、担当外観点の指摘を禁止される。",
             '   - 各 SubAgent は findings 配列の JSON を返す (axis/severity/detail/position/suggestions)。`filePath` と `position:{side:"new", line}` は必須。',
             "",
-            "3. 全検証者の findings を集約し、一時ファイルに保存する (publish_findings が findings.json として正規化するため、ここでは生の集約でよい):",
+            "3. 全検証者の findings を集約し、一時ファイルに保存する (normalize_findings が findings.json として正規化するため、ここでは生の集約でよい):",
             "",
             "```bash",
             `cat > ${shellQuote(join(ctx.sessionDir, "reviewer-outputs.json"))} <<'JSON'`,
@@ -378,7 +388,7 @@ const def: WorkflowDef = {
             "JSON",
             "```",
             "",
-            `4. 集約した生 findings を ${join(ctx.sessionDir, "reviewer-outputs.json")} に保存し、report 時の artifacts に含める。findings.json の正規化・検証は次の publish_findings が行う。`,
+            `4. 集約した生 findings を ${join(ctx.sessionDir, "reviewer-outputs.json")} に保存し、report 時の artifacts に含める。findings.json の正規化・検証は次の normalize_findings が行う。`,
             "",
             "## 検証スタンス (SubAgent へ徹底)",
             "",
@@ -390,7 +400,7 @@ const def: WorkflowDef = {
             '- `filePath` 必須、 `position: {side:"new", line}` 必須。`side:"old"` / ファイルなし（general）/ positionなしは禁止',
             "- 差分外コードの読み取りは自由だが、指摘の出力は差分内に制限する",
             "- 差分起因で差分外が確実に壊れる場合でも、差分内の原因行に紐付けて指摘し、差分外ファイルへの直接 filePath は行わない",
-            "- 違反は publish_findings で機械的に除外され `filteredOut` に記録される",
+            "- 違反は normalize_findings で機械的に除外され `filteredOut` に記録される",
             "",
             "## 制約",
             "",
@@ -411,7 +421,7 @@ const def: WorkflowDef = {
           return { status: "error", reasons: [ctx.attemptResult.errors ?? "run_reviewers failed"] };
         }
         // 統一最低ライン: 生 findings 集約物の申告・実在・配列形式を強制。
-        // findings の実質検証（正規化・差分限定・counts 照合）は publish_findings が担当
+        // findings の実質検証（正規化・差分限定・counts 照合）は normalize_findings が担当
         return requireStepArtifacts(ctx, [
           { key: "reviewer-outputs.json", form: "json", minItems: 1 },
         ]);
@@ -419,8 +429,8 @@ const def: WorkflowDef = {
     },
 
     {
-      key: "publish_findings",
-      phase: "findings 公開",
+      key: "normalize_findings",
+      phase: "findings 正規化",
       type: "task",
       maxRetries: 1,
       onFail: { action: "escalate" },
@@ -429,14 +439,13 @@ const def: WorkflowDef = {
         buildPrompt: (ctx: PromptCtx) => {
           const findingsPath = join(ctx.sessionDir, FINDINGS_KEY);
           const hunkCommentsPath = join(ctx.sessionDir, HUNK_COMMENTS_KEY);
-          const hunkStartPath = join(ctx.sessionDir, HUNK_START_KEY);
           const effortPath = join(ctx.sessionDir, EFFORT_KEY);
           const reviewerOutputsPath = join(ctx.sessionDir, "reviewer-outputs.json");
 
           return [
             "## 目的",
             "",
-            "検証者の生 findings を集約し、機械ルールで正規化した上で hunk セッションへ注入する。findings.json のスキーマ検証と STML 二重生成を行う。",
+            "検証者の生 findings を集約し、機械ルールで正規化する。hunk セッションには触らない（注入は後段の inject_hunk_comments が担当）。",
             "",
             "## 入力",
             "",
@@ -472,25 +481,9 @@ const def: WorkflowDef = {
             "",
             `   変換結果を ${hunkCommentsPath} に JSON 配列として保存する (空配列でも保存する)。buildHunkComments 純粋関数を参照。`,
             "",
-            "4. hunk セッションを確認し、コメントを注入する:",
-            "```bash",
-            "mt hunk status",
-            "```",
-            '   - "hunk review session: active" なら次へ進む',
-            '   - "none" または "stale" なら `hunk diff <base-branch>` で TUI を起動してから再試行するよう report に記載する (このステップ自体は hunk セッションがなくても findings.json の生成までは成功として扱う)',
-            "   - ベースブランチは origin/HEAD があればその参照名から origin/ を除き、なければ main を使う",
-            "```bash",
-            `BASE_BRANCH="$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's#^origin/##')"`,
-            'BASE_BRANCH="${BASE_BRANCH:-main}"',
-            "```",
-            "   - stdin からコメント JSON を渡し、mt hunk start を実行する:",
-            "```bash",
-            `cat ${shellQuote(hunkCommentsPath)} | mt hunk start | tee ${shellQuote(hunkStartPath)}`,
-            "```",
-            "",
-            "5. report 時の artifacts に以下を含める:",
+            "4. report 時の artifacts に以下を含める:",
             "```json",
-            `[{"key":"${FINDINGS_KEY}","path":"${findingsPath}"},{"key":"${HUNK_COMMENTS_KEY}","path":"${hunkCommentsPath}"},{"key":"${HUNK_START_KEY}","path":"${hunkStartPath}"}]`,
+            `[{"key":"${FINDINGS_KEY}","path":"${findingsPath}"},{"key":"${HUNK_COMMENTS_KEY}","path":"${hunkCommentsPath}"}]`,
             "```",
             "",
             "## 制約",
@@ -499,7 +492,7 @@ const def: WorkflowDef = {
             "- ±2 行マージは純粋関数で決定論的に行う (LLM の判断でマージしない)",
             "- diffフィルタは純粋関数 parseDiffChangedLines + filterFindingsByDiff で決定論的に行い、counts を再計算して filteredOut に透明に記録する",
             "- STML markup と summary を二重生成し、severity/taxonomy を継承する (must→issue, should/want→question)",
-            "- workflow.db のループ制御に触れない",
+            "- hunk セッションに触れない（注入は inject_hunk_comments が担当）。workflow.db のループ制御に触れない",
             "",
             "## セッション情報",
             "",
@@ -511,7 +504,7 @@ const def: WorkflowDef = {
         if (ctx.attemptResult.status !== "completed") {
           return {
             status: "error",
-            reasons: [ctx.attemptResult.errors ?? "publish_findings failed"],
+            reasons: [ctx.attemptResult.errors ?? "normalize_findings failed"],
           };
         }
         const raw =
@@ -547,25 +540,141 @@ const def: WorkflowDef = {
             }
           }
         }
-        const hunkRaw =
-          findArtifactText(ctx.artifacts as ArtifactRecord[], HUNK_START_KEY, ctx.sessionDir) ??
-          readSessionFile(ctx.sessionDir, HUNK_START_KEY);
-        if (hunkRaw) {
-          const started = findJsonObject(hunkRaw);
-          if (started && (started.session === null || started.session === undefined)) {
-            return {
-              status: "fail",
-              reasons: [
-                `${HUNK_START_KEY} has no session. hunk セッションを active にして \`mt hunk start\` を再実行してください`,
-              ],
-            };
-          }
-        }
         return {
           status: "pass",
           reasons: [
             `findings: round=${result.parsed!.round} must=${result.parsed!.counts.must} should=${result.parsed!.counts.should} want=${result.parsed!.counts.want}`,
           ],
+        };
+      },
+    },
+
+    {
+      key: "ensure_hunk_session",
+      phase: "hunk セッション確保",
+      type: "human_gate",
+      maxRetries: 3,
+      onFail: { action: "escalate" },
+      // live済みなら自動skipし、未liveのときだけ人に起動を求める。must判定は持たない
+      //（自律/人相の振り分けは消費側の verdict が所有する）。
+      condition: (_ctx: ConditionCtx): boolean => {
+        return !isHunkSessionLive();
+      },
+      humanGate: {
+        presentArtifacts: [],
+        outcomeQuestionKey: "decision",
+        questions: [
+          {
+            key: "decision",
+            title: "判定",
+            type: "choice_with_input",
+            choices: [
+              {
+                value: "approve",
+                label: "hunk TUI を起動した（ready）",
+                desc: "ターミナルで `hunk diff <base-branch>` を実行してセッションを active にする。ベースブランチは origin/HEAD があればその参照名から origin/ を除き、なければ main を使う",
+                input: { required: false, maxLength: 500 },
+              },
+              {
+                value: "revise",
+                label: "修正する",
+                desc: "hunk セッション設定を修正する",
+                input: { required: true, placeholder: "修正理由を入力", maxLength: 500 },
+              },
+              { value: "abort", label: "中断" },
+            ],
+          },
+        ],
+      },
+      check: (_ctx: CheckCtx): CheckResult => {
+        // start 前は `.hunk/hunk-review.json` が存在しないため `mt hunk status`
+        // は常に "none" を返す。TUI 生存の検出には `hunk session get` を使う
+        if (isHunkSessionLive()) {
+          return { status: "pass", reasons: ["hunk session is live (`hunk session get`)"] };
+        }
+        return {
+          status: "fail",
+          reasons: [
+            "hunk session is not live. ターミナルで `hunk diff <base-branch>` を起動してから ready を選択してください",
+          ],
+        };
+      },
+    },
+
+    {
+      key: "inject_hunk_comments",
+      phase: "hunk コメント注入",
+      type: "task",
+      maxRetries: 1,
+      onFail: { action: "escalate" },
+      task: {
+        action: "orchestrate",
+        buildPrompt: (ctx: PromptCtx) => {
+          const hunkCommentsPath = join(ctx.sessionDir, HUNK_COMMENTS_KEY);
+          const hunkStartPath = join(ctx.sessionDir, HUNK_START_KEY);
+          return [
+            "## 目的",
+            "",
+            "normalize_findings が生成したコメント JSON を hunk セッションへ注入する。前段の ensure_hunk_session でセッションは確保済みのはずであり、ここでは再起動しない。",
+            "",
+            "## 手順",
+            "",
+            "1. hunk セッションを確認する:",
+            "```bash",
+            "mt hunk status",
+            "```",
+            '   - "hunk review session: active" でなければ、`hunk diff <base-branch>` で TUI を起動してから再試行するよう report に記載し error で停止する（セッションの確保自体は ensure_hunk_session の責務）',
+            "   - ベースブランチは origin/HEAD があればその参照名から origin/ を除き、なければ main を使う",
+            "```bash",
+            `BASE_BRANCH="$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's#^origin/##')"`,
+            'BASE_BRANCH="${BASE_BRANCH:-main}"',
+            "```",
+            "2. stdin からコメント JSON を渡し、mt hunk start を実行する:",
+            "```bash",
+            `cat ${shellQuote(hunkCommentsPath)} | mt hunk start | tee ${shellQuote(hunkStartPath)}`,
+            "```",
+            "",
+            "3. report 時の artifacts に以下を含める:",
+            "```json",
+            `{"key":"${HUNK_START_KEY}","path":"${hunkStartPath}"}`,
+            "```",
+            "",
+            "## 制約",
+            "",
+            "- findings.json の再解釈・再生成は行わない（正規化は normalize_findings の責務）",
+            "- workflow.db のループ制御に触れない",
+            "",
+            "## セッション情報",
+            "",
+            `- セッションディレクトリ: ${ctx.sessionDir}`,
+          ].join("\n");
+        },
+      },
+      check: (ctx: CheckCtx): CheckResult => {
+        if (ctx.attemptResult.status !== "completed") {
+          return {
+            status: "error",
+            reasons: [ctx.attemptResult.errors ?? "inject_hunk_comments failed"],
+          };
+        }
+        const hunkRaw =
+          findArtifactText(ctx.artifacts as ArtifactRecord[], HUNK_START_KEY, ctx.sessionDir) ??
+          readSessionFile(ctx.sessionDir, HUNK_START_KEY);
+        if (!hunkRaw) {
+          return { status: "fail", reasons: [`${HUNK_START_KEY} not found`] };
+        }
+        const started = findJsonObject(hunkRaw);
+        if (!started || started.session === null || started.session === undefined) {
+          return {
+            status: "fail",
+            reasons: [
+              `${HUNK_START_KEY} has no session. hunk セッションを active にして \`mt hunk start\` を再実行してください`,
+            ],
+          };
+        }
+        return {
+          status: "pass",
+          reasons: [`hunk comments injected (session=${String(started.session)})`],
         };
       },
     },
@@ -762,6 +871,8 @@ export default def;
 export const resolveEffortStep: StepDef = def.steps[0] as StepDef;
 export const collectContextStep: StepDef = def.steps[1] as StepDef;
 export const runReviewersStep: StepDef = def.steps[2] as StepDef;
-export const publishFindingsStep: StepDef = def.steps[3] as StepDef;
-export const awaitHumanReviewStep: StepDef = def.steps[4] as StepDef;
-export const collectVerdictStep: StepDef = def.steps[5] as StepDef;
+export const normalizeFindingsStep: StepDef = def.steps[3] as StepDef;
+export const ensureHunkSessionStep: StepDef = def.steps[4] as StepDef;
+export const injectHunkCommentsStep: StepDef = def.steps[5] as StepDef;
+export const awaitHumanReviewStep: StepDef = def.steps[6] as StepDef;
+export const collectVerdictStep: StepDef = def.steps[7] as StepDef;
