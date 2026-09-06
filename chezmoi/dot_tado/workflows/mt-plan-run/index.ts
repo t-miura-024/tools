@@ -23,7 +23,9 @@ import {
   resolveEffortStep,
   collectContextStep,
   runReviewersStep,
-  publishFindingsStep,
+  normalizeFindingsStep,
+  ensureHunkSessionStep,
+  injectHunkCommentsStep,
   awaitHumanReviewStep,
   collectVerdictStep,
 } from "../mt-review-diff/index.ts";
@@ -130,38 +132,6 @@ function runHunkCommand(args: string[]): string {
   } catch (error) {
     const stdout = (error as { stdout?: unknown }).stdout;
     return typeof stdout === "string" ? stdout : String(stdout ?? "");
-  }
-}
-
-/// TUI 生存判定は `hunk session get --repo <root> --json` の成功のみを正とする。
-/// `mt hunk status` は `.hunk/hunk-review.json`（`mt hunk start` 後に作成）が
-/// 無いと TUI が生きていても "none" を返すため、start 前のゲートでは使えない。
-function isHunkSessionLive(): boolean {
-  try {
-    const repoRoot = String(
-      execFileSync("git", ["rev-parse", "--show-toplevel"], {
-        encoding: "utf-8",
-        stdio: ["ignore", "pipe", "pipe"],
-        env: { ...process.env },
-      }),
-    ).trim();
-    try {
-      execFileSync("mt", ["hunk", "session", "get", "--repo", repoRoot, "--json"], {
-        encoding: "utf-8",
-        stdio: ["ignore", "pipe", "pipe"],
-        env: { ...process.env },
-      });
-      return true;
-    } catch {
-      execFileSync("hunk", ["session", "get", "--repo", repoRoot, "--json"], {
-        encoding: "utf-8",
-        stdio: ["ignore", "pipe", "pipe"],
-        env: { ...process.env },
-      });
-      return true;
-    }
-  } catch {
-    return false;
   }
 }
 
@@ -664,56 +634,6 @@ const def: WorkflowDef = {
     },
 
     // -------------------------------------------------------------------
-    // Step 3.5: hunk セッション確保（レビューサイクルの前提条件）
-    // -------------------------------------------------------------------
-    {
-      key: "ensure_hunk_session",
-      phase: "hunk セッション確保",
-      type: "human_gate",
-      maxRetries: 3,
-      onFail: { action: "escalate" },
-      humanGate: {
-        presentArtifacts: [],
-        outcomeQuestionKey: "decision",
-        questions: [
-          {
-            key: "decision",
-            title: "判定",
-            type: "choice_with_input",
-            choices: [
-              {
-                value: "approve",
-                label: "hunk TUI を起動した（ready）",
-                desc: `ターミナルで \`BASE_BRANCH="$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's#^origin/##')"\` と \`hunk diff "$BASE_BRANCH"\` を実行してセッションを active にする。report 後、check が \`hunk session get\` で再検証し失敗ならリトライされる`,
-                input: { required: false, maxLength: 500 },
-              },
-              {
-                value: "revise",
-                label: "修正する",
-                desc: "hunk セッション設定を修正する",
-                input: { required: true, placeholder: "修正理由を入力", maxLength: 500 },
-              },
-              { value: "abort", label: "中断" },
-            ],
-          },
-        ],
-      },
-      check: (_ctx: CheckCtx): CheckResult => {
-        // start 前は `.hunk/hunk-review.json` が存在しないため `mt hunk status`
-        // は常に "none" を返す。TUI 生存の検出には `hunk session get` を使う
-        if (isHunkSessionLive()) {
-          return { status: "pass", reasons: ["hunk session is live (`hunk session get`)"] };
-        }
-        return {
-          status: "fail",
-          reasons: [
-            "hunk session is not live. ターミナルで `hunk diff <base-branch>` を起動してから ready を選択してください",
-          ],
-        };
-      },
-    },
-
-    // -------------------------------------------------------------------
     // Step 4: 検証強度解決（human_gate 廃止 — Issue body コメント or medium/medium の自動解決）
     //         SoT は mt-plan-create の Issue body 末尾 `<!-- effort: ... -->` のみ。
     //         プロンプト記法 width=... depth=... による上書きは受理しない。
@@ -834,11 +754,99 @@ const def: WorkflowDef = {
     },
 
     // -------------------------------------------------------------------
-    // Step 5: findings 公開（mt-review-diff から import — 旧 start_hunk_review 置換）
+    // Step 5: findings 正規化（mt-review-diff から import — hunkに触らない純粋処理）
     // -------------------------------------------------------------------
     {
-      ...publishFindingsStep,
-      phase: "findings 公開",
+      ...normalizeFindingsStep,
+      phase: "findings 正規化",
+    },
+
+    // -------------------------------------------------------------------
+    // Step 5.5: 自律判定（plan-run 所有 — must>0 なら execute_work へ反復）
+    // -------------------------------------------------------------------
+    {
+      key: "agent_verdict",
+      phase: "自律判定",
+      type: "task",
+      maxRetries: 0,
+      onFail: { action: "goto", target: "execute_work", requeueSource: true },
+      task: {
+        action: "orchestrate",
+        buildPrompt: (ctx: PromptCtx) => {
+          return [
+            "## 目的",
+            "",
+            "normalize_findings が生成した findings.json の must 件数で自律/人相を振り分ける。人への受け渡しは行わない。",
+            "",
+            "## 手順",
+            "",
+            "1. セッションディレクトリの findings.json を読み、counts.must / counts.should と round を確認する",
+            "2. must>0 の場合は修正が必要な旨を報告する（check が execute_work への反復を判定する）",
+            "3. must==0 の場合は人相へ進める旨を報告する",
+            "",
+            "## セッション情報",
+            "",
+            `- セッションディレクトリ: ${ctx.sessionDir}`,
+          ].join("\n");
+        },
+      },
+      check: (ctx: CheckCtx): CheckResult => {
+        const findingsRaw =
+          findArtifactText(ctx.artifacts, REVIEW_FINDINGS_KEY, ctx.sessionDir) ??
+          readSessionFile(ctx.sessionDir, REVIEW_FINDINGS_KEY) ??
+          readSessionFile(ctx.sessionDir, "findings.json");
+        const findingsResult = validateFindingsJson(findingsRaw);
+        if (!findingsResult.valid || !findingsResult.parsed) {
+          return {
+            status: "error",
+            reasons: [findingsResult.error ?? "findings validation failed"],
+          };
+        }
+        const { must, should } = findingsResult.parsed.counts;
+        const round = findingsResult.parsed.round;
+        if (must > 0) {
+          if (round > 3) {
+            return {
+              status: "fail",
+              reasons: [
+                `round limit exceeded: round=${round} > 3 (autonomous). 継続/中止を human_gate で選択してください`,
+              ],
+            };
+          }
+          try {
+            resetReviewCycle(ctx.sessionDir);
+          } catch (error) {
+            return {
+              status: "error",
+              reasons: [`failed to reset review cycle: ${String(error)}`],
+            };
+          }
+          return {
+            status: "fail",
+            reasons: [`agent verdict blocked: must=${must} should=${should} -> goto execute_work`],
+          };
+        }
+        return {
+          status: "pass",
+          reasons: [`agent verdict passed: round=${round} must=0 -> proceed to human phase`],
+        };
+      },
+    },
+
+    // -------------------------------------------------------------------
+    // Step 5.6: hunk セッション確保（mt-review-diff から import — B相入口）
+    // -------------------------------------------------------------------
+    {
+      ...ensureHunkSessionStep,
+      phase: "hunk セッション確保",
+    },
+
+    // -------------------------------------------------------------------
+    // Step 5.7: hunk コメント注入（mt-review-diff から import）
+    // -------------------------------------------------------------------
+    {
+      ...injectHunkCommentsStep,
+      phase: "hunk コメント注入",
     },
 
     // -------------------------------------------------------------------
