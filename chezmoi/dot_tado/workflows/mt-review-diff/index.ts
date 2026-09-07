@@ -376,6 +376,8 @@ const def: WorkflowDef = {
             "     - width/depth と担当観点数 (専念度の文脈)",
             "     - 対象差分 (diff.txt の内容。サイズガードで切り詰めたもの。要約は行わないが truncate は必須)",
             "     - セッションディレクトリのパス",
+            "     - 上記以外の絞り込み指示の付加は禁止する。特に対象ファイルの限定・過去指摘の蒸し返し禁止・severity の事前指定・「新規のみ」等の narrowed 指示を SubAgent プロンプトに書き足さない。",
+            "     - 毎ラウンド全文 diff（サイズガード内）を渡す。前回差分のみを抜き出した差分レビューにしない。",
             '     - **差分限定規律**: 指摘は diff.txt の `+` 行のみ。`filePath` 必須、`position` 必須（`side:"new"` かつ `line` は `+` 行の行番号）。`filePath` なし / `position` なし / `side:"old"` / diff外ファイル / `+` 行でない line は normalize_findings で機械的に除外される。差分外の破壊（例: 呼び出し元が壊れる）は差分内の原因行に紐付けて記述し、差分外ファイルへの直接 `filePath` は禁止。読み取りは自由だが指摘の出力は差分内に制限。',
             "   - 各 SubAgent は `edit: deny / bash: deny`相当の read-only で動作し、担当外観点の指摘を禁止される。",
             '   - 各 SubAgent は findings 配列の JSON を返す (axis/severity/detail/position/suggestions)。`filePath` と `position:{side:"new", line}` は必須。',
@@ -389,6 +391,10 @@ const def: WorkflowDef = {
             "```",
             "",
             `4. 集約した生 findings を ${join(ctx.sessionDir, "reviewer-outputs.json")} に保存し、report 時の artifacts に含める。findings.json の正規化・検証は次の normalize_findings が行う。`,
+            "",
+            `5. ラウンド証跡として ${join(ctx.sessionDir, "review-history.jsonl")} に1行追記する（上書き禁止・追記のみ）。形式: {"ts": "<UTC ISO8601>", "width": "<width>", "depth": "<depth>", "reviewers": <検証者数>, "total": <findings件数>, "counts": {"must": n, "should": n, "want": n}, "findings": [<生findings配列全文>]}。total は reviewer-outputs.json の配列長と一致させること。`,
+            "",
+            "6. report 時の artifacts に reviewer-outputs.json・review-history.jsonl を含める。report の subagentOutput には reviewer ごとに `reviewer <i> checked: <確認した主対象ファイルの列挙>` の行を必ず含める（i=1..検証者数）。0件の場合も省略しない。",
             "",
             "## 検証スタンス (SubAgent へ徹底)",
             "",
@@ -420,11 +426,74 @@ const def: WorkflowDef = {
         if (ctx.attemptResult.status !== "completed") {
           return { status: "error", reasons: [ctx.attemptResult.errors ?? "run_reviewers failed"] };
         }
-        // 統一最低ライン: 生 findings 集約物の申告・実在・配列形式を強制。
+        // 生 findings 集約物の申告・実在・配列形式を強制（0件のクリーン結果も受理する。
+        // 旧 minItems: 1 要求は空報告への圧力になるため廃止）。
         // findings の実質検証（正規化・差分限定・counts 照合）は normalize_findings が担当
-        return requireStepArtifacts(ctx, [
-          { key: "reviewer-outputs.json", form: "json", minItems: 1 },
+        const base = requireStepArtifacts(ctx, [
+          { key: "reviewer-outputs.json", form: "json" },
+          { key: "review-history.jsonl", form: "text" },
         ]);
+        if (base.status !== "pass") return base;
+        const reasons: string[] = [];
+        let rawFindings: unknown;
+        try {
+          rawFindings = JSON.parse(
+            readSessionFile(ctx.sessionDir, "reviewer-outputs.json") ?? "null",
+          );
+        } catch {
+          rawFindings = undefined;
+        }
+        const total = Array.isArray(rawFindings) ? rawFindings.length : -1;
+        // review-history.jsonl 最終行と reviewer-outputs.json の件数照合
+        const lines = (readSessionFile(ctx.sessionDir, "review-history.jsonl") ?? "")
+          .split("\n")
+          .map((line) => line.trim())
+          .filter((line) => line.length > 0);
+        const last = lines.length > 0 ? parseJson(lines[lines.length - 1]) : undefined;
+        if (!isRecord(last) || typeof last.total !== "number") {
+          reasons.push(`"review-history.jsonl": 最終行に {total} を持つ JSON が必要`);
+        } else if (last.total !== total) {
+          reasons.push(
+            `"review-history.jsonl": 最終行 total=${last.total} が reviewer-outputs.json 件数 ${total} と不一致`,
+          );
+        }
+        // カバレッジ宣言: reviewer i checked: (i=1..N)。N は effort.json から導出
+        let reviewerCount: number | null = null;
+        try {
+          const effortRaw =
+            findArtifactText(ctx.artifacts, EFFORT_KEY, ctx.sessionDir) ??
+            readSessionFile(ctx.sessionDir, EFFORT_KEY);
+          const parsed = parseJson(effortRaw ?? "") as
+            | { width?: unknown; depth?: unknown }
+            | undefined;
+          if (
+            parsed &&
+            typeof parsed.width === "string" &&
+            typeof parsed.depth === "string" &&
+            VALID_WIDTHS.has(parsed.width) &&
+            VALID_DEPTHS.has(parsed.depth)
+          ) {
+            reviewerCount = getReviewerAssignments(
+              parsed.width as Width,
+              parsed.depth as Depth,
+            ).length;
+          }
+        } catch {
+          reviewerCount = null;
+        }
+        if (reviewerCount === null) {
+          reasons.push("effort.json から検証者数を導出できない（width/depth 不正または欠落）");
+        } else {
+          const output = ctx.attemptResult.subagentOutput ?? "";
+          for (let i = 1; i <= reviewerCount; i += 1) {
+            if (!new RegExp(`reviewer\\s+${i}\\s+checked\\s*:`, "i").test(output)) {
+              reasons.push(
+                `subagentOutput に reviewer ${i} のカバレッジ宣言 (reviewer ${i} checked: ...) が必要`,
+              );
+            }
+          }
+        }
+        return reasons.length === 0 ? { status: "pass", reasons: [] } : { status: "fail", reasons };
       },
     },
 
