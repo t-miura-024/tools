@@ -129,6 +129,10 @@ fn test_scripts_include_herdr_workspace_template() {
         "herdr workspace template create",
         "herdr workspace template apply",
         "herdr workspace template delete",
+        "herdr tab duplicate",
+        "herdr tab template create",
+        "herdr tab template apply",
+        "herdr tab template delete",
     ] {
         assert!(
             names.contains(&expected),

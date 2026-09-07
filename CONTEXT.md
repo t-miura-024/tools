@@ -112,6 +112,10 @@ _Avoid_: 質問リスト, アジェンダ
 herdr のワークスペース設定状態を名前付きテンプレートとして作成・一覧・反映・削除する `mt` の機能。
 _Avoid_: herdr template, workspace preset
 
+**mt herdr tab template**:
+herdr の単一タブ設定状態を名前付きタブテンプレートとして作成・反映・削除する `mt` の機能。ワークスペース用とは型・保存先を分離する。
+_Avoid_: herdr template, tab preset
+
 **ワークスペース**:
 herdr が管理するタブと pane のまとまりで、設定状態を保存・反映する対象。
 _Avoid_: worktree, window, session

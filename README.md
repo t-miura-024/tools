@@ -40,8 +40,12 @@ cargo install --path .
 | `mt herdr workspace duplicate` | herdr ワークスペースを対話中に複製（既存タブ + 設定のクローン） |
 | `mt herdr workspace template create` | ワークスペースのタブ・ペーン構成を名前付きテンプレートとして保存 |
 | `mt herdr workspace template apply`  | テンプレートをワークスペースに反映（既存タブ置換 + cwd 注入 + active 復元） |
-| `mt herdr plugin sync`         | `manifests/herdr-plugins.toml` に従って herdr プラグインを導入し、manifest 外の GitHub 導入を削除候補として確認 |
 | `mt herdr workspace template delete` | 保存済みテンプレートを一覧から選択して削除 |
+| `mt herdr tab duplicate` | 実行中タブを同一ワークスペース内に複製（cwd・label 維持 + 複製先へフォーカス） |
+| `mt herdr tab template create` | 実行中タブのペーン構成を名前付きタブテンプレートとして保存 |
+| `mt herdr tab template apply`  | タブテンプレートを実行中タブに反映（置換 + cwd 注入 + active pane 復元） |
+| `mt herdr tab template delete` | 保存済みタブテンプレートを一覧から選択して削除 |
+| `mt herdr plugin sync`         | `manifests/herdr-plugins.toml` に従って herdr プラグインを導入し、manifest 外の GitHub 導入を削除候補として確認 |
 | `mt opencode oauth setup`      | Google OAuth のセットアップ            |
 | `mt opencode web expose`       | OpenCode Web を ngrok で公開           |
 | `mt opencode web stop`         | OpenCode Web の公開を停止              |
@@ -166,6 +170,29 @@ HERDR_WORKSPACE_ID=w1 mt herdr workspace template delete
 - テンプレートには cwd / command / env は保存されません。apply 時は全 pane に反映時 cwd を設定します
 - apply は既存 pane の実行中プロセス・スクロールバック・PTY を失わせるため、実行前に確認します（途中失敗はロールバックしません）
 
+## herdr タブテンプレート・複製
+
+実行中タブのペーン構成を名前付きタブテンプレートとして保存し、同じタブへ反映します。対象タブは `HERDR_WORKSPACE_ID` + `HERDR_TAB_ID` 環境変数のみから解決し、推測しません。タブのpane内で実行する場合、この2つはherdrが自動注入するため手動指定は不要です（下記の `HERDR_*=...` 付き例はpane外・テストから叩く場合の明示形です）。タブテンプレートは `~/.config/mt/herdr/templates/tabs/<name>.json` に保存され、ワークスペース用とは分離されます。
+
+```bash
+# 実行中タブの構成をタブテンプレートとして保存（対話で名前を入力）
+# pane内では `mt herdr tab template create` のみで可
+HERDR_WORKSPACE_ID=w1 HERDR_TAB_ID=w1:t1 mt herdr tab template create
+
+# タブテンプレートを実行中タブに反映（置換・反映時 cwd 注入）
+HERDR_WORKSPACE_ID=w1 HERDR_TAB_ID=w1:t1 mt herdr tab template apply
+
+# 保存済みタブテンプレートを一覧から選択して削除
+HERDR_WORKSPACE_ID=w1 HERDR_TAB_ID=w1:t1 mt herdr tab template delete
+
+# 実行中タブを同一ワークスペース内に複製（複製先へフォーカス移動）
+HERDR_WORKSPACE_ID=w1 HERDR_TAB_ID=w1:t1 mt herdr tab duplicate
+```
+
+- create / apply / delete / duplicate はすべて対話型のため TTY 環境でのみ実行できます（非対話オプションはありません）
+- タブテンプレートには cwd / command / env は保存されません。apply 時は全 pane に反映時 cwd を設定します
+- apply・duplicate は既存 pane の実行中プロセスを失わせるため、実行前に確認します。apply は実行中タブ自身を置換するため、このプロセスは反映により終了します
+
 ## Worktree Workflow
 
 Git worktree での一連の作業を `mt git` の 4 ステップで標準化します。
@@ -257,7 +284,7 @@ src/
   chezmoi/      # chezmoi ラッパーコマンド
   cli/          # self_cmd (install), launcher, style utilities
   git/          # GitHub リポジトリ・worktree 操作
-  herdr/        # herdr ワークスペース操作（duplicate, workspace template）
+  herdr/        # herdr 操作（workspace duplicate/template, tab duplicate/template, plugin sync）
   opencode/     # OAuth setup, ngrok expose/stop
   plan/         # 計画管理（mt plan/run-plan）
   raycast/      # Raycast 設定バックアップ（sync / restore）
