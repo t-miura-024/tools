@@ -288,3 +288,83 @@ fn test_mt_herdr_workspace_template_requires_tty() {
             .stderr(predicate::str::contains("TTY"));
     }
 }
+
+#[test]
+fn test_mt_herdr_tab_duplicate_help() {
+    let mut cmd = Command::cargo_bin("mt").unwrap();
+    cmd.args(["herdr", "tab", "duplicate", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("同一ワークスペース内"));
+}
+
+#[test]
+fn test_mt_herdr_tab_template_create_help() {
+    let mut cmd = Command::cargo_bin("mt").unwrap();
+    cmd.args(["herdr", "tab", "template", "create", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("タブテンプレートとして保存"));
+}
+
+#[test]
+fn test_mt_herdr_tab_template_apply_help() {
+    let mut cmd = Command::cargo_bin("mt").unwrap();
+    cmd.args(["herdr", "tab", "template", "apply", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("実行中タブに反映"));
+}
+
+#[test]
+fn test_mt_herdr_tab_template_delete_help() {
+    let mut cmd = Command::cargo_bin("mt").unwrap();
+    cmd.args(["herdr", "tab", "template", "delete", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("一覧から選択して削除"));
+}
+
+#[test]
+fn test_mt_herdr_tab_requires_ids() {
+    // HERDR_WORKSPACE_ID / HERDR_TAB_ID 未設定では推測せずエラーになる
+    let mut cmd = Command::cargo_bin("mt").unwrap();
+    cmd.args(["herdr", "tab", "duplicate"])
+        .env_remove("HERDR_WORKSPACE_ID")
+        .env_remove("HERDR_TAB_ID")
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("HERDR_"))
+        .stderr(predicate::str::contains("推測"));
+    for sub in ["create", "apply", "delete"] {
+        let mut cmd = Command::cargo_bin("mt").unwrap();
+        cmd.args(["herdr", "tab", "template", sub])
+            .env_remove("HERDR_WORKSPACE_ID")
+            .env_remove("HERDR_TAB_ID")
+            .assert()
+            .failure()
+            .stderr(predicate::str::contains("HERDR_"))
+            .stderr(predicate::str::contains("推測"));
+    }
+}
+
+#[test]
+fn test_mt_herdr_tab_requires_tty() {
+    // ID が設定されていても非 TTY（パイプ）では対話不能エラーになる
+    let mut cmd = Command::cargo_bin("mt").unwrap();
+    cmd.args(["herdr", "tab", "duplicate"])
+        .env("HERDR_WORKSPACE_ID", "w-test")
+        .env("HERDR_TAB_ID", "w-test:t1")
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("TTY"));
+    for sub in ["create", "apply", "delete"] {
+        let mut cmd = Command::cargo_bin("mt").unwrap();
+        cmd.args(["herdr", "tab", "template", sub])
+            .env("HERDR_WORKSPACE_ID", "w-test")
+            .env("HERDR_TAB_ID", "w-test:t1")
+            .assert()
+            .failure()
+            .stderr(predicate::str::contains("TTY"));
+    }
+}

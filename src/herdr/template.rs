@@ -244,6 +244,134 @@ pub fn delete_template(path: &Path) -> anyhow::Result<()> {
         .with_context(|| format!("テンプレート {} を削除できません", path.display()))
 }
 
+// ---- タブテンプレート（単一タブ） ----
+
+/// 単一タブのテンプレート。ワークスペース用 `Template` とは保存先・型を分離し、
+/// タブ label・pane tree・active pane path だけを持つ。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TabTemplate {
+    pub label: String,
+    pub root: TemplateNode,
+    /// active pane の tree path（split の子 index 列）。None なら pane focus は復元しない。
+    pub active_pane_path: Option<Vec<usize>>,
+}
+
+impl TabTemplate {
+    /// 保存前・読み込み後に呼ぶスキーマ検証。不正なら理由つきでエラーにする。
+    pub fn validate(&self) -> anyhow::Result<()> {
+        if self.label.trim().is_empty() {
+            bail!("タブのラベルが空です");
+        }
+        self.root.validate()?;
+        if let Some(path) = &self.active_pane_path
+            && !matches!(
+                template_pane_at_path(&self.root, path),
+                Some(TemplateNode::Pane { .. })
+            )
+        {
+            bail!("active_pane_path {:?} が pane ノードに解決しません", path);
+        }
+        Ok(())
+    }
+}
+
+pub fn tabs_dir() -> PathBuf {
+    templates_dir().join("tabs")
+}
+
+pub fn tab_template_path(name: &str) -> PathBuf {
+    tabs_dir().join(format!("{name}.json"))
+}
+
+/// 一覧に表示するタブテンプレートのエントリ。
+#[derive(Debug, Clone)]
+pub struct TabTemplateEntry {
+    pub name: String,
+    pub path: PathBuf,
+    pub template: TabTemplate,
+}
+
+/// `~/.config/mt/herdr/templates/tabs/` の有効なタブテンプレートを名前順に返す。
+/// 不正 JSON / スキーマ不正は standard error に warning を出して除外し、
+/// 有効が 0 件なら明確なエラーを返す。
+pub fn list_tab_templates() -> anyhow::Result<Vec<TabTemplateEntry>> {
+    let dir = tabs_dir();
+    let mut entries = Vec::new();
+
+    if dir.is_dir() {
+        for entry in fs::read_dir(&dir).with_context(|| {
+            format!(
+                "タブテンプレートディレクトリ {} を読み込めません",
+                dir.display()
+            )
+        })? {
+            let path = entry?.path();
+            if path.extension().and_then(|e| e.to_str()) != Some("json") {
+                continue;
+            }
+            let name = path
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or("")
+                .to_string();
+            let content = match fs::read_to_string(&path) {
+                Ok(content) => content,
+                Err(e) => {
+                    eprintln!(
+                        "警告: タブテンプレート {} を読み込めないため除外します: {e}",
+                        path.display()
+                    );
+                    continue;
+                }
+            };
+            let template: TabTemplate = match serde_json::from_str(&content) {
+                Ok(template) => template,
+                Err(e) => {
+                    eprintln!(
+                        "警告: タブテンプレート {} は不正な JSON のため除外します: {e}",
+                        path.display()
+                    );
+                    continue;
+                }
+            };
+            if let Err(e) = template.validate() {
+                eprintln!(
+                    "警告: タブテンプレート {} はスキーマ不正のため除外します: {e}",
+                    path.display()
+                );
+                continue;
+            }
+            entries.push(TabTemplateEntry {
+                name,
+                path,
+                template,
+            });
+        }
+    }
+
+    entries.sort_by(|a, b| a.name.cmp(&b.name));
+
+    if entries.is_empty() {
+        bail!(
+            "利用可能なタブテンプレートがありません（{} に有効なテンプレート JSON がありません）",
+            dir.display()
+        );
+    }
+    Ok(entries)
+}
+
+/// タブテンプレート名からファイルへ保存する。同名ファイルが既にあれば変更せずエラーにする。
+pub fn save_tab_template(template: &TabTemplate, name: &str) -> anyhow::Result<PathBuf> {
+    let path = tab_template_path(name);
+    if path.exists() {
+        bail!("タブテンプレート {name} は既に存在します（上書きしません）");
+    }
+    let json = serde_json::to_string_pretty(template)
+        .context("タブテンプレートのシリアライズに失敗しました")?;
+    write_atomic(&path, &json)?;
+    Ok(path)
+}
+
 /// 一時ファイル + rename の atomic 書き込み。失敗時は一時ファイルを後始末する。
 pub fn write_atomic(path: &Path, content: &str) -> anyhow::Result<()> {
     let dir = path
@@ -581,6 +709,81 @@ mod tests {
         assert!(path.exists());
         delete_template(&path).unwrap();
         assert!(!path.exists());
+
+        restore_home(prev);
+    }
+
+    fn valid_tab_template() -> TabTemplate {
+        TabTemplate {
+            label: "main".to_string(),
+            root: TemplateNode::Split {
+                direction: SplitDirection::Right,
+                ratio: 0.5,
+                first: Box::new(TemplateNode::Pane { label: None }),
+                second: Box::new(TemplateNode::Pane {
+                    label: Some("editor".to_string()),
+                }),
+            },
+            active_pane_path: Some(vec![1]),
+        }
+    }
+
+    #[test]
+    fn test_tab_template_validate() {
+        valid_tab_template().validate().unwrap();
+        let mut bad = valid_tab_template();
+        bad.label = "  ".to_string();
+        assert!(bad.validate().is_err());
+        let mut bad = valid_tab_template();
+        bad.active_pane_path = Some(vec![0, 9]);
+        assert!(bad.validate().is_err());
+    }
+
+    #[test]
+    fn test_tab_template_json_round_trip() {
+        let template = valid_tab_template();
+        let json = serde_json::to_string(&template).unwrap();
+        let back: TabTemplate = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, template);
+    }
+
+    #[test]
+    fn test_save_and_list_tab_templates() {
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let prev = std::env::var("HOME").ok();
+        let _tmp = with_temp_home();
+
+        let path = save_tab_template(&valid_tab_template(), "alpha").unwrap();
+        assert_eq!(path, tab_template_path("alpha"));
+        assert!(path.is_file());
+        // workspace 用とは分離されている
+        assert_ne!(template_path("alpha"), tab_template_path("alpha"));
+
+        // 同名は上書きしない
+        let err = save_tab_template(&valid_tab_template(), "alpha").unwrap_err();
+        assert!(err.to_string().contains("既に存在します"), "{err}");
+
+        let entries = list_tab_templates().unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].name, "alpha");
+        assert_eq!(entries[0].template, valid_tab_template());
+
+        restore_home(prev);
+    }
+
+    #[test]
+    fn test_list_tab_templates_empty_is_error() {
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let prev = std::env::var("HOME").ok();
+        let _tmp = with_temp_home();
+
+        fs::create_dir_all(tabs_dir()).unwrap();
+        let err = list_tab_templates().unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("利用可能なタブテンプレートがありません"),
+            "{err}"
+        );
 
         restore_home(prev);
     }
