@@ -5,8 +5,12 @@
 ## Language
 
 **review session**:
-`mt hunk start` で始まり `mt hunk check` または `mt hunk done` で終わる、1 つの hunk セッションライフサイクル。
+`mt hunk start` で始まり `mt hunk check` または `mt hunk done` で終わる、1 つの hunk セッションのライフサイクル。
 _Avoid_: review, hunk session
+
+**hunk セッション**:
+hunk デーモンが管理する TUI セッション。`hunk diff` / `hunk show` で起動し、その間 `mt hunk status` は active を報告する。
+_Avoid_: hunk review session, live session
 
 **gate**:
 `mt hunk check` による通過/ブロック判定。exit 0 = 通過、exit 1 = ブロック。
@@ -31,6 +35,10 @@ _Avoid_: 任意指摘, suggestion
 **stale state**:
 `hunk-review.json` が存在するが対応する hunk セッションを検出できない状態。`start` / `check` が自己修復する。
 _Avoid_: orphan, zombie
+
+**state 未追跡**:
+`hunk-review.json` が無いが hunk セッションが live の状態。`mt hunk status` は active ＋注記で報告する。
+_Avoid_: untracked, 未管理
 
 **手動見直し**:
 人間が既存の AI エージェント設定（Rule・Skill・SubAgent・Hook）に対して行う削除・内容変更の作業。AI は関与しない。

@@ -84,6 +84,37 @@ fn test_status_active_session_zero_comments() {
 }
 
 // ---------------------------------------------------------------------------
+// state 未追跡（hunk-review.json なし）＋ live
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_status_untracked_live_session() {
+    let _guard = shared::HUNK_TEST_LOCK.lock().unwrap();
+    let (_tmp, path) = shared::make_temp_git_repo();
+    std::fs::write(path.join("README.md"), "hello\nworld\n").unwrap();
+    let child = shared::spawn_hunk_session(&path);
+    let Some(child) = child else {
+        eprintln!("SKIP: hunk セッションを起動できませんでした");
+        return;
+    };
+
+    // hunk-review.json は書かない（state 未追跡）
+    let out = render_status(&path);
+
+    assert!(out.contains("hunk review session: active"), "{out:?}");
+    assert!(
+        !out.contains("applied comments"),
+        "state 未追跡では applied comments を表示しない: {out:?}"
+    );
+    assert!(
+        out.contains("  note: hunk-review.json なし（applied 数は mt hunk start 後に追跡）"),
+        "state 未追跡の注記を表示する: {out:?}"
+    );
+
+    shared::stop_hunk_session(child);
+}
+
+// ---------------------------------------------------------------------------
 // stale state（セッションなし）
 // ---------------------------------------------------------------------------
 

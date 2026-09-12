@@ -904,37 +904,54 @@ export function runHunkCommand(args: string[]): string {
   }
 }
 
-export function isHunkSessionActive(): boolean {
-  return runHunkCommand(["status"]).includes("hunk review session: active");
+// Rust 側 `src/git/common.rs` の GIT_CONTEXT_ENV と同じ集合。
+// git hook / ラッパーが設定する GIT_DIR 等が残っていると repo root の解決や
+// hunk の内部 git 呼び出しが実行文脈に引きずられるため除去する。
+const GIT_CONTEXT_ENV = [
+  "GIT_DIR",
+  "GIT_WORK_TREE",
+  "GIT_COMMON_DIR",
+  "GIT_INDEX_FILE",
+  "GIT_OBJECT_DIRECTORY",
+  "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+  "GIT_PREFIX",
+] as const;
+
+function cleanGitEnv(): Record<string, string | undefined> {
+  const env: Record<string, string | undefined> = { ...process.env };
+  for (const key of GIT_CONTEXT_ENV) {
+    delete env[key];
+  }
+  return env;
 }
 
-/// TUI 生存判定は `hunk session get --repo <root> --json` の成功のみを正とする。
-/// `mt hunk status` は `.hunk/hunk-review.json`（`mt hunk start` 後に作成）が
-/// 無いと TUI が生きていても "none" を返すため、start 前のゲートでは使えない。
+/// hunk セッションの生存判定。Rust 側 `src/hunk/shared.rs` の `find_session` と同一契約で、
+/// 次のすべてを満たす場合のみ live（true）とみなす:
+///   1. `hunk session get --repo <root> --json` の exit code が 0
+///   2. stdout が JSON としてパースできる
+///   3. `session` が非 null のオブジェクトで、`sessionId` が文字列
+/// いずれかを満たさなければ false。従来の文字列一致（`mt hunk status` の出力）には依存しない。
+/// repo root は `git rev-parse --show-toplevel` を Rust と同じクリーンな git 文脈
+/// （GIT_DIR 等を除去）で実行して解決する。
 export function isHunkSessionLive(): boolean {
   try {
     const repoRoot = String(
       execFileSync("git", ["rev-parse", "--show-toplevel"], {
         encoding: "utf-8",
         stdio: ["ignore", "pipe", "pipe"],
-        env: { ...process.env },
+        env: cleanGitEnv(),
       }),
     ).trim();
-    try {
-      execFileSync("mt", ["hunk", "session", "get", "--repo", repoRoot, "--json"], {
-        encoding: "utf-8",
-        stdio: ["ignore", "pipe", "pipe"],
-        env: { ...process.env },
-      });
-      return true;
-    } catch {
+    const stdout = String(
       execFileSync("hunk", ["session", "get", "--repo", repoRoot, "--json"], {
         encoding: "utf-8",
         stdio: ["ignore", "pipe", "pipe"],
-        env: { ...process.env },
-      });
-      return true;
-    }
+        env: cleanGitEnv(),
+      }),
+    );
+    const parsed = parseJson(stdout);
+    if (!isRecord(parsed) || !isRecord(parsed.session)) return false;
+    return typeof parsed.session.sessionId === "string";
   } catch {
     return false;
   }

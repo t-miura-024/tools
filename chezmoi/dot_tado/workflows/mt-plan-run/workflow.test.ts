@@ -60,6 +60,20 @@ exit 1`,
     );
   }
 
+  /// `hunk session get` の stdout / exit code を直接制御する（契約境界の検証用）
+  function fakeGitAndHunkSessionGetRaw(hunkStdout: string, hunkExit: number): void {
+    writeScript(
+      "git",
+      `[ "$1" = "rev-parse" ] && [ "$2" = "--show-toplevel" ] && echo "${tmp}/repo" && exit 0
+exit 1`,
+    );
+    writeScript(
+      "hunk",
+      `printf '%s\\n' '${hunkStdout}'
+exit ${hunkExit}`,
+    );
+  }
+
   /// `mt hunk status` / `mt hunk check` を制御する
   function fakeMt(options: { statusOutput: string; checkJson?: string; checkExit?: number }): void {
     const lines = [
@@ -136,6 +150,18 @@ exit 1`,
       const result = stepCheck("ensure_hunk_session")(makeCtx());
 
       expect(result.status).toBe("fail");
+    });
+
+    it("exit 0 でも session:null なら fail（JSON 契約を検証）", () => {
+      fakeGitAndHunkSessionGetRaw('{"session":null}', 0);
+
+      expect(stepCheck("ensure_hunk_session")(makeCtx()).status).toBe("fail");
+    });
+
+    it("exit 0 でも非 JSON なら fail（JSON 契約を検証）", () => {
+      fakeGitAndHunkSessionGetRaw("no active hunk session", 0);
+
+      expect(stepCheck("ensure_hunk_session")(makeCtx()).status).toBe("fail");
     });
   });
 
@@ -352,21 +378,29 @@ exit 1`,
       const result = stepCheck("inject_hunk_comments")(makeCtx());
       expect(result.status).toBe("fail");
     });
+
+    it("buildPrompt のガードは exit code + JSON 契約で、`mt hunk status` に依存しない", () => {
+      const step = def.steps.find((s) => s.key === "inject_hunk_comments")!;
+      const prompt = step.task!.buildPrompt({ sessionDir, artifacts: [] });
+      expect(prompt).toContain("hunk session get");
+      expect(prompt).toContain("session.sessionId");
+      expect(prompt).not.toContain("mt hunk status");
+    });
   });
 
   describe("await_human_review (Step import)", () => {
-    // strict: none は fail — hunk セッション未起動の厳密検出
-    it("hunk session none なら fail (strict)", () => {
-      fakeMt({ statusOutput: "hunk review session: none" });
-      const resultNone = stepCheck("await_human_review")(makeCtx());
-      expect(resultNone.status).toBe("fail");
+    // strict: live でなければ fail — hunk セッション未起動の厳密検出
+    it("hunk session が live でなければ fail (strict)", () => {
+      fakeGitAndHunkSessionGet(false);
+      const result = stepCheck("await_human_review")(makeCtx());
+      expect(result.status).toBe("fail");
     });
 
-    // 寛容: active は pass — tracer bullet で hunk が active なら即 pass
-    it("hunk session active なら pass (tracer bullet 寛容)", () => {
-      fakeMt({ statusOutput: "hunk review session: active" });
-      const resultActive = stepCheck("await_human_review")(makeCtx());
-      expect(resultActive.status).toBe("pass");
+    // 寛容: live なら pass — hunk セッションが生きていれば即 pass
+    it("hunk session が live なら pass", () => {
+      fakeGitAndHunkSessionGet(true);
+      const result = stepCheck("await_human_review")(makeCtx());
+      expect(result.status).toBe("pass");
     });
   });
 

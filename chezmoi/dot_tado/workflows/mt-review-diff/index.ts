@@ -26,7 +26,6 @@ import {
   parseDiffChangedLines,
   parseHunkCheck,
   runHunkCommand,
-  isHunkSessionActive,
   isHunkSessionLive,
   validateEffortBaseTarget,
   HUNK_START_KEY,
@@ -67,7 +66,6 @@ export {
   parseJson,
   parseHunkCheck,
   runHunkCommand,
-  isHunkSessionActive,
   isHunkSessionLive,
   isPathInside,
   shellQuote,
@@ -656,8 +654,7 @@ const def: WorkflowDef = {
         ],
       },
       check: (_ctx: CheckCtx): CheckResult => {
-        // start 前は `.hunk/hunk-review.json` が存在しないため `mt hunk status`
-        // は常に "none" を返す。TUI 生存の検出には `hunk session get` を使う
+        // TUI 生存の検出は exit code ベースの isHunkSessionLive（`hunk session get`）を正とする
         if (isHunkSessionLive()) {
           return { status: "pass", reasons: ["hunk session is live (`hunk session get`)"] };
         }
@@ -688,11 +685,14 @@ const def: WorkflowDef = {
             "",
             "## 手順",
             "",
-            "1. hunk セッションを確認する:",
+            "1. hunk セッションの生存を確認する（文字列一致は使わない）。git hook 等が設定する GIT_DIR 系の環境変数を除去したクリーンな git 文脈で repo root を解決し、`hunk session get --repo <root> --json` を実行する:",
             "```bash",
-            "mt hunk status",
+            'CLEAN="env -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR -u GIT_INDEX_FILE -u GIT_OBJECT_DIRECTORY -u GIT_ALTERNATE_OBJECT_DIRECTORIES -u GIT_PREFIX"',
+            'REPO_ROOT="$($CLEAN git rev-parse --show-toplevel)"',
+            '$CLEAN hunk session get --repo "$REPO_ROOT" --json',
             "```",
-            '   - "hunk review session: active" でなければ、`hunk diff <base-branch>` で TUI を起動してから再試行するよう report に記載し error で停止する（セッションの確保自体は ensure_hunk_session の責務）',
+            "   - exit code が 0 で、かつ stdout の JSON から `session.sessionId`（文字列）が取得できることを確認する",
+            "   - いずれかを満たさなければ、`hunk diff <base-branch>` で TUI を起動してから再試行するよう report に記載し error で停止する（セッションの確保自体は ensure_hunk_session の責務）",
             "   - ベースブランチは origin/HEAD があればその参照名から origin/ を除き、なければ main を使う",
             "```bash",
             `BASE_BRANCH="$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's#^origin/##')"`,
@@ -781,16 +781,14 @@ const def: WorkflowDef = {
         ],
       },
       check: (_ctx: CheckCtx): CheckResult => {
-        try {
-          const active = isHunkSessionActive();
-          if (active) return { status: "pass", reasons: ["hunk session is still active"] };
-          return {
-            status: "fail",
-            reasons: ["hunk session not active — run `hunk diff <base-branch>` to activate"],
-          };
-        } catch (e) {
-          return { status: "error", reasons: [`hunk session check error: ${String(e)}`] };
+        // 判定は exit code ベースの isHunkSessionLive に統一する（文字列一致は使わない）
+        if (isHunkSessionLive()) {
+          return { status: "pass", reasons: ["hunk session is still live (`hunk session get`)"] };
         }
+        return {
+          status: "fail",
+          reasons: ["hunk session not live — run `hunk diff <base-branch>` to activate"],
+        };
       },
     },
 
