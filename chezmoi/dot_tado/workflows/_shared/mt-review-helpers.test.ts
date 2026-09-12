@@ -1,12 +1,18 @@
 /**
  * mt-review-helpers.ts の成果物読み取り（findArtifactText / readSessionFile /
- * isPathInside）の自動テスト。正典は tado 本体の `src/artifacts.ts`。
+ * isPathInside）と hunk セッション生存判定（isHunkSessionLive）の自動テスト。
+ * 成果物読み取りの正典は tado 本体の `src/artifacts.ts`。
  */
-import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { findArtifactText, isPathInside, readSessionFile } from "./mt-review-helpers.ts";
+import {
+  findArtifactText,
+  isHunkSessionLive,
+  isPathInside,
+  readSessionFile,
+} from "./mt-review-helpers.ts";
 
 let dirs: string[] = [];
 
@@ -70,5 +76,94 @@ describe("findArtifactText", () => {
     const outside = path.join(tmpdir(), "outside.txt");
     const artifacts = [{ artifactKey: "k", filePath: outside }];
     expect(() => findArtifactText(artifacts, "k", dir)).toThrow("path traversal");
+  });
+});
+
+describe("isHunkSessionLive", () => {
+  let binDir: string;
+  let originalPath: string | undefined;
+
+  beforeEach(() => {
+    binDir = newSessionDir();
+    originalPath = process.env.PATH;
+    process.env.PATH = `${binDir}${path.delimiter}${originalPath ?? ""}`;
+  });
+
+  afterEach(() => {
+    process.env.PATH = originalPath;
+  });
+
+  function writeScript(name: string, body: string): void {
+    const scriptPath = path.join(binDir, name);
+    writeFileSync(scriptPath, `#!/bin/sh\n${body}\n`);
+    chmodSync(scriptPath, 0o755);
+  }
+
+  function fakeGit(root: string): void {
+    writeScript(
+      "git",
+      `[ "$1" = "rev-parse" ] && [ "$2" = "--show-toplevel" ] && echo "${root}" && exit 0
+exit 1`,
+    );
+  }
+
+  function fakeHunkSessionGet(stdout: string, exitCode: number): void {
+    writeScript(
+      "hunk",
+      `printf '%s\\n' '${stdout}'
+exit ${exitCode}`,
+    );
+  }
+
+  test("exit 0 かつ session.sessionId があれば true", () => {
+    fakeGit("/fake/repo");
+    fakeHunkSessionGet('{"session":{"sessionId":"s1"}}', 0);
+    expect(isHunkSessionLive()).toBe(true);
+  });
+
+  test("exit 0 でも session が null なら false", () => {
+    fakeGit("/fake/repo");
+    fakeHunkSessionGet('{"session":null}', 0);
+    expect(isHunkSessionLive()).toBe(false);
+  });
+
+  test("exit 0 でも sessionId が文字列でなければ false", () => {
+    fakeGit("/fake/repo");
+    fakeHunkSessionGet('{"session":{"sessionId":123}}', 0);
+    expect(isHunkSessionLive()).toBe(false);
+  });
+
+  test("exit 0 でも非 JSON なら false", () => {
+    fakeGit("/fake/repo");
+    fakeHunkSessionGet("no active hunk session", 0);
+    expect(isHunkSessionLive()).toBe(false);
+  });
+
+  test("exit code 非 0 なら false", () => {
+    fakeGit("/fake/repo");
+    fakeHunkSessionGet('{"session":{"sessionId":"s1"}}', 1);
+    expect(isHunkSessionLive()).toBe(false);
+  });
+
+  test("GIT_DIR 等の git 文脈を除去して git / hunk を実行する", () => {
+    process.env.GIT_DIR = "/bogus/git-dir";
+    try {
+      // git / hunk 側に GIT_DIR が残っていれば失敗させる
+      writeScript(
+        "git",
+        `[ -n "$GIT_DIR" ] && { echo "GIT_DIR leaked" >&2; exit 3; }
+[ "$1" = "rev-parse" ] && [ "$2" = "--show-toplevel" ] && echo "/fake/repo" && exit 0
+exit 1`,
+      );
+      writeScript(
+        "hunk",
+        `[ -n "$GIT_DIR" ] && { echo "GIT_DIR leaked" >&2; exit 3; }
+echo '{"session":{"sessionId":"s1"}}'
+exit 0`,
+      );
+      expect(isHunkSessionLive()).toBe(true);
+    } finally {
+      delete process.env.GIT_DIR;
+    }
   });
 });
