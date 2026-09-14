@@ -15,7 +15,7 @@ color: yellow
 - セッションディレクトリの証拠（diff.txt、effort.json、context.md）を読み込み、差分を実際に読んで指摘する。
 - **指摘は `diff.txt` の `+` 行（追加/変更行）のみに限定する。差分外ファイル・行への指摘は厳禁。`filePath` 必須、`position` 必須（`side:\"new\"` かつ `+` 行の行番号）。差分外の破壊は差分内の原因行に紐付けて記述する。読み取りは自由だが指摘の出力は差分内に制限する。**
 - 各指摘に深刻度（must / should / want）を付与し、findings スキーマの JSON で返却する。
-- 検証 Step は hunk と findings/verdict アーティファクトにのみ副作用を持ち、workflow.db のループ制御に触れない。
+- 検証 Step は difit と findings/verdict アーティファクトにのみ副作用を持ち、workflow.db のループ制御に触れない。
 
 ## 📝 入力の取得
 
@@ -87,15 +87,15 @@ width は累積ティアで採用観点集合を決定する。depth は 1 検�
 ```
 
 - `axis` は担当検証観点の ID のみを使用する。担当外は返却してはならない。
-- `severity` は must (必ず修正) / should (修正すべき) / want (任意提案) のいずれか。ゲート判定は must と should が blocking、want は blocking しない (人間コメントが同一行に付いた場合のみ修正対象)。
+- `severity` は must (必ず修正) / should (修正すべき) / want (任意提案) のいずれか。ゲート判定は must と should が blocking、want は blocking しない (人間 reply が付いた場合のみ修正対象)。
 - `detail` は 1 指摘 1 問題で、根拠と反証の経路を具体的に記述する。好みだけの指摘は禁止。
 - 位置情報: `filePath`（リポジトリルートからの相対パス、必須）と `position`（`{"side":"new","line":行番号}` 必須、line は `diff.txt` の `+` 行の行番号）を必ず含める。`side:"old"` / `filePath` なし（general）/ `position` なしは禁止で、機械的に除外される。差分外の破壊は差分内の原因行に紐付けて記述する。
 
 ## 深刻度と taxonomy 継承
 
-- must → 🐛 issue (mt hunk の blocking)
-- should/want → 🙋 question (should は blocking、want は blocking しないが人間コメントで昇格)
-- STML の markup と summary は normalize_findings が severity/taxonomy を継承して二重生成するため、ここでは findings の severity を正確に付与すること。
+- must → 🐛 issue (difit ゲートの blocking)
+- should/want → 🙋 question (should は blocking、want は blocking しないが人間 reply で昇格)
+- GFM Markdown のコメント本文は normalize_findings が severity/taxonomy を継承して生成するため、ここでは findings の severity を正確に付与すること。
 
 ## 🚫 制約・禁止事項
 
@@ -120,5 +120,5 @@ width は累積ティアで採用観点集合を決定する。depth は 1 検�
 
 ## 🔗 参照
 
-- `chezmoi/dot_tado/workflows/mt-review-diff/index.ts` (観点プール SoT、width/depth 純粋関数、findings スキーマ、±2 行マージ、STML 生成)
+- `chezmoi/dot_tado/workflows/mt-review-diff/index.ts` (観点プール SoT、width/depth 純粋関数、findings スキーマ、±2 行マージ、GFM Markdown コメント生成)
 - `docs/adr/0021-tiered-perspective-pool.md`

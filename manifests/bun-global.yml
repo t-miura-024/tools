@@ -3,6 +3,8 @@ packages:
     version: latest
   "@opencode-ai/cli":
     version: beta
+  difit:
+    version: latest
   firecrawl:
     version: latest
   pnpm:

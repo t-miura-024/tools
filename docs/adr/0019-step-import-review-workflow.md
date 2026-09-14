@@ -6,17 +6,17 @@ status: accepted
 
 ## 背景 (Context)
 
-敵対的検証に関わる検証観点プール・SubAgent 割当・hunk 変換ロジックが `mt-review-diff` Skill、`mt-plan-run` 内の hunk サイクル、SubAgent 定義に分散していた。検証観点の重複、taxonomy 揺れ、検証強度制御手段の不在が課題であった。`tado init` にパラメータ機構がなく検証呼び出しがばらけ、`mt-sdd-*` 等は孤児化していた。grill Round 3-6 で SoT 一本化の方針を集中的に議論し、tracer bullet で契約を先に固める原則が合意された。
+敵対的検証に関わる検証観点プール・SubAgent 割当・difit コメント変換ロジックが `mt-review-diff` Skill、`mt-plan-run` 内の difit レビューサイクル、SubAgent 定義に分散していた。検証観点の重複、taxonomy 揺れ、検証強度制御手段の不在が課題であった。`tado init` にパラメータ機構がなく検証呼び出しがばらけ、`mt-sdd-*` 等は孤児化していた。grill Round 3-6 で SoT 一本化の方針を集中的に議論し、tracer bullet で契約を先に固める原則が合意された。
 
-旧構成では `mt-plan-run` が独自に hunk コメント生成・findings 集約を行い、`mt-review-diff` Skill が別実装で重複していた。両者を二重管理すると修正時の乖離が必発であり、単独起動と計画内検証の二入口を単一実装で成立させる必要があった。
+旧構成では `mt-plan-run` が独自に difit コメント生成・findings 集約を行い、`mt-review-diff` Skill が別実装で重複していた。両者を二重管理すると修正時の乖離が必発であり、単独起動と計画内検証の二入口を単一実装で成立させる必要があった。
 
 ## 決定 (Decision)
 
-検証観点プール・SubAgent 割当・hunk 変換ロジックを tado ワークフロー `mt-review-diff`（敵対的検証ワークフロー）に単一 SoT として集約し、`mt-plan-run` から Step を import する方式とした。`_shared` への退避ではなくワークフロー定義が SoT になることで、二入口が単一実装で成立し二重管理を防ぐ。
+検証観点プール・SubAgent 割当・difit コメント変換ロジックを tado ワークフロー `mt-review-diff`（敵対的検証ワークフロー）に単一 SoT として集約し、`mt-plan-run` から Step を import する方式とした。`_shared` への退避ではなくワークフロー定義が SoT になることで、二入口が単一実装で成立し二重管理を防ぐ。
 
-具体的には `resolve_effort` / `collect_context` / `run_reviewers` / `publish_findings` / `await_human_review` / `collect_verdict` の 6 Steps を `mt-review-diff` で定義し、`mt-plan-run` は Step import で取り込み、必要最小限の check オーバーライドのみ行う。`_shared` への純粋関数抽出は次回計画に先送りし、今回は Step import を維持する。
+具体的には `resolve_effort` / `collect_context` / `run_reviewers` / `normalize_findings` / `start_difit_review` / `await_human_review` / `collect_verdict` の 7 Steps を `mt-review-diff` で定義し、`mt-plan-run` は Step import で取り込み、必要最小限の check / condition オーバーライドのみ行う（human gate の must>0 skip はループ所有者である plan-run 専用の condition override。mt-review-diff 単独では must>0 でも必ず人間ゲートを提示する）。`_shared` への純粋関数抽出は次回計画に先送りし、今回は Step import を維持する。
 
-grill で合意した制約: 検証 Step は hunk と findings/verdict アーティファクトにのみ副作用を持ち、workflow.db のループ制御に触れない。
+grill で合意した制約: 検証 Step は difit レビューセッションと findings/verdict アーティファクトにのみ副作用を持ち、workflow.db のループ制御に触れない。
 
 ## 代替案 (Considered Options)
 

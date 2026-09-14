@@ -1,5 +1,5 @@
 ---
-status: superseded by ADR-0013
+status: superseded by ADR-0013; partially re-adopted by ADR-0026
 ---
 
 # ADR-0008: mt difit start の引数変換によるコメント表示問題の根本解決
@@ -24,3 +24,7 @@ status: superseded by ADR-0013
 ## 結果・影響
 
 `mt difit start` のセマンティクスが「ワーキングディレクトリ vs ベースブランチのレビューセッション開始」に明確化される。コメント表示問題が根本解決される。
+
+## 再採用範囲（ADR-0026）
+
+ADR-0026 により、引数変換（`--clean` / `--merge-base` 等の公式 CLI オプション）と `--merge-base` による起動時の選択一致は再採用された。ただし「内部 API は使用しない」は、コメント選択のピン留め（コメント I/O を `/api/comments-json` / `/api/comment-imports` の `base` / `target` / `baseMode` クエリで固定する）に限り見直された。起動後のリビジョン切替で別セッションを無音で読む経路を塞ぐためで、契約は E2E テストで固定する。詳細は ADR-0026「コメント選択のピン留め」を参照。

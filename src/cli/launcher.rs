@@ -21,6 +21,10 @@ const CATEGORY_WIDTH: usize = 10;
 const COMMAND_WIDTH: usize = 24;
 
 /// ランチャーに表示しないコマンド（clap リーフのパス表記）
+///
+/// `difit resolve` は必須引数（スレッド ID）を取るため、引数を入力できない
+/// ランチャーからは選択させない（`mt difit threads --json` で ID を確認して
+/// 直接実行する）。
 const EXCLUDED: &[&str] = &[
     "chezmoi init",
     "chezmoi status",
@@ -28,6 +32,7 @@ const EXCLUDED: &[&str] = &[
     "chezmoi edit",
     "chezmoi install-hook",
     "chezmoi uninstall-hook",
+    "difit resolve",
 ];
 
 /// 既定カテゴリ（トップレベルコマンド名）に対する表示カテゴリの上書き

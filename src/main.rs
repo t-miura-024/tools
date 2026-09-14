@@ -4,10 +4,10 @@ mod agent;
 mod chezmoi;
 mod cli;
 mod config;
+mod difit;
 mod doctor;
 mod git;
 mod herdr;
-mod hunk;
 mod opencode;
 mod plan;
 mod raycast;
@@ -53,9 +53,9 @@ enum Commands {
     /// agents / skills のマルチプラットフォーム同期
     #[command(subcommand)]
     Agent(agent::AgentCommands),
-    /// hunk レビューセッション管理（start / check / done / status）
+    /// difit レビューセッション管理（start / check / done / status / threads / resolve）
     #[command(subcommand)]
-    Hunk(hunk::HunkCommands),
+    Difit(difit::DifitCommands),
     /// herdr ワークスペース操作
     #[command(subcommand)]
     Herdr(herdr::HerdrCommands),
@@ -83,7 +83,7 @@ pub(crate) fn dispatch(command: Commands) -> anyhow::Result<()> {
         Commands::Plan(cmd) => plan::run(cmd),
         Commands::Raycast(cmd) => raycast::run(cmd),
         Commands::Agent(cmd) => agent::run(cmd),
-        Commands::Hunk(cmd) => hunk::run(cmd),
+        Commands::Difit(cmd) => difit::run(cmd),
         Commands::Herdr(cmd) => herdr::run(cmd),
         Commands::Doctor => doctor::run(),
     }

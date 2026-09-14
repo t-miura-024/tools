@@ -1,44 +1,52 @@
 # mt CLI
 
-個人用 CLI ツール群。Git / chezmoi / ツール管理 / ベクトル検索 / hunk レビュー等のサブコマンドを持つ。
+個人用 CLI ツール群。Git / chezmoi / ツール管理 / ベクトル検索 / difit レビュー等のサブコマンドを持つ。
 
 ## Language
 
-**review session**:
-`mt hunk start` で始まり `mt hunk check` または `mt hunk done` で終わる、1 つの hunk セッションのライフサイクル。
-_Avoid_: review, hunk session
+**difit レビューセッション**:
+`mt difit start` で始まり `mt difit check` または `mt difit done` で終わる、difit サーバとコメント状態のライフサイクル。状態は `.difit/difit-review.json`（port / pid / comments / difit_args / selection）で追跡し、`selection` はコメント読み書きを固定する解決済みの diff 選択（選択キー）を持つ。`start` の再入時は同一 difit 引数・選択キー記録済みの実行中サーバを再利用し、選択固定の comment-imports（HTTP POST `/api/comment-imports` に `mt difit threads --json` と同じ `base` / `target` / `baseMode` クエリを付与）でコメントを追記してポートを維持する。外部 CLI の `difit comment add` / `comment get` は選択を指定できない（unpinned な `currentCommentSelection` を読み書きする）ため mt は使わない。レビュー表示は `mt difit start` が stdout に返す URL を人間に提示するのみで、herdr / terminal-browser に依存しない。
+_Avoid_: review session, difit session
 
-**hunk セッション**:
-hunk デーモンが管理する TUI セッション。`hunk diff` / `hunk show` で起動し、その間 `mt hunk status` は active を報告する。
-_Avoid_: hunk review session, live session
+**選択キー**:
+difit がコメントを分離して保持する diff の選択（base / target / baseMode）。`mt difit start` が起動直後に `/api/diff` から解決済みの値を取得して状態（`selection`）へ永続化し、コメントの get / add と `check` のゲート判定をこの選択に固定する（ブラウザ UI のリビジョン切替で別セッションを読まない）。`check` は未記録の状態を fail-closed で止める。外部 CLI の `difit comment resolve` は選択を指定できないため、UI 操作は起動時のリビジョンに戻して行う。
+_Avoid_: diff selection, comment selection
+
+**選択ドリフト**:
+difit のブラウザ UI が起動時の選択（`selection`）と異なる選択に切り替わっている状態。`mt difit check`（通常 / `--dry-run`）と `mt difit threads --json` が `selection_drift: {detection, expected, current}` で報告し、`detection` は `detected`（不一致）/ `none`（一致）/ `unavailable`（probe 失敗＝検知不能）の三値。`unavailable` を「ドリフトなし」に倒さず、ワークフローは `none` 以外を fail-closed で扱う。
+_Avoid_: revision drift, selection mismatch
+
+**スレッド**:
+difit のコメント単位。親メッセージと reply からなる。resolve 済みは読み取りに現れない。mt の読み取りは選択固定・read-only の `mt difit threads --json` に統一する（unpinned な `difit comment get` は使わない）。
+_Avoid_: comment, discussion
 
 **gate**:
-`mt hunk check` による通過/ブロック判定。exit 0 = 通過、exit 1 = ブロック。
+`mt difit check` による通過/ブロック判定。ブロッキングの未 resolve スレッドがなければ exit 0、あれば exit 1。want（人間 reply なし）と AI の `[context]` はノンブロッキング。author が `User` の人間 reply が付いた非ブロッキング・スレッド（want / AI の `[context]`）はブロッキングに昇格し、author を持たない reply は人間とみなさない。`--dry-run` は後始末（サーバ停止・状態削除）をしない非破壊モードで、出力と exit code は通常の check と同一。
 _Avoid_: check, validation
 
 **taxonomy**:
-コメントの分類プレフィックス。`[issue]`（AI 発見の問題点）、`[question]`（AI が人間に判断を仰ぐ）、プレフィックスなし（人間のコメント）。
+コメント親本文の分類。現行テンプレートの `🐛 issue` / `🙋 question` は 1 行目ヘッダの `·` 区切りトークンとしてのみ認識し、旧形式の先頭プレフィックス（`[issue]` / `[question]` / `[context]`）も互換認識する。詳細本文中の文字列は判定に使わない。`[context]`（解説、非ブロッキング）は AI フローからは注入しない。author が `User` の投稿は本文の分類によらず人間コメントとして扱う。
 _Avoid_: category, label, type
 
 **コメント**:
-hunk セッション内の行紐づきインラインコメント。AI コメントと人間コメント（user タイプ）がある。ゲート判定は AI コメント（want を除く）と人間コメントの残存で行う。
+difit サーバに登録される行紐づきスレッド。AI コメント（must / should / want）と人間コメントがあり、ゲート判定はブロッキングの未 resolve スレッドの有無で行う。
 _Avoid_: annotation, note
 
-**解決**:
-人間が AI コメントを hunk の UI で削除（rm）することで、そのコメントを解決済みとみなす動作。ゲートは解決されていない AI コメントと人間コメントの残存で判定する。
-_Avoid_: resolve, 対応済み
+**resolve**:
+スレッドを解決済みにすること。difit UI、選択固定・同一性検証つきの `mt difit resolve <threadId>`、または外部 CLI の `difit comment resolve` で行い、ゲート通過の主機構となる。エージェントは修正済みの AI 指摘を `mt difit resolve` で resolve し（state 読み取り → 記録 pid の LISTEN 照合 → 選択固定セッションへの DELETE を 1 コマンド化。親 author が人間のスレッドは拒否）、人間コメントは人間が resolve する。
+_Avoid_: 解決, 削除, rm
 
-**want コメント**:
-agent-review.json の want 指摘（`[question] (want)` で表示）。ゲートをブロックしない。同一行に人間コメントが付いた場合のみ修正対象となり、無視されても修正しない。
+**want**:
+ノンブロッキングの AI 指摘。ゲートをブロックしない。人間が reply した want スレッドのみブロッキングに昇格し、次ラウンドの修正対象となる。
 _Avoid_: 任意指摘, suggestion
 
 **stale state**:
-`hunk-review.json` が存在するが対応する hunk セッションを検出できない状態。`start` / `check` が自己修復する。
+`.difit/difit-review.json` が存在するが difit サーバを検出できない状態。`start` / `check` が自己修復する。
 _Avoid_: orphan, zombie
 
-**state 未追跡**:
-`hunk-review.json` が無いが hunk セッションが live の状態。`mt hunk status` は active ＋注記で報告する。
-_Avoid_: untracked, 未管理
+**サーバ同一性検証**:
+kill の前に、記録された pid が記録された port を LISTEN していることを OS 情報で照合する安全確認。照合できない pid は停止せず警告のみを残す（fail-closed）。読み取り専用の `mt difit check --dry-run` / `mt difit threads --json` も同じ照合を要求し、照合不能なら state を変更せず非 0 exit する。
+_Avoid_: pid check, listener check
 
 **手動見直し**:
 人間が既存の AI エージェント設定（Rule・Skill・SubAgent・Hook）に対して行う削除・内容変更の作業。AI は関与しない。
@@ -69,15 +77,15 @@ _Avoid_: git エントリ, GitHub パッケージエントリ
 _Avoid_: npm エントリ, registry エントリ
 
 **ファイルレベル指摘**:
-行紐づけを持たない指摘。hunk のコメントは行紐づけ必須のため、`mt hunk start` が newLine: 1 に合成して表現する。
+行紐づけを持たない指摘。difit の comment import スキーマは position 必須のため、`mt difit start` の stdin 直 import が `{"side":"new","line":1}` に合成して表現する（注入は選択確定後の HTTP POST `/api/comment-imports`）。mt-review-diff の findings は position 必須で、欠落は機械的に除外され合成されない。
 _Avoid_: ファイル全体コメント, ファイルスコープ指摘
 
 **position 合成**:
-`mt hunk start` が行指定なしのコメントに `{"newLine": 1}` を付与して hunk の必須スキーマを満たす動作。
+`mt difit start` が stdin 直 import の行指定なしコメントに `{"side":"new","line":1}` を付与して difit の必須スキーマを満たす動作。
 _Avoid_: 正規化, フォールバック
 
 **レビューコメントテンプレート**:
-hunk に注入する AI レビュー指摘の表示構造。`markup`（STML）と `summary`（fallback）の二重で表現し、severity（🚨 must / ⚠️ should / 💡 want）と taxonomy（🐛 issue / 🙋 question）を絵文字で区別する。axis は 🎯 essentiality / ✅ acceptance / 📦 scope / 🧭 alignment / ✨ quality で併記し、ヘッダ・対象・詳細・提案の4ブロックで構造化する。
+difit に注入する AI レビュー指摘の表示構造。GFM Markdown で severity（🚨 must / ⚠️ should / 💡 want）と taxonomy（🐛 issue / 🙋 question）を絵文字で区別し、対象・詳細・提案を構造化する。本文の `[` / `]` はコードスパン外でエスケープし、画像・リンク記法をリテラル化する（外部 URL の自動リクエスト防止）。
 _Avoid_: コメントテンプレート, レビュー書式
 
 **OpenCLI**:
@@ -208,6 +216,10 @@ _Avoid_: 代表設問
 ConditionCtx.gateAnswers[stepKey][questionKey] の新参照形式。旧 gateChoices/choice は廃止。
 _Avoid_: gateChoices
 
+**round_limit_gate**:
+plan-run がレビューの round 上限（3）到達・停滞時に提示する human_gate 群。未通過は `round_limit_gate`（受容して完了処理へ / もう1巡続ける / 中断）、通過済みは `round_limit_passed_gate`（上限到達・通過済み。後始末へ / 中断）、round 停滞は `round_stall_gate`（このまま次のレビューサイクルへ進む / execute_work からやり直す / 中断）を提示する。round 上限到達時の受容（approve）は後続の `release_difit_session` が `mt difit done` で difit セッション（サーバ・state）を後始末し（state 消失と記録 pid の終了まで検証）、finalize_done へ進む。「もう1巡」（revise）と round 停滞のやり直しはセッションを残して次ラウンドの start_difit_review が再利用する。中断（abort）はいずれのゲートでもエンジン終了のため後始末されず、手動 `mt difit done` を案内する。mt-review-diff 単独では round limit は fail で終端する。
+_Avoid_: round gate, 上限ゲート
+
 **検証観点**:
 差分を敵対的に崩す独立した視座。旧資材のマクロ/ミクロ/共通を正規化した 15 観点のプールで管理する。
 _Avoid_: レビュー観点, perspective
@@ -216,9 +228,9 @@ _Avoid_: レビュー観点, perspective
 検証観点プールの優先度階層。T1 最優先〜T5。width が採用するティア数を決める。低 width は T1 のみ、高 width は全ティア。
 _Avoid_: priority, level
 
-**hunk 方式**:
-`mt hunk` CLI（TUI 検証セッション）を使い、指摘を差分 hunk 上のコメントとして管理する方式。
-_Avoid_: hunk レビュー, 差分コメント方式
+**difit 方式**:
+`mt difit` CLI（difit Web UI の検証セッション）を使い、指摘を差分上のスレッドコメントとして管理する方式。
+_Avoid_: difit レビュー, 差分コメント方式
 
 **findings**:
 検証者 SubAgent が出力する生指摘の構造化データ。axis/severity/detail/position を持ち、findings.json として集約される。旧 agent-review.json の後継。

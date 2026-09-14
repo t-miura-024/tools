@@ -5,8 +5,8 @@ dist
 tmp
 target
 
-# hunk レビューセッションのランタイム状態（適用済みコメント JSON）
-.hunk/
+# difit レビューセッションのランタイム状態（ポート / 注入コメント JSON）
+.difit/
 
 # Added by cargo
 
