@@ -11,3 +11,5 @@ packages:
     version: latest
   tado:
     repo: t-miura-024/tado
+  t3:
+    version: latest
