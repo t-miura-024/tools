@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: superseded by ADR-0026
 ---
 
 # hunkセッション強制とcheck硬直化

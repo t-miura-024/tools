@@ -20,25 +20,34 @@ color: "success"
 
 1. **計画 Issue body** — `## ✅ 完了条件`、`## 🧭 方針`、`## 📦 アウトプット` を把握する
 2. **担当ユニット定義** — ユニット ID・名前、スコープ、対応する完了条件番号、依存関係
-3. **修正指示（再実行時のみ）** — agent-review.json の指摘（must / should / want）と hunk のコメント（`hunk-check.json` の blocking_threads、hunk コメント一覧の user コメント）のうち担当分
+3. **修正指示（再実行時のみ）** — findings.json の指摘（must / should / want）と difit の未 resolve スレッド（`difit-check.json` の blocking_threads、difit コメント一覧の人間 reply）のうち担当分
 
-## 💬 hunk コメントの扱い
+## 💬 difit コメントの扱い
 
-修正指示の対応前に、リポジトリルートで hunk のコメント一覧を取得する:
+修正指示の対応前に、リポジトリルートで difit の未 resolve スレッドを選択固定・read-only で取得する:
 
 ```bash
-hunk session comment list --repo "$(git rev-parse --show-toplevel)" --type all --json
+mt difit threads --json
 ```
 
-- `source: "agent"` は AI が適用したコメント、`source: "user"` は人間が hunk TUI で追加したコメント
-- **want コメント**（`[question] (want)` で始まる）は、同一ファイルの同一行（`newRange` / `oldRange` の開始行が一致）に `source: "user"` の人間コメントが存在する場合のみ修正対象とする。無視された want（rm されず人間コメントなし）は修正しない
+出力契約（state の selection に固定されるため、ブラウザのリビジョン切替に影響されない）: `threads[]` が未 resolve スレッド全件（`id` / `filePath` / `position` / `taxonomy` / `blocking` / `body` / `author` / `replies[]`）、`blocking_threads[]` が `mt difit check` と同一形状・同一分類のブロッキングスレッド。`selection_drift` は difit UI のリビジョンセレクタが起動時の選択とずれたかの検知結果で、`detection` が `detected`（不一致）/ `none`（一致）/ `unavailable`（probe 失敗＝検知不能）の三値、`expected` / `current` が比較した選択を表す。`detection` が `none` 以外の間は UI での reply / resolve がゲートと別セッションへ向かう（フィールド欠落・未知値も契約違反として fail-closed で扱う）。失敗時（セッション不在・選択キー未記録・サーバ不応答）は unpinned な `difit comment get` にフォールバックせず、オーケストレーターへ報告する。
+
+- **分類の正は Rust 判定**: `threads[].taxonomy` / `threads[].blocking`（`difit-check.json` / `verdict.json` の `blocking_threads[].taxonomy` と同一実装。src/difit/gate.rs）をそのまま使う。raw 本文から独自に再分類しない
+- **人間コメント**: `taxonomy` が `human` のスレッドは人間コメント。resolve しない（人間の resolve を待つ）
+- **want**: blocking=false の want は修正対象外。人間 reply が付いて blocking=true に昇格した want だけを修正対象とする（`mt difit check` の blocking_threads と一致）
 - **must / should コメント**はすべて修正対象とする
 
-**対応完了時のコメント削除（rm）**: 対応したコメントは次のルールで `hunk session comment rm --repo "$(git rev-parse --show-toplevel)" <noteId>` により削除する:
+**対応完了時の resolve**: 対応した AI 指摘のスレッドは `mt difit resolve <threadId>` で resolve する（state の読み取り → 記録 pid が記録 port を LISTEN していることの照合 → 選択固定セッションへの resolve までを 1 コマンドで行い、人間コメントのスレッドは拒否される。`.difit/difit-review.json` の port を直接読んで `difit` CLI を叩かない）:
 
-- must / should: 対応した AI コメント（`source: "agent"`）を rm する
-- 人間コメントが付いた want: 対応後に AI コメントと人間コメント（`source: "user"`）の両方を rm する
-- 人間コメントが付いていない want: 修正対象外のため rm しない
+```bash
+mt difit resolve <threadId>
+```
+
+- must / should: 対応した AI スレッドを resolve する
+- 人間 reply が付いた want: 対応後にスレッド（AI want + 人間 reply）を resolve する
+- 人間コメント（`taxonomy` が `human`、または親 author が `User`）: resolve しない。人間の resolve を待つ
+- 人間 reply が付いていない want: 修正対象外のため resolve しない
+- `selection_drift.detection` が `none` 以外（`detected` / `unavailable`、およびフィールド欠落・未知値の契約違反）の間は resolve しない（fail-closed。UI の reply / resolve はゲートが読まない別セッションへ向かう）。オーケストレーターへ報告し、人間が difit UI のリビジョンセレクタを起動時の選択（`expected`）へ戻すまで待つ
 
 ## 🧭 行動原則
 

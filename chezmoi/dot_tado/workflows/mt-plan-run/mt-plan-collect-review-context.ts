@@ -92,8 +92,8 @@ async function collectGitUnstagedDiff(): Promise<string> {
 }
 
 // untracked ファイルに intent-to-add を付け、git diff の証拠に含める。
-// hunk は untracked をデフォルトでレビュー対象にするが、証拠ファイル側も
-// 同じく diff に含める必要がある（git add --intent-to-add 機構）。
+// difit レビュー（mt difit start）は untracked を intent-to-add でレビュー対象に
+// するため、証拠ファイル側も同じく diff に含める必要がある（git add --intent-to-add 機構）。
 export async function markUntrackedIntentToAdd(): Promise<string[]> {
   const result = await runCommand("git", ["ls-files", "--others", "--exclude-standard", "-z"]);
   const files = result.stdout.split("\0").filter((f) => f.length > 0);

@@ -1,5 +1,5 @@
 ---
-status: superseded by ADR-0013
+status: superseded by ADR-0013; re-adopted by ADR-0026
 ---
 
 # standalone レビュー終了用に mt difit done を新設

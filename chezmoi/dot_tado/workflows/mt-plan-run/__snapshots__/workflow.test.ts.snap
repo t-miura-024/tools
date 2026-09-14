@@ -1,420 +1,460 @@
 // Bun Snapshot v1, https://bun.sh/docs/test/snapshots
 
-exports[`formatComment snapshots must · req-1 · with line 1`] = `
+exports[`formatComment (GFM Markdown) snapshots must · req-1 · with line 1`] = `
 {
-  "markup": 
-"<box border border-color="danger" padding-x="1" padding-y="1" title="🚨 must · 🐛 issue · 🎯 req-1">
-<text><dim>📁 src/example.ts:42</dim></text>
-<spacer size="1" />
-<text>サンプルの詳細テキスト。レビュー指摘の内容がここに入ります。</text>
-</box>"
+  "body": 
+"**🚨 must · 🐛 issue · 🎯 req-1**
+
+**対象**: \`src/example.ts:42\`
+
+**詳細**:
+
+サンプルの詳細テキスト。レビュー指摘の内容がここに入ります。"
 ,
-  "summary": "🚨 must · 🐛 issue · 🎯 req-1 | src/example.ts:42 — サンプルの詳細テキスト。レビュー指摘の内容がここに入ります。",
 }
 `;
 
-exports[`formatComment snapshots must · req-1 · without line 1`] = `
+exports[`formatComment (GFM Markdown) snapshots must · req-1 · without line 1`] = `
 {
-  "markup": 
-"<box border border-color="danger" padding-x="1" padding-y="1" title="🚨 must · 🐛 issue · 🎯 req-1">
-<text><dim>📁 src/example.ts</dim></text>
-<spacer size="1" />
-<text>サンプルの詳細テキスト。レビュー指摘の内容がここに入ります。</text>
-</box>"
+  "body": 
+"**🚨 must · 🐛 issue · 🎯 req-1**
+
+**対象**: \`src/example.ts\`
+
+**詳細**:
+
+サンプルの詳細テキスト。レビュー指摘の内容がここに入ります。"
 ,
-  "summary": "🚨 must · 🐛 issue · 🎯 req-1 | src/example.ts — サンプルの詳細テキスト。レビュー指摘の内容がここに入ります。",
 }
 `;
 
-exports[`formatComment snapshots must · req-2 · with line 1`] = `
+exports[`formatComment (GFM Markdown) snapshots must · req-2 · with line 1`] = `
 {
-  "markup": 
-"<box border border-color="danger" padding-x="1" padding-y="1" title="🚨 must · 🐛 issue · 📋 req-2">
-<text><dim>📁 src/example.ts:42</dim></text>
-<spacer size="1" />
-<text>サンプルの詳細テキスト。レビュー指摘の内容がここに入ります。</text>
-</box>"
+  "body": 
+"**🚨 must · 🐛 issue · 📋 req-2**
+
+**対象**: \`src/example.ts:42\`
+
+**詳細**:
+
+サンプルの詳細テキスト。レビュー指摘の内容がここに入ります。"
 ,
-  "summary": "🚨 must · 🐛 issue · 📋 req-2 | src/example.ts:42 — サンプルの詳細テキスト。レビュー指摘の内容がここに入ります。",
 }
 `;
 
-exports[`formatComment snapshots must · req-2 · without line 1`] = `
+exports[`formatComment (GFM Markdown) snapshots must · req-2 · without line 1`] = `
 {
-  "markup": 
-"<box border border-color="danger" padding-x="1" padding-y="1" title="🚨 must · 🐛 issue · 📋 req-2">
-<text><dim>📁 src/example.ts</dim></text>
-<spacer size="1" />
-<text>サンプルの詳細テキスト。レビュー指摘の内容がここに入ります。</text>
-</box>"
+  "body": 
+"**🚨 must · 🐛 issue · 📋 req-2**
+
+**対象**: \`src/example.ts\`
+
+**詳細**:
+
+サンプルの詳細テキスト。レビュー指摘の内容がここに入ります。"
 ,
-  "summary": "🚨 must · 🐛 issue · 📋 req-2 | src/example.ts — サンプルの詳細テキスト。レビュー指摘の内容がここに入ります。",
 }
 `;
 
-exports[`formatComment snapshots must · logic-1 · with line 1`] = `
+exports[`formatComment (GFM Markdown) snapshots must · logic-1 · with line 1`] = `
 {
-  "markup": 
-"<box border border-color="danger" padding-x="1" padding-y="1" title="🚨 must · 🐛 issue · 🛡️ logic-1">
-<text><dim>📁 src/example.ts:42</dim></text>
-<spacer size="1" />
-<text>サンプルの詳細テキスト。レビュー指摘の内容がここに入ります。</text>
-</box>"
+  "body": 
+"**🚨 must · 🐛 issue · 🛡️ logic-1**
+
+**対象**: \`src/example.ts:42\`
+
+**詳細**:
+
+サンプルの詳細テキスト。レビュー指摘の内容がここに入ります。"
 ,
-  "summary": "🚨 must · 🐛 issue · 🛡️ logic-1 | src/example.ts:42 — サンプルの詳細テキスト。レビュー指摘の内容がここに入ります。",
 }
 `;
 
-exports[`formatComment snapshots must · logic-1 · without line 1`] = `
+exports[`formatComment (GFM Markdown) snapshots must · logic-1 · without line 1`] = `
 {
-  "markup": 
-"<box border border-color="danger" padding-x="1" padding-y="1" title="🚨 must · 🐛 issue · 🛡️ logic-1">
-<text><dim>📁 src/example.ts</dim></text>
-<spacer size="1" />
-<text>サンプルの詳細テキスト。レビュー指摘の内容がここに入ります。</text>
-</box>"
+  "body": 
+"**🚨 must · 🐛 issue · 🛡️ logic-1**
+
+**対象**: \`src/example.ts\`
+
+**詳細**:
+
+サンプルの詳細テキスト。レビュー指摘の内容がここに入ります。"
 ,
-  "summary": "🚨 must · 🐛 issue · 🛡️ logic-1 | src/example.ts — サンプルの詳細テキスト。レビュー指摘の内容がここに入ります。",
 }
 `;
 
-exports[`formatComment snapshots must · logic-2 · with line 1`] = `
+exports[`formatComment (GFM Markdown) snapshots must · logic-2 · with line 1`] = `
 {
-  "markup": 
-"<box border border-color="danger" padding-x="1" padding-y="1" title="🚨 must · 🐛 issue · 🔒 logic-2">
-<text><dim>📁 src/example.ts:42</dim></text>
-<spacer size="1" />
-<text>サンプルの詳細テキスト。レビュー指摘の内容がここに入ります。</text>
-</box>"
+  "body": 
+"**🚨 must · 🐛 issue · 🔒 logic-2**
+
+**対象**: \`src/example.ts:42\`
+
+**詳細**:
+
+サンプルの詳細テキスト。レビュー指摘の内容がここに入ります。"
 ,
-  "summary": "🚨 must · 🐛 issue · 🔒 logic-2 | src/example.ts:42 — サンプルの詳細テキスト。レビュー指摘の内容がここに入ります。",
 }
 `;
 
-exports[`formatComment snapshots must · logic-2 · without line 1`] = `
+exports[`formatComment (GFM Markdown) snapshots must · logic-2 · without line 1`] = `
 {
-  "markup": 
-"<box border border-color="danger" padding-x="1" padding-y="1" title="🚨 must · 🐛 issue · 🔒 logic-2">
-<text><dim>📁 src/example.ts</dim></text>
-<spacer size="1" />
-<text>サンプルの詳細テキスト。レビュー指摘の内容がここに入ります。</text>
-</box>"
+  "body": 
+"**🚨 must · 🐛 issue · 🔒 logic-2**
+
+**対象**: \`src/example.ts\`
+
+**詳細**:
+
+サンプルの詳細テキスト。レビュー指摘の内容がここに入ります。"
 ,
-  "summary": "🚨 must · 🐛 issue · 🔒 logic-2 | src/example.ts — サンプルの詳細テキスト。レビュー指摘の内容がここに入ります。",
 }
 `;
 
-exports[`formatComment snapshots must · arch-1 · with line 1`] = `
+exports[`formatComment (GFM Markdown) snapshots must · arch-1 · with line 1`] = `
 {
-  "markup": 
-"<box border border-color="danger" padding-x="1" padding-y="1" title="🚨 must · 🐛 issue · 🧩 arch-1">
-<text><dim>📁 src/example.ts:42</dim></text>
-<spacer size="1" />
-<text>サンプルの詳細テキスト。レビュー指摘の内容がここに入ります。</text>
-</box>"
+  "body": 
+"**🚨 must · 🐛 issue · 🧩 arch-1**
+
+**対象**: \`src/example.ts:42\`
+
+**詳細**:
+
+サンプルの詳細テキスト。レビュー指摘の内容がここに入ります。"
 ,
-  "summary": "🚨 must · 🐛 issue · 🧩 arch-1 | src/example.ts:42 — サンプルの詳細テキスト。レビュー指摘の内容がここに入ります。",
 }
 `;
 
-exports[`formatComment snapshots must · arch-1 · without line 1`] = `
+exports[`formatComment (GFM Markdown) snapshots must · arch-1 · without line 1`] = `
 {
-  "markup": 
-"<box border border-color="danger" padding-x="1" padding-y="1" title="🚨 must · 🐛 issue · 🧩 arch-1">
-<text><dim>📁 src/example.ts</dim></text>
-<spacer size="1" />
-<text>サンプルの詳細テキスト。レビュー指摘の内容がここに入ります。</text>
-</box>"
+  "body": 
+"**🚨 must · 🐛 issue · 🧩 arch-1**
+
+**対象**: \`src/example.ts\`
+
+**詳細**:
+
+サンプルの詳細テキスト。レビュー指摘の内容がここに入ります。"
 ,
-  "summary": "🚨 must · 🐛 issue · 🧩 arch-1 | src/example.ts — サンプルの詳細テキスト。レビュー指摘の内容がここに入ります。",
 }
 `;
 
-exports[`formatComment snapshots should · req-1 · with line 1`] = `
+exports[`formatComment (GFM Markdown) snapshots should · req-1 · with line 1`] = `
 {
-  "markup": 
-"<box border border-color="warning" padding-x="1" padding-y="1" title="⚠️ should · 🙋 question · 🎯 req-1">
-<text><dim>📁 src/example.ts:42</dim></text>
-<spacer size="1" />
-<text>サンプルの詳細テキスト。レビュー指摘の内容がここに入ります。</text>
-</box>"
+  "body": 
+"**⚠️ should · 🙋 question · 🎯 req-1**
+
+**対象**: \`src/example.ts:42\`
+
+**詳細**:
+
+サンプルの詳細テキスト。レビュー指摘の内容がここに入ります。"
 ,
-  "summary": "⚠️ should · 🙋 question · 🎯 req-1 | src/example.ts:42 — サンプルの詳細テキスト。レビュー指摘の内容がここに入ります。",
 }
 `;
 
-exports[`formatComment snapshots should · req-1 · without line 1`] = `
+exports[`formatComment (GFM Markdown) snapshots should · req-1 · without line 1`] = `
 {
-  "markup": 
-"<box border border-color="warning" padding-x="1" padding-y="1" title="⚠️ should · 🙋 question · 🎯 req-1">
-<text><dim>📁 src/example.ts</dim></text>
-<spacer size="1" />
-<text>サンプルの詳細テキスト。レビュー指摘の内容がここに入ります。</text>
-</box>"
+  "body": 
+"**⚠️ should · 🙋 question · 🎯 req-1**
+
+**対象**: \`src/example.ts\`
+
+**詳細**:
+
+サンプルの詳細テキスト。レビュー指摘の内容がここに入ります。"
 ,
-  "summary": "⚠️ should · 🙋 question · 🎯 req-1 | src/example.ts — サンプルの詳細テキスト。レビュー指摘の内容がここに入ります。",
 }
 `;
 
-exports[`formatComment snapshots should · req-2 · with line 1`] = `
+exports[`formatComment (GFM Markdown) snapshots should · req-2 · with line 1`] = `
 {
-  "markup": 
-"<box border border-color="warning" padding-x="1" padding-y="1" title="⚠️ should · 🙋 question · 📋 req-2">
-<text><dim>📁 src/example.ts:42</dim></text>
-<spacer size="1" />
-<text>サンプルの詳細テキスト。レビュー指摘の内容がここに入ります。</text>
-</box>"
+  "body": 
+"**⚠️ should · 🙋 question · 📋 req-2**
+
+**対象**: \`src/example.ts:42\`
+
+**詳細**:
+
+サンプルの詳細テキスト。レビュー指摘の内容がここに入ります。"
 ,
-  "summary": "⚠️ should · 🙋 question · 📋 req-2 | src/example.ts:42 — サンプルの詳細テキスト。レビュー指摘の内容がここに入ります。",
 }
 `;
 
-exports[`formatComment snapshots should · req-2 · without line 1`] = `
+exports[`formatComment (GFM Markdown) snapshots should · req-2 · without line 1`] = `
 {
-  "markup": 
-"<box border border-color="warning" padding-x="1" padding-y="1" title="⚠️ should · 🙋 question · 📋 req-2">
-<text><dim>📁 src/example.ts</dim></text>
-<spacer size="1" />
-<text>サンプルの詳細テキスト。レビュー指摘の内容がここに入ります。</text>
-</box>"
+  "body": 
+"**⚠️ should · 🙋 question · 📋 req-2**
+
+**対象**: \`src/example.ts\`
+
+**詳細**:
+
+サンプルの詳細テキスト。レビュー指摘の内容がここに入ります。"
 ,
-  "summary": "⚠️ should · 🙋 question · 📋 req-2 | src/example.ts — サンプルの詳細テキスト。レビュー指摘の内容がここに入ります。",
 }
 `;
 
-exports[`formatComment snapshots should · logic-1 · with line 1`] = `
+exports[`formatComment (GFM Markdown) snapshots should · logic-1 · with line 1`] = `
 {
-  "markup": 
-"<box border border-color="warning" padding-x="1" padding-y="1" title="⚠️ should · 🙋 question · 🛡️ logic-1">
-<text><dim>📁 src/example.ts:42</dim></text>
-<spacer size="1" />
-<text>サンプルの詳細テキスト。レビュー指摘の内容がここに入ります。</text>
-</box>"
+  "body": 
+"**⚠️ should · 🙋 question · 🛡️ logic-1**
+
+**対象**: \`src/example.ts:42\`
+
+**詳細**:
+
+サンプルの詳細テキスト。レビュー指摘の内容がここに入ります。"
 ,
-  "summary": "⚠️ should · 🙋 question · 🛡️ logic-1 | src/example.ts:42 — サンプルの詳細テキスト。レビュー指摘の内容がここに入ります。",
 }
 `;
 
-exports[`formatComment snapshots should · logic-1 · without line 1`] = `
+exports[`formatComment (GFM Markdown) snapshots should · logic-1 · without line 1`] = `
 {
-  "markup": 
-"<box border border-color="warning" padding-x="1" padding-y="1" title="⚠️ should · 🙋 question · 🛡️ logic-1">
-<text><dim>📁 src/example.ts</dim></text>
-<spacer size="1" />
-<text>サンプルの詳細テキスト。レビュー指摘の内容がここに入ります。</text>
-</box>"
+  "body": 
+"**⚠️ should · 🙋 question · 🛡️ logic-1**
+
+**対象**: \`src/example.ts\`
+
+**詳細**:
+
+サンプルの詳細テキスト。レビュー指摘の内容がここに入ります。"
 ,
-  "summary": "⚠️ should · 🙋 question · 🛡️ logic-1 | src/example.ts — サンプルの詳細テキスト。レビュー指摘の内容がここに入ります。",
 }
 `;
 
-exports[`formatComment snapshots should · logic-2 · with line 1`] = `
+exports[`formatComment (GFM Markdown) snapshots should · logic-2 · with line 1`] = `
 {
-  "markup": 
-"<box border border-color="warning" padding-x="1" padding-y="1" title="⚠️ should · 🙋 question · 🔒 logic-2">
-<text><dim>📁 src/example.ts:42</dim></text>
-<spacer size="1" />
-<text>サンプルの詳細テキスト。レビュー指摘の内容がここに入ります。</text>
-</box>"
+  "body": 
+"**⚠️ should · 🙋 question · 🔒 logic-2**
+
+**対象**: \`src/example.ts:42\`
+
+**詳細**:
+
+サンプルの詳細テキスト。レビュー指摘の内容がここに入ります。"
 ,
-  "summary": "⚠️ should · 🙋 question · 🔒 logic-2 | src/example.ts:42 — サンプルの詳細テキスト。レビュー指摘の内容がここに入ります。",
 }
 `;
 
-exports[`formatComment snapshots should · logic-2 · without line 1`] = `
+exports[`formatComment (GFM Markdown) snapshots should · logic-2 · without line 1`] = `
 {
-  "markup": 
-"<box border border-color="warning" padding-x="1" padding-y="1" title="⚠️ should · 🙋 question · 🔒 logic-2">
-<text><dim>📁 src/example.ts</dim></text>
-<spacer size="1" />
-<text>サンプルの詳細テキスト。レビュー指摘の内容がここに入ります。</text>
-</box>"
+  "body": 
+"**⚠️ should · 🙋 question · 🔒 logic-2**
+
+**対象**: \`src/example.ts\`
+
+**詳細**:
+
+サンプルの詳細テキスト。レビュー指摘の内容がここに入ります。"
 ,
-  "summary": "⚠️ should · 🙋 question · 🔒 logic-2 | src/example.ts — サンプルの詳細テキスト。レビュー指摘の内容がここに入ります。",
 }
 `;
 
-exports[`formatComment snapshots should · arch-1 · with line 1`] = `
+exports[`formatComment (GFM Markdown) snapshots should · arch-1 · with line 1`] = `
 {
-  "markup": 
-"<box border border-color="warning" padding-x="1" padding-y="1" title="⚠️ should · 🙋 question · 🧩 arch-1">
-<text><dim>📁 src/example.ts:42</dim></text>
-<spacer size="1" />
-<text>サンプルの詳細テキスト。レビュー指摘の内容がここに入ります。</text>
-</box>"
+  "body": 
+"**⚠️ should · 🙋 question · 🧩 arch-1**
+
+**対象**: \`src/example.ts:42\`
+
+**詳細**:
+
+サンプルの詳細テキスト。レビュー指摘の内容がここに入ります。"
 ,
-  "summary": "⚠️ should · 🙋 question · 🧩 arch-1 | src/example.ts:42 — サンプルの詳細テキスト。レビュー指摘の内容がここに入ります。",
 }
 `;
 
-exports[`formatComment snapshots should · arch-1 · without line 1`] = `
+exports[`formatComment (GFM Markdown) snapshots should · arch-1 · without line 1`] = `
 {
-  "markup": 
-"<box border border-color="warning" padding-x="1" padding-y="1" title="⚠️ should · 🙋 question · 🧩 arch-1">
-<text><dim>📁 src/example.ts</dim></text>
-<spacer size="1" />
-<text>サンプルの詳細テキスト。レビュー指摘の内容がここに入ります。</text>
-</box>"
+  "body": 
+"**⚠️ should · 🙋 question · 🧩 arch-1**
+
+**対象**: \`src/example.ts\`
+
+**詳細**:
+
+サンプルの詳細テキスト。レビュー指摘の内容がここに入ります。"
 ,
-  "summary": "⚠️ should · 🙋 question · 🧩 arch-1 | src/example.ts — サンプルの詳細テキスト。レビュー指摘の内容がここに入ります。",
 }
 `;
 
-exports[`formatComment snapshots want · req-1 · with line 1`] = `
+exports[`formatComment (GFM Markdown) snapshots want · req-1 · with line 1`] = `
 {
-  "markup": 
-"<box border border-color="muted" padding-x="1" padding-y="1" title="💡 want · 🙋 question · 🎯 req-1">
-<text><dim>📁 src/example.ts:42</dim></text>
-<spacer size="1" />
-<text>サンプルの詳細テキスト。レビュー指摘の内容がここに入ります。</text>
-</box>"
+  "body": 
+"**💡 want · 🙋 question · 🎯 req-1**
+
+**対象**: \`src/example.ts:42\`
+
+**詳細**:
+
+サンプルの詳細テキスト。レビュー指摘の内容がここに入ります。"
 ,
-  "summary": "💡 want · 🙋 question · 🎯 req-1 | src/example.ts:42 — サンプルの詳細テキスト。レビュー指摘の内容がここに入ります。",
 }
 `;
 
-exports[`formatComment snapshots want · req-1 · without line 1`] = `
+exports[`formatComment (GFM Markdown) snapshots want · req-1 · without line 1`] = `
 {
-  "markup": 
-"<box border border-color="muted" padding-x="1" padding-y="1" title="💡 want · 🙋 question · 🎯 req-1">
-<text><dim>📁 src/example.ts</dim></text>
-<spacer size="1" />
-<text>サンプルの詳細テキスト。レビュー指摘の内容がここに入ります。</text>
-</box>"
+  "body": 
+"**💡 want · 🙋 question · 🎯 req-1**
+
+**対象**: \`src/example.ts\`
+
+**詳細**:
+
+サンプルの詳細テキスト。レビュー指摘の内容がここに入ります。"
 ,
-  "summary": "💡 want · 🙋 question · 🎯 req-1 | src/example.ts — サンプルの詳細テキスト。レビュー指摘の内容がここに入ります。",
 }
 `;
 
-exports[`formatComment snapshots want · req-2 · with line 1`] = `
+exports[`formatComment (GFM Markdown) snapshots want · req-2 · with line 1`] = `
 {
-  "markup": 
-"<box border border-color="muted" padding-x="1" padding-y="1" title="💡 want · 🙋 question · 📋 req-2">
-<text><dim>📁 src/example.ts:42</dim></text>
-<spacer size="1" />
-<text>サンプルの詳細テキスト。レビュー指摘の内容がここに入ります。</text>
-</box>"
+  "body": 
+"**💡 want · 🙋 question · 📋 req-2**
+
+**対象**: \`src/example.ts:42\`
+
+**詳細**:
+
+サンプルの詳細テキスト。レビュー指摘の内容がここに入ります。"
 ,
-  "summary": "💡 want · 🙋 question · 📋 req-2 | src/example.ts:42 — サンプルの詳細テキスト。レビュー指摘の内容がここに入ります。",
 }
 `;
 
-exports[`formatComment snapshots want · req-2 · without line 1`] = `
+exports[`formatComment (GFM Markdown) snapshots want · req-2 · without line 1`] = `
 {
-  "markup": 
-"<box border border-color="muted" padding-x="1" padding-y="1" title="💡 want · 🙋 question · 📋 req-2">
-<text><dim>📁 src/example.ts</dim></text>
-<spacer size="1" />
-<text>サンプルの詳細テキスト。レビュー指摘の内容がここに入ります。</text>
-</box>"
+  "body": 
+"**💡 want · 🙋 question · 📋 req-2**
+
+**対象**: \`src/example.ts\`
+
+**詳細**:
+
+サンプルの詳細テキスト。レビュー指摘の内容がここに入ります。"
 ,
-  "summary": "💡 want · 🙋 question · 📋 req-2 | src/example.ts — サンプルの詳細テキスト。レビュー指摘の内容がここに入ります。",
 }
 `;
 
-exports[`formatComment snapshots want · logic-1 · with line 1`] = `
+exports[`formatComment (GFM Markdown) snapshots want · logic-1 · with line 1`] = `
 {
-  "markup": 
-"<box border border-color="muted" padding-x="1" padding-y="1" title="💡 want · 🙋 question · 🛡️ logic-1">
-<text><dim>📁 src/example.ts:42</dim></text>
-<spacer size="1" />
-<text>サンプルの詳細テキスト。レビュー指摘の内容がここに入ります。</text>
-</box>"
+  "body": 
+"**💡 want · 🙋 question · 🛡️ logic-1**
+
+**対象**: \`src/example.ts:42\`
+
+**詳細**:
+
+サンプルの詳細テキスト。レビュー指摘の内容がここに入ります。"
 ,
-  "summary": "💡 want · 🙋 question · 🛡️ logic-1 | src/example.ts:42 — サンプルの詳細テキスト。レビュー指摘の内容がここに入ります。",
 }
 `;
 
-exports[`formatComment snapshots want · logic-1 · without line 1`] = `
+exports[`formatComment (GFM Markdown) snapshots want · logic-1 · without line 1`] = `
 {
-  "markup": 
-"<box border border-color="muted" padding-x="1" padding-y="1" title="💡 want · 🙋 question · 🛡️ logic-1">
-<text><dim>📁 src/example.ts</dim></text>
-<spacer size="1" />
-<text>サンプルの詳細テキスト。レビュー指摘の内容がここに入ります。</text>
-</box>"
+  "body": 
+"**💡 want · 🙋 question · 🛡️ logic-1**
+
+**対象**: \`src/example.ts\`
+
+**詳細**:
+
+サンプルの詳細テキスト。レビュー指摘の内容がここに入ります。"
 ,
-  "summary": "💡 want · 🙋 question · 🛡️ logic-1 | src/example.ts — サンプルの詳細テキスト。レビュー指摘の内容がここに入ります。",
 }
 `;
 
-exports[`formatComment snapshots want · logic-2 · with line 1`] = `
+exports[`formatComment (GFM Markdown) snapshots want · logic-2 · with line 1`] = `
 {
-  "markup": 
-"<box border border-color="muted" padding-x="1" padding-y="1" title="💡 want · 🙋 question · 🔒 logic-2">
-<text><dim>📁 src/example.ts:42</dim></text>
-<spacer size="1" />
-<text>サンプルの詳細テキスト。レビュー指摘の内容がここに入ります。</text>
-</box>"
+  "body": 
+"**💡 want · 🙋 question · 🔒 logic-2**
+
+**対象**: \`src/example.ts:42\`
+
+**詳細**:
+
+サンプルの詳細テキスト。レビュー指摘の内容がここに入ります。"
 ,
-  "summary": "💡 want · 🙋 question · 🔒 logic-2 | src/example.ts:42 — サンプルの詳細テキスト。レビュー指摘の内容がここに入ります。",
 }
 `;
 
-exports[`formatComment snapshots want · logic-2 · without line 1`] = `
+exports[`formatComment (GFM Markdown) snapshots want · logic-2 · without line 1`] = `
 {
-  "markup": 
-"<box border border-color="muted" padding-x="1" padding-y="1" title="💡 want · 🙋 question · 🔒 logic-2">
-<text><dim>📁 src/example.ts</dim></text>
-<spacer size="1" />
-<text>サンプルの詳細テキスト。レビュー指摘の内容がここに入ります。</text>
-</box>"
+  "body": 
+"**💡 want · 🙋 question · 🔒 logic-2**
+
+**対象**: \`src/example.ts\`
+
+**詳細**:
+
+サンプルの詳細テキスト。レビュー指摘の内容がここに入ります。"
 ,
-  "summary": "💡 want · 🙋 question · 🔒 logic-2 | src/example.ts — サンプルの詳細テキスト。レビュー指摘の内容がここに入ります。",
 }
 `;
 
-exports[`formatComment snapshots want · arch-1 · with line 1`] = `
+exports[`formatComment (GFM Markdown) snapshots want · arch-1 · with line 1`] = `
 {
-  "markup": 
-"<box border border-color="muted" padding-x="1" padding-y="1" title="💡 want · 🙋 question · 🧩 arch-1">
-<text><dim>📁 src/example.ts:42</dim></text>
-<spacer size="1" />
-<text>サンプルの詳細テキスト。レビュー指摘の内容がここに入ります。</text>
-</box>"
+  "body": 
+"**💡 want · 🙋 question · 🧩 arch-1**
+
+**対象**: \`src/example.ts:42\`
+
+**詳細**:
+
+サンプルの詳細テキスト。レビュー指摘の内容がここに入ります。"
 ,
-  "summary": "💡 want · 🙋 question · 🧩 arch-1 | src/example.ts:42 — サンプルの詳細テキスト。レビュー指摘の内容がここに入ります。",
 }
 `;
 
-exports[`formatComment snapshots want · arch-1 · without line 1`] = `
+exports[`formatComment (GFM Markdown) snapshots want · arch-1 · without line 1`] = `
 {
-  "markup": 
-"<box border border-color="muted" padding-x="1" padding-y="1" title="💡 want · 🙋 question · 🧩 arch-1">
-<text><dim>📁 src/example.ts</dim></text>
-<spacer size="1" />
-<text>サンプルの詳細テキスト。レビュー指摘の内容がここに入ります。</text>
-</box>"
+  "body": 
+"**💡 want · 🙋 question · 🧩 arch-1**
+
+**対象**: \`src/example.ts\`
+
+**詳細**:
+
+サンプルの詳細テキスト。レビュー指摘の内容がここに入ります。"
 ,
-  "summary": "💡 want · 🙋 question · 🧩 arch-1 | src/example.ts — サンプルの詳細テキスト。レビュー指摘の内容がここに入ります。",
 }
 `;
 
-exports[`buildHunkComments integration generates markup and summary for mixed axes with and without line 1`] = `
+exports[`buildDifitComments integration generates difit thread imports for mixed axes with and without line 1`] = `
 [
   {
-    "filePath": "src/a.ts",
-    "markup": 
-"<box border border-color="danger" padding-x="1" padding-y="1" title="🚨 must · 🐛 issue · 🎯 req-1">
-<text><dim>📁 src/a.ts:10</dim></text>
-<spacer size="1" />
-<text>essential must detail</text>
-</box>"
+    "body": 
+"**🚨 must · 🐛 issue · 🎯 req-1**
+
+**対象**: \`src/a.ts:10\`
+
+**詳細**:
+
+essential must detail"
 ,
-    "newLine": 10,
-    "summary": "🚨 must · 🐛 issue · 🎯 req-1 | src/a.ts:10 — essential must detail",
+    "filePath": "src/a.ts",
+    "position": {
+      "line": 10,
+      "side": "new",
+    },
+    "type": "thread",
   },
   {
-    "filePath": "src/d.ts",
-    "markup": 
-"<box border border-color="danger" padding-x="1" padding-y="1" title="🚨 must · 🐛 issue · 🧭 logic-3">
-<text><dim>📁 src/d.ts:99</dim></text>
-<spacer size="1" />
-<text>align must &lt;escape&gt; &amp; test</text>
-</box>"
+    "body": 
+"**🚨 must · 🐛 issue · 🧭 logic-3**
+
+**対象**: \`src/d.ts:99\`
+
+**詳細**:
+
+align must <escape> & test"
 ,
-    "newLine": 99,
-    "summary": "🚨 must · 🐛 issue · 🧭 logic-3 | src/d.ts:99 — align must <escape> & test",
+    "filePath": "src/d.ts",
+    "position": {
+      "line": 99,
+      "side": "new",
+    },
+    "type": "thread",
   },
 ]
 `;

@@ -10,12 +10,11 @@ fn run_herdr(args: &[&str]) -> anyhow::Result<String> {
         .output()
         .context("herdr コマンドの実行に失敗しました")?;
 
-    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
         bail!("herdr {} が失敗しました: {}", args.join(" "), stderr.trim());
     }
-    Ok(stdout)
+    Ok(String::from_utf8_lossy(&output.stdout).to_string())
 }
 
 fn parse_result(output: &str) -> anyhow::Result<Value> {

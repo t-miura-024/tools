@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: superseded by ADR-0026
 ---
 
 # レビュー基盤を difit から hunk へ置換

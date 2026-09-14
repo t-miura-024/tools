@@ -38,6 +38,8 @@ mt tool install
 
 ```yaml
 packages:
+  difit:
+    version: latest
   tado:
     repo: t-miura-024/tado
 ```

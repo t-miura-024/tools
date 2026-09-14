@@ -5,7 +5,7 @@
 ## Prerequisites
 
 - Rust 1.85+ (edition 2024)
-- 外部依存: `fzf`, `gh` (GitHub CLI), `ngrok`, `opencode`, `curl`, `ssh`, `brew`, `mise`, `docker`, `chezmoi`, `age`, `herdr`
+- 外部依存: `fzf`, `gh` (GitHub CLI), `ngrok`, `opencode`, `curl`, `ssh`, `brew`, `mise`, `docker`, `chezmoi`, `age`, `herdr`, `difit`
 
 ## Install
 
@@ -60,6 +60,13 @@ cargo install --path .
 | `mt raycast sync`              | Raycast 設定をエクスポートして chezmoi 管理下に保存 |
 | `mt raycast restore`           | バックアップから Raycast 設定を復元      |
 | `mt plan draft`                | 新しい計画 Issue を draft で作成          |
+| `mt difit start [<difit args>]` | difit サーバを起動しコメントを注入。stdout に URL を提示（表示は URL 提示のみ） |
+| `mt difit check`               | ゲート判定（ブロッキングの未 resolve スレッドがあれば exit 1、なければサーバ停止して exit 0） |
+| `mt difit check --dry-run`     | ゲート判定のみ（サーバ停止・状態削除をしない非破壊モード） |
+| `mt difit done`                | レビュー終了（ゲート結果にかかわらずサーバと状態を片付けて exit 0） |
+| `mt difit status`              | difit レビューセッションの状態を表示（読み取り専用） |
+| `mt difit threads --json`      | 選択固定・読み取り専用で未 resolve スレッドを JSON 出力（ワークフロー用） |
+| `mt difit resolve <threadId>`  | 修正済み AI スレッドを選択固定・同一性検証つきで resolve（人間コメントは拒否。executor 用） |
 
 ## ドキュメント
 
@@ -313,3 +320,5 @@ cargo clippy        # Lint
 cargo test          # Run tests
 cargo build         # Build
 ```
+
+`src/difit/*.test.rs` の difit 実バイナリ E2E 契約テスト（コメント注入 / resolve / position / サーバ復旧など）は、difit が PATH にない場合に既定で skip する。検証を主張する実行では `MT_REQUIRE_DIFIT=1 cargo test` で skip を失敗に変え、skip 0 件で実行する（手順の詳細は [src/README.md](src/README.md)）。
