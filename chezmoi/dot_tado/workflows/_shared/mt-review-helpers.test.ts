@@ -20,6 +20,7 @@ import {
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+import type { ArtifactRecord } from "tado";
 import {
   auditFindingsNormalization,
   canonicalizeDifitThreads,
@@ -182,11 +183,22 @@ describe("readSessionFile", () => {
 });
 
 describe("findArtifactText", () => {
+  function artifactRecord(artifactKey: string, filePath: string): ArtifactRecord {
+    return {
+      id: 0,
+      sessionId: "ses_test",
+      stepKey: "step",
+      artifactKey,
+      filePath,
+      createdAt: "2026-01-01T00:00:00Z",
+    };
+  }
+
   test("セッション内の成果物を読める", () => {
     const dir = newSessionDir();
     const file = path.join(dir, "repo-info.json");
     writeFileSync(file, '{"owner":"o"}', "utf-8");
-    const artifacts = [{ artifactKey: "repo-info.json", filePath: file }];
+    const artifacts = [artifactRecord("repo-info.json", file)];
     expect(findArtifactText(artifacts, "repo-info.json", dir)).toBe('{"owner":"o"}');
     expect(readFileSync(file, "utf-8")).toBe('{"owner":"o"}');
   });
@@ -198,7 +210,7 @@ describe("findArtifactText", () => {
   test("セッション外の解決は例外（process.cwd() 照合の誤りを再発させない）", () => {
     const dir = newSessionDir();
     const outside = path.join(tmpdir(), "outside.txt");
-    const artifacts = [{ artifactKey: "k", filePath: outside }];
+    const artifacts = [artifactRecord("k", outside)];
     expect(() => findArtifactText(artifacts, "k", dir)).toThrow("path traversal");
   });
 });

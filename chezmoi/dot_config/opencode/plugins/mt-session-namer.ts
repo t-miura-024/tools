@@ -111,7 +111,7 @@ function messageProviderID(message: {
 
 export default Plugin.define({
   id: "mt-session-namer",
-  setup(ctx) {
+  setup(ctx: Plugin.Context) {
     if (ENV_DISABLED) return;
 
     const projectID = ctx.location.project.id;
@@ -313,8 +313,8 @@ export default Plugin.define({
         const firstLine =
           text
             .split("\n")
-            .map((line) => line.trim())
-            .find((line) => line.length > 0) ?? "";
+            .map((line: string) => line.trim())
+            .find((line: string) => line.length > 0) ?? "";
         const title = sanitizeTitle(firstLine || text, ENV_MAX_LENGTH);
         return title.length > 0 ? title : null;
       } catch (error) {
@@ -468,7 +468,7 @@ export default Plugin.define({
     })();
 
     void ctx.session
-      .hook("prompt", (event) => {
+      .hook("prompt", (event: { sessionID: string }) => {
         void enqueue(queue, async () => {
           try {
             await evaluate(event.sessionID);

@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { writeFile, mkdir } from "node:fs/promises";
-import { _dirname, join } from "node:path";
+import { join } from "node:path";
 
 export class CollectError extends Error {
   constructor(message: string) {

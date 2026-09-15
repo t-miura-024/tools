@@ -45,7 +45,7 @@ function toSessionInfo(details: SessionDetails): SessionInfo {
 
 export default Plugin.define({
   id: "mt-herdr-workspace-session",
-  setup(ctx) {
+  setup(ctx: Plugin.Context) {
     const environment = process.env;
     const workspaceID = getWorkspaceID(environment);
     const herdrBinary = resolveHerdrBinary(environment);

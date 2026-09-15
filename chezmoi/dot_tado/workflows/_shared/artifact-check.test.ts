@@ -7,7 +7,14 @@ import { requireStepArtifacts } from "./artifact-check";
 
 function makeCtx(sessionDir: string, artifacts: ArtifactRecord[]): CheckCtx {
   // attemptResult は最低ライン判定に使わないため、型を満たす最小値を入れる
-  return { sessionDir, artifacts, attemptResult: { status: "completed" } };
+  return {
+    sessionDir,
+    sessionId: "ses_test",
+    gateAnswers: {},
+    loop: null,
+    artifacts,
+    attemptResult: { status: "completed" },
+  };
 }
 
 function record(key: string, filePath: string): ArtifactRecord {

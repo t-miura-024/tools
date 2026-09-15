@@ -225,9 +225,9 @@ type FileReport = {
   mermaid_errors: MermaidError[];
 };
 
-let cachedConfig: unknown | undefined;
+let cachedConfig: ReturnType<typeof readConfig> | null | undefined;
 
-function loadLintConfig(): unknown {
+function loadLintConfig(): ReturnType<typeof readConfig> | null {
   if (cachedConfig !== undefined) return cachedConfig;
   const configPath = join(import.meta.dir, "markdownlint.json");
   if (existsSync(configPath)) {
@@ -258,7 +258,7 @@ async function lintFile(path: string): Promise<FileReport> {
     prettierError = String(e);
   }
 
-  const mlOptions: { strings: Record<string, string>; config?: unknown } = {
+  const mlOptions: { strings: Record<string, string>; config?: ReturnType<typeof readConfig> } = {
     strings: { [path]: formatted },
   };
   const cfg = loadLintConfig();
@@ -284,7 +284,7 @@ async function lintFile(path: string): Promise<FileReport> {
 }
 
 async function lintStdin(): Promise<FileReport> {
-  const original = await new Response(process.stdin).text();
+  const original = readFileSync(0, "utf-8");
   let formatted = original;
   let prettierError: string | undefined;
   try {
@@ -292,7 +292,7 @@ async function lintStdin(): Promise<FileReport> {
   } catch (e) {
     prettierError = String(e);
   }
-  const mlOptions: { strings: Record<string, string>; config?: unknown } = {
+  const mlOptions: { strings: Record<string, string>; config?: ReturnType<typeof readConfig> } = {
     strings: { "<stdin>": formatted },
   };
   const cfg = loadLintConfig();

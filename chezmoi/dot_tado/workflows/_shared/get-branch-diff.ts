@@ -11,6 +11,10 @@
  * 成功時は終了コード 0、処理不能時は理由付きエラー JSON を出力して非ゼロ終了する。
  */
 
+// 単体スクリプトだが tsc のファイル列挙検査で同一グローバルスコープに入るため、
+// モジュール化してトップレベル宣言の衝突（STATUS_MAP / top の DOM lib 衝突含む）を防ぐ。
+export {};
+
 interface GitResult {
   code: number;
   stdout: string;
@@ -31,8 +35,51 @@ const STATUS_MAP: Record<string, string> = {
   C: "copy",
 };
 
+/// git 呼び出し1回あたりの上限。check経路と同様に同期実行が無制限に止まらないよう設ける。
+const GIT_TIMEOUT_MS = 30_000;
+
+/// fail理由に埋めるstderrの上限行数。巨大なgit警告でJSONが膨張しないよう先頭のみ残す。
+const STDERR_MAX_LINES = 10;
+
+function truncateStderr(stderr: string, maxLines: number = STDERR_MAX_LINES): string {
+  const trimmed = stderr.trim();
+  if (!trimmed) return "";
+  const lines = trimmed.split("\n");
+  if (lines.length <= maxLines) return trimmed;
+  return lines.slice(0, maxLines).join("\n");
+}
+
+/// commitish（base/head）の形状検証。spawnSync配列呼びのためshell注入は起きないが、
+/// `-`始まりはgitオプションとして解釈される（オプションインジェクション）ため拒否する。
+/// rev-parse/diffは先頭`--`が意味を変える（revでなくpath扱い・検証失敗）ため、
+/// 検証による拒否が主防御であり、`--`は意味を保てる位置に置く。
+function isValidCommitish(ref: string): boolean {
+  if (!ref || ref.length > 200) return false;
+  if (ref === "--" || ref.startsWith("-")) return false;
+  if (ref.startsWith(".") || ref.startsWith("/") || ref.endsWith("/") || ref.includes("//")) {
+    return false;
+  }
+  // 単体のcommitishに範囲演算子やrefspec区切りを含めない（呼び出し元で`..`分割済み）。
+  if (ref.includes("..") || ref.includes(":")) return false;
+  if (/[\0\s;|&$`"'<>(){}*?![\]\\]/.test(ref)) return false;
+  return true;
+}
+
 function git(...args: string[]): GitResult {
-  const result = Bun.spawnSync(["git", ...args], { stdout: "pipe", stderr: "pipe" });
+  const result = Bun.spawnSync(["git", ...args], {
+    stdout: "pipe",
+    stderr: "pipe",
+    timeout: GIT_TIMEOUT_MS,
+  });
+  // timeout時は exitCode が null になる（無制限ブロック防止）。空stderrのまま落とすと
+  // 原因が消えるため、時間超過を明示する。
+  if (result.exitCode === null || result.exitCode === undefined) {
+    return {
+      code: -1,
+      stdout: result.stdout.toString(),
+      stderr: `git ${args[0] ?? ""} timed out after ${GIT_TIMEOUT_MS}ms`,
+    };
+  }
   return {
     code: result.exitCode ?? -1,
     stdout: result.stdout.toString(),
@@ -89,7 +136,7 @@ function parseNumstat(raw: string): { files: number; insertions: number; deletio
 const top = git("rev-parse", "--show-toplevel");
 if (top.code !== 0) {
   fail(
-    `Git リポジトリのルートを解決できません: ${top.stderr.trim() || "Git リポジトリ外で実行されました"}`,
+    `Git リポジトリのルートを解決できません: ${truncateStderr(top.stderr) || "Git リポジトリ外で実行されました"}`,
   );
 }
 
@@ -127,34 +174,48 @@ if (spec.includes("..")) {
 }
 
 // --- ベース / ヘッドの解決確認 ---
+// 形状検証を先に行い、`-`始まり等のオプション解釈をgitに到達させない（fail-closed）。
 for (const [label, commitish] of [
   ["base", base],
   ["head", head],
 ] as const) {
-  const verify = git("rev-parse", "--verify", "--quiet", `${commitish}^{commit}`);
+  if (!isValidCommitish(commitish)) {
+    fail(`${label} の形式が不正です: ${commitish}`);
+  }
+}
+for (const [label, commitish] of [
+  ["base", base],
+  ["head", head],
+] as const) {
+  // 先頭`--`はrev-parseの意味を変える（path扱いで検証失敗）ため末尾に置く。
+  // 実測: `rev-parse --verify --quiet -- <rev>`は失敗、`... <rev> --`は成功。
+  const verify = git("rev-parse", "--verify", "--quiet", `${commitish}^{commit}`, "--");
   if (verify.code !== 0) {
     fail(`${label} を解決できません: ${commitish}`);
   }
 }
 
 // --- merge-base の計算 ---
-const mb = git("merge-base", base, head);
+// merge-baseは先頭`--`が有効（実測で成功）なためcommitish直前に挿入する。
+const mb = git("merge-base", "--", base, head);
 if (mb.code !== 0) {
   fail(
-    `merge-base を計算できません（${base} と ${head} に共通祖先がありません）: ${mb.stderr.trim() || "共通祖先なし"}`,
+    `merge-base を計算できません（${base} と ${head} に共通祖先がありません）: ${truncateStderr(mb.stderr) || "共通祖先なし"}`,
   );
 }
 const mergeBase = mb.stdout.trim();
 
 // --- 差分の取得（name-status / numstat / raw diff を別々に取得する） ---
-const ns = git("diff", "-z", "-M", "--name-status", mergeBase, head);
-if (ns.code !== 0) fail(`差分一覧を取得できません: ${ns.stderr.trim()}`);
+// diffは先頭`--`がrevをpath扱いに変える（実測で空差分になる）ため末尾に置く。
+// commitishのオプション解釈は上記の形状検証で遮断済み。末尾`--`はpath混入防止。
+const ns = git("diff", "-z", "-M", "--name-status", mergeBase, head, "--");
+if (ns.code !== 0) fail(`差分一覧を取得できません: ${truncateStderr(ns.stderr)}`);
 
-const numstat = git("diff", "--numstat", "-M", mergeBase, head);
-if (numstat.code !== 0) fail(`変更統計を取得できません: ${numstat.stderr.trim()}`);
+const numstat = git("diff", "--numstat", "-M", mergeBase, head, "--");
+if (numstat.code !== 0) fail(`変更統計を取得できません: ${truncateStderr(numstat.stderr)}`);
 
-const raw = git("diff", "-M", "--no-ext-diff", "--full-index", mergeBase, head);
-if (raw.code !== 0) fail(`raw diff を取得できません: ${raw.stderr.trim()}`);
+const raw = git("diff", "-M", "--no-ext-diff", "--full-index", mergeBase, head, "--");
+if (raw.code !== 0) fail(`raw diff を取得できません: ${truncateStderr(raw.stderr)}`);
 
 const files = parseNameStatus(ns.stdout);
 const stat = parseNumstat(numstat.stdout);
