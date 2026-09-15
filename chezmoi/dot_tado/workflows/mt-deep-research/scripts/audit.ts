@@ -234,7 +234,7 @@ export function auditResearcher(db: Database, questionId?: number): AuditCheck[]
         .query<{ id: number; question_id: number; round_number: number }, [number]>(
           "SELECT * FROM evidence_rounds WHERE question_id = ?",
         )
-        .all(questionId)
+        .all(targetQuestion.id)
     : db
         .query<{ id: number; question_id: number; round_number: number }, []>(
           "SELECT * FROM evidence_rounds",
@@ -331,7 +331,7 @@ export function auditWriter(db: Database, reportPath: string): AuditCheck[] {
 export function auditReviewer(db: Database): AuditCheck[] {
   const checks: AuditCheck[] = [];
   const rows = db
-    .query<{ aspect: string; c: number }, [string]>(
+    .query<{ aspect: string; c: number }, []>(
       `SELECT aspect, MAX(round_number) AS c
          FROM reviews GROUP BY aspect`,
     )

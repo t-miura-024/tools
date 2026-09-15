@@ -326,7 +326,8 @@ if (require.main === module) {
         return;
       }
       const config = loadConfig(options.configPath);
-      const statuses = options.statuses.length > 0 ? options.statuses : ["refined", "in-progress"];
+      const statuses: PlanStatus[] =
+        options.statuses.length > 0 ? options.statuses : ["refined", "in-progress"];
       const result = await listPlans({ config, statuses });
       process.stdout.write(`${formatListPlansResult(result)}\n`);
     } catch (error) {

@@ -13,6 +13,10 @@
  * 処理不能時（Git リポジトリ外など）は理由付きエラー JSON と非ゼロ終了で返す。
  */
 
+// 単体スクリプトだが tsc のファイル列挙検査で同一グローバルスコープに入るため、
+// モジュール化してトップレベル宣言の衝突（STATUS_MAP / top の DOM lib 衝突含む）を防ぐ。
+export {};
+
 interface GitResult {
   code: number;
   stdout: string;

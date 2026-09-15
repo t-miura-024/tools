@@ -165,7 +165,7 @@
 
     "suspend-react": ["suspend-react@0.1.3", "", { "peerDependencies": { "react": ">=17.0" } }, "sha512-aqldKgX9aZqpoDp3e8/BZ8Dm7x1pJl+qI3ZKxDN0i/IQTWUwBx/ManmlVJ3wowqbno6c2bmiIfs+Um6LbsjJyQ=="],
 
-    "tado": ["tado@github:t-miura-024/tado#eb3ec93", { "dependencies": { "@clack/prompts": "^1.7.0", "@react-three/drei": "^9.88.0", "@react-three/fiber": "^8.15.19", "class-variance-authority": "^0.7.1", "clsx": "^2.1.1", "commander": "^15.0.0", "drizzle-orm": "^0.45.2", "lucide-react": "^0.468.0", "react": "^18.3.1", "react-dom": "^18.3.1", "tailwind-merge": "^2.6.0", "three": "^0.160.0" }, "bin": { "tado": "./src/cli/main.ts" } }, "t-miura-024-tado-eb3ec93", "sha512-+b96hUHRVZgoroCUSIoEDz8b3/rUS9YgplVyGRd9qCXUQbKukZ2CdoSdWvGZsjoVRC5natqN469bBdLKWaLPkg=="],
+    "tado": ["tado@github:t-miura-024/tado#da6a36a", { "dependencies": { "@clack/prompts": "^1.7.0", "@react-three/drei": "^9.88.0", "@react-three/fiber": "^8.15.19", "class-variance-authority": "^0.7.1", "clsx": "^2.1.1", "commander": "^15.0.0", "drizzle-orm": "^0.45.2", "lucide-react": "^0.468.0", "react": "^18.3.1", "react-dom": "^18.3.1", "tailwind-merge": "^2.6.0", "three": "^0.160.0" }, "bin": { "tado": "./src/cli/main.ts" } }, "t-miura-024-tado-da6a36a", "sha512-Ev/fr6GvEZ5uDvkslzYh7o4QjKzwJr48puwUDUfxUtR8v1piEtnToiKMdNmzRe/IkvblAWXWMQaMjoKhm3kWCQ=="],
 
     "tailwind-merge": ["tailwind-merge@2.6.1", "", {}, "sha512-Oo6tHdpZsGpkKG88HJ8RR1rg/RdnEkQEfMoEk2x1XRI3F1AxeU+ijRXpiVUF4UbLfcxxRGw6TbUINKYdWVsQTQ=="],
 

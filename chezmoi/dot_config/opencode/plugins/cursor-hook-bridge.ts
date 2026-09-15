@@ -62,8 +62,8 @@ function evaluateHook(definition: HookDefinition, toolName: string, input: unkno
 
 export default Plugin.define({
   id: "mt-cursor-hook-bridge",
-  async setup(ctx) {
-    await ctx.tool.hook("execute.before", async (event) => {
+  async setup(ctx: Plugin.Context) {
+    await ctx.tool.hook("execute.before", async (event: { tool: string; input: unknown }) => {
       for (const definition of HANDLERS["tool.execute.before"] ?? []) {
         const hookInput = { tool: event.tool, args: event.input };
         const outcome = evaluateHook(definition, event.tool, hookInput);
@@ -72,7 +72,7 @@ export default Plugin.define({
         }
       }
     });
-    await ctx.tool.hook("execute.after", async (event) => {
+    await ctx.tool.hook("execute.after", async (event: { tool: string; input: unknown }) => {
       for (const definition of HANDLERS["tool.execute.after"] ?? []) {
         evaluateHook(definition, event.tool, { tool: event.tool, args: event.input });
       }

@@ -62,7 +62,7 @@ mt-review-diff の `collect_context` が生成する diff.txt（normalize_findin
 
 mt-review-diff の `await_human_review` は condition を持たず必ず人間に提示し、ゲート通過の検証は collect_verdict の `mt difit check --dry-run` 突合に一本化する（human_gate の check は現行 tado 0.1.0 では実行されないため、到達不能な check を置かない）。2段階ループの must>0 スキップはループ所有者である mt-plan-run だけが condition を override して行い、findings を機械的に読めない場合は skip しない（fail-closed で人間に提示する）。mt-review-diff 単独では must>0 でも必ず人間ゲートを提示する。
 
-mt-plan-run は collect_verdict の check が pass 以外（セッション不在・dry-run 突合の不一致・done 非通過・schema error）を返した場合、`resetReviewCycle` で execute_work より後を pending に戻し、次ラウンド（execute_work → 再検証 → start_difit_review でのセッション復旧）で復旧させる。round limit（round > 3、または round = 3 かつ未通過）は再実行では解消しないため execute_work へ戻さず、mt-plan-run が新設した human gate `round_limit_gate`（受容して完了 / もう1巡 / 中断）へエスカレーションする。mt-review-diff 単独では round limit は fail で終端し、エスカレーション手段は消費者が用意する（契約は workflow.test.ts で固定する）。
+mt-plan-run は collect_verdict の check が pass 以外（セッション不在・dry-run 突合の不一致・done 非通過・schema error）を返した場合、loop 内の judge が `continue` を返して loop 先頭へ巻き戻り、次ラウンド（execute_work → 再検証 → start_difit_review でのセッション復旧）で復旧させる（`resetReviewCycle` による workflow.db 直操作の巻き戻しは撤去済み）。round limit（round > 3、または round = 3 かつ未通過）は再実行では解消しないため loop へ戻さず、mt-plan-run が新設した human gate `round_limit_gate`（受容して完了 / 中断）・`round_limit_passed_gate`（通過済み・後始末へ / 中断）へエスカレーションする。loop 外ゲートは approve / abort のみを持ち、「もう1巡」は存在しない（上限到達後の追加対応は受容→完了後の再計画で行う）。mt-review-diff 単独では round limit は fail で終端し、エスカレーション手段は消費者が用意する（契約は workflow.test.ts で固定する）。（本節は新エンジン追随・plan 97 で改訂。旧運用の `resetReviewCycle` 巻き戻しと「もう1巡」選択は撤去済み）
 
 ### コメント選択のピン留め
 

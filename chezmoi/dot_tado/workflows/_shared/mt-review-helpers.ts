@@ -407,7 +407,7 @@ export function validateFindingsJson(raw: string | undefined): {
     };
   }
 
-  return { valid: true, parsed: parsed as FindingsJson };
+  return { valid: true, parsed: parsed as unknown as FindingsJson };
 }
 
 export function validateVerdictJson(raw: string | undefined): {
@@ -440,7 +440,7 @@ export function validateVerdictJson(raw: string | undefined): {
     if (!isRecord(t) || typeof t.body !== "string")
       return { valid: false, error: "blocking_threads body invalid" };
   }
-  return { valid: true, parsed: parsed as VerdictJson };
+  return { valid: true, parsed: parsed as unknown as VerdictJson };
 }
 
 /// レビューラウンドの上限（ADR-0026）。round limit の判定規則は

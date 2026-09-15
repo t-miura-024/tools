@@ -191,11 +191,13 @@ export function parseConfig(input: string): MtPlanConfig {
   }
 
   const options = obj.statusOptions as Record<string, unknown>;
-  for (const status of PLAN_STATUSES) {
-    if (typeof options[status] !== "string") {
+  const getStatusOption = (status: PlanStatus): string => {
+    const value = options[status];
+    if (typeof value !== "string") {
       throw new InitConfigError(`Config field 'statusOptions.${status}' must be a string.`);
     }
-  }
+    return value;
+  };
 
   return {
     owner: obj.owner,
@@ -203,10 +205,10 @@ export function parseConfig(input: string): MtPlanConfig {
     projectId: obj.projectId,
     statusFieldId: obj.statusFieldId,
     statusOptions: {
-      draft: options.draft,
-      refined: options.refined,
-      "in-progress": options["in-progress"],
-      done: options.done,
+      draft: getStatusOption("draft"),
+      refined: getStatusOption("refined"),
+      "in-progress": getStatusOption("in-progress"),
+      done: getStatusOption("done"),
     },
   };
 }

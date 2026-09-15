@@ -21,7 +21,7 @@ type V1Hooks = {
 
 export default Plugin.define({
   id: "mt-herdr-agent-state-bridge",
-  setup(ctx) {
+  setup(ctx: Plugin.Context) {
     const controller = new AbortController();
     void (async () => {
       let v1: V1Hooks;
@@ -41,13 +41,13 @@ export default Plugin.define({
       };
 
       try {
-        await ctx.tool.hook("execute.before", async (event) => {
+        await ctx.tool.hook("execute.before", async (event: { sessionID: string }) => {
           await emit("tool.execute.before", { sessionID: event.sessionID });
         });
-        await ctx.tool.hook("execute.after", async (event) => {
+        await ctx.tool.hook("execute.after", async (event: { sessionID: string }) => {
           await emit("tool.execute.after", { sessionID: event.sessionID });
         });
-        await ctx.session.hook("prompt", async (event) => {
+        await ctx.session.hook("prompt", async (event: { sessionID: string }) => {
           try {
             await v1["chat.message"]?.({ sessionID: event.sessionID });
           } catch {

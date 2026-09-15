@@ -18,6 +18,7 @@ import {
   type MtPlanConfig,
   type ProjectV2,
   type ProjectV2Field,
+  type ProjectV2SingleSelectField,
 } from "./mt-plan-init-config";
 
 function makeProject(fields: ProjectV2Field[], overrides: Partial<ProjectV2> = {}): ProjectV2 {
@@ -37,7 +38,7 @@ function makeStatusField(
     name: string;
     options: Array<{ id: string; name: string }>;
   }> = {},
-): ProjectV2Field {
+): ProjectV2SingleSelectField {
   return {
     id: "PVTF_status",
     name: "Status",

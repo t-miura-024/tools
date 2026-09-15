@@ -152,7 +152,7 @@ async function isMainSession(
 
 export default Plugin.define({
   id: "mt-cmux-notify",
-  setup(ctx) {
+  setup(ctx: Plugin.Context) {
     // Reflect "idle" state immediately on opencode startup. Fire-and-forget so
     // plugin initialization does not block the opencode boot path; ordering is
     // preserved by the shared queue, so any later event-driven updates will

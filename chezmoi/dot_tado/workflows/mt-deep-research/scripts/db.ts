@@ -253,7 +253,10 @@ function cmdEvidenceSave(flags: FlagMap): never {
 
   const tx = db.transaction(() => {
     const roundRow = db
-      .query<{ id: number; question_id: number; round_number: number }, [number, number]>(
+      .query<
+        { id: number; question_id: number; round_number: number },
+        [number, number, string | null, string | null]
+      >(
         `INSERT INTO evidence_rounds (question_id, round_number, summary, self_evaluation)
          VALUES (?, ?, ?, ?)
          ON CONFLICT (question_id, round_number) DO UPDATE SET
@@ -592,8 +595,7 @@ function cmdSnapshot(flags: FlagMap): never {
             summary: string | null;
             verdict: string | null;
           },
-          [],
-          true
+          []
         >("SELECT * FROM reviews ORDER BY aspect, round_number")
         .all();
       const findings = db
