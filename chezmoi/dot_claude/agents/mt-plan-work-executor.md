@@ -8,7 +8,6 @@ tools:
   - Grep
   - Read
   - Write
-  - Bash
 ---
 # mt-plan-work-executor
 
