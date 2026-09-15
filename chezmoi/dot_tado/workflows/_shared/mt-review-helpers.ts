@@ -2590,3 +2590,11 @@ export function validateDifitSelection(
   }
   return `difit の選択が effort.json の base/target と一致しません（state: ${formatDifitSelectionMismatch(actual)} / 期待: ${formatDifitSelectionView(expected)}）。検証対象の diff.txt と difit に提示された差分が乖離しているため fail とします。期待値は difit 内部の解決形式（短縮ハッシュ先頭 7 文字・merge-base 基準）の写経であり、difit 側の解決形式変更の可能性がある場合は parity テスト（_shared/mt-review-helpers.test.ts）と difit CLI の出力を確認してください`;
 }
+
+/// difit 由来の動的文字列をコードフェンスで隔離する決定論的前処理（純粋関数）。
+/// blocking_threads の原文維持のため行頭 `#` のエスケープではなくフェンス隔離を優先する。
+/// feedback 内に ``` が含まれる場合は 4 連フェンスで囲み、フェンスの早期終了を防ぐ。
+export function isolateDifitFeedback(feedback: string): string {
+  const fence = feedback.includes("```") ? "````" : "```";
+  return `${fence}markdown\n${feedback}\n${fence}`;
+}

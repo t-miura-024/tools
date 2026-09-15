@@ -48,6 +48,7 @@ import {
   isDifitOutputTooLargeError,
   isDifitSpawnError,
   isDifitTimeoutError,
+  isolateDifitFeedback,
   isPathInside,
   isProcessAlive,
   isRoundLimitReached,
@@ -2197,5 +2198,23 @@ describe("formatReviewComment / gate.rs トークン parity", () => {
     for (const token of extractGateTokens()) {
       expect(emitted.has(token)).toBe(true);
     }
+  });
+});
+
+describe("isolateDifitFeedback (difit 由来文面のフェンス隔離)", () => {
+  test("行頭#を含む原文を維持したままコードフェンスで囲む", () => {
+    const feedback = "## difit の人間フィードバック\n\n### 1. src/a.ts:1 (issue)";
+    const isolated = isolateDifitFeedback(feedback);
+    expect(isolated.startsWith("```markdown\n")).toBe(true);
+    expect(isolated.endsWith("\n```")).toBe(true);
+    expect(isolated).toContain(feedback);
+  });
+
+  test("``` を含む入力は4連フェンスで囲み早期終了を防ぐ", () => {
+    const feedback = "例:\n```\ncode\n```";
+    const isolated = isolateDifitFeedback(feedback);
+    expect(isolated.startsWith("````markdown\n")).toBe(true);
+    expect(isolated.endsWith("\n````")).toBe(true);
+    expect(isolated).toContain(feedback);
   });
 });

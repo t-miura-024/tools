@@ -11,11 +11,14 @@ import type {
 import { join } from "node:path";
 import fs from "node:fs";
 import type { StepDef } from "tado/types/workflow-def.ts";
+import { buildStepPrompt } from "../_shared/mt-prompt";
+import type { PromptItem } from "../_shared/mt-prompt";
 import { loadConfig } from "../_shared/mt-plan-init-config";
 // NOTE(ADR-0019): Step import は StepDef のみに限定する方針を grill で合意済み。
 // mt-review-diff が敵対的検証の単一 SoT であり、mt-plan-run は StepDef 定義のみを
 // 直接 import して再利用する。純粋関数・定数 (findArtifactText 等) は
 // _shared/mt-review-helpers.ts が SoT であり、Step 以外は _shared 経由で import する。
+// NOTE(arch-2): buildStepPrompt は _shared/mt-prompt.ts 経由に集約済み（純粋フォーマッターであり ADR-0019 の StepDef 限定と競合しない）。
 // resolve_effort の human_gate は廃止済みのため、effort 解決は Issue body コメント
 // （mt-plan-create が書く `<!-- effort: ... -->`）または medium/medium のみで行う。
 import {
@@ -35,6 +38,7 @@ import {
   parseDifitCheck,
   parseJson,
   isRecord,
+  isolateDifitFeedback,
   cleanupDifitSession,
   describeDifitSelectionDrift,
   requireDifitSelectionDrift,
@@ -1045,13 +1049,10 @@ const def: WorkflowDef = {
       task: {
         action: "orchestrate",
         buildPrompt: (ctx: PromptCtx) => {
-          return [
-            "## 目的",
-            "",
-            "計画 Issue の妥当性を検証し、状態を in-progress に遷移して Issue body を読み込む。",
-            "",
-            "## 手順",
-            "",
+          // NOTE(prompt-type): 要素は行頭#なしの通常文のみ。見出し追加時はSection化すること
+          // 巨大な単一リテラルは ValidateSpec の再帰展開で TS2589 を起こすため、
+          // PromptItem 配列に3分割して組み立てる（string[] widen はしない）。
+          const verifyPlan: PromptItem<3>[] = [
             "1. ユーザーが指定した計画 Issue 番号 `<number>` を確認する（初回ヒアリングで取得済み）",
             "",
             "2. Issue の存在・状態を検証する:",
@@ -1078,6 +1079,8 @@ const def: WorkflowDef = {
             "gh api repos/<owner>/<repo>/issues/<number>/sub_issues",
             "```",
             "",
+          ];
+          const transitionAndRead: PromptItem<3>[] = [
             "5. `transition-plan.ts` を使って `refined` → `in-progress` に遷移する:",
             "",
             "```bash",
@@ -1094,6 +1097,8 @@ const def: WorkflowDef = {
             "",
             `読み込んだ body を ${ctx.sessionDir}/issue-body.md にも保存する。`,
             "",
+          ];
+          const reportAndSave: PromptItem<3>[] = [
             "7. 読み込んだ内容の要点を報告する:",
             "   - 完了条件の数と概要",
             "   - 主要な方針",
@@ -1103,11 +1108,16 @@ const def: WorkflowDef = {
             "```json",
             `[{"key": "plan-number.txt", "path": "${ctx.sessionDir}/plan-number.txt"}, {"key": "issue-body.md", "path": "${ctx.sessionDir}/issue-body.md"}]`,
             "```",
-            "",
-            "## セッション情報",
-            "",
-            `- セッションディレクトリ: ${ctx.sessionDir}`,
-          ].join("\n");
+          ];
+          return buildStepPrompt({
+            purpose: [
+              "計画 Issue の妥当性を検証し、状態を in-progress に遷移して Issue body を読み込む。",
+            ],
+            criteria: [],
+            approach: [...verifyPlan, ...transitionAndRead, ...reportAndSave],
+            output: [],
+            input: [`セッションディレクトリ: ${ctx.sessionDir}`],
+          });
         },
       },
       // 統一最低ライン: 計画番号・Issue body の申告・実在・形式を強制
@@ -1139,44 +1149,51 @@ const def: WorkflowDef = {
       task: {
         action: "orchestrate",
         buildPrompt: (ctx: PromptCtx) => {
-          return [
-            "## 目的",
-            "",
-            "計画 Issue の `## 📄 ドキュメント` セクションをリポジトリの実ファイルへ転記する。",
-            "",
-            "## 手順",
-            "",
-            "### 1. ドキュメントセクションの抽出",
-            "",
-            `セッションディレクトリの issue-body.md から \`## 📄 ドキュメント\` セクションを抽出する。`,
-            "",
-            "### 2. 各ブロックの書き出し",
-            "",
-            "各 `### <リポジトリ相対パス>` 見出しと直下のコードフェンス（ファイル全文）を、指定パスへ書き出す。",
-            "",
-            "- ADR 連番が既存ファイルと衝突する場合は、次の空き番号へリネームして書き出す",
-            "- 既存ファイル（主に `CONTEXT.md`）がある場合は既存内容を読み、計画側の内容を正としてマージする（`_Avoid_` ルールに従う）",
-            "- 書き出しは未コミット差分として残す（コミットは行わない）",
-            "",
-            "### 3. 書き出し結果の報告",
-            "",
-            "書き出したファイル一覧（パス・新規/更新・マージの有無）を報告する。",
-            "",
-            "## 成果物",
-            "",
-            "書き出したファイルの一覧をセッションディレクトリの `transcribed-docs.json` に保存する（パスはリポジトリルート相対）:",
-            "",
-            "```json",
-            '[{ "path": "docs/adr/0002-xxx.md", "action": "new" | "update" | "merge" }]',
-            "```",
-            "",
-            "report 時の `artifacts` に以下を含める（申告漏れは check で fail になる）:",
-            "```json",
-            `{"key": "transcribed-docs.json", "path": "${ctx.sessionDir}/transcribed-docs.json"}`,
-            "```",
-            "",
-            // セッション情報はエンジンが自動付与する（ADR-0003）
-          ].join("\n");
+          return buildStepPrompt({
+            purpose: [
+              "計画 Issue の `## 📄 ドキュメント` セクションをリポジトリの実ファイルへ転記する。",
+            ],
+            criteria: [],
+            approach: [
+              {
+                title: "1. ドキュメントセクションの抽出",
+                content: [
+                  `セッションディレクトリの issue-body.md から \`## 📄 ドキュメント\` セクションを抽出する。`,
+                  "",
+                ],
+              },
+              {
+                title: "2. 各ブロックの書き出し",
+                content: [
+                  "各 `### <リポジトリ相対パス>` 見出しと直下のコードフェンス（ファイル全文）を、指定パスへ書き出す。",
+                  "",
+                  "- ADR 連番が既存ファイルと衝突する場合は、次の空き番号へリネームして書き出す",
+                  "- 既存ファイル（主に `CONTEXT.md`）がある場合は既存内容を読み、計画側の内容を正としてマージする（`_Avoid_` ルールに従う）",
+                  "- 書き出しは未コミット差分として残す（コミットは行わない）",
+                  "",
+                ],
+              },
+              {
+                title: "3. 書き出し結果の報告",
+                content: [
+                  "書き出したファイル一覧（パス・新規/更新・マージの有無）を報告する。",
+                  "",
+                ],
+              },
+            ],
+            output: [
+              "書き出したファイルの一覧をセッションディレクトリの `transcribed-docs.json` に保存する（パスはリポジトリルート相対）:",
+              "",
+              "```json",
+              '[{ "path": "docs/adr/0002-xxx.md", "action": "new" | "update" | "merge" }]',
+              "```",
+              "",
+              "report 時の `artifacts` に以下を含める（申告漏れは check で fail になる）:",
+              "```json",
+              `{"key": "transcribed-docs.json", "path": "${ctx.sessionDir}/transcribed-docs.json"}`,
+              "```",
+            ],
+          });
         },
       },
       // 統一最低ライン: 転記一覧の申告・実在・スキーマ + 転記先ファイルの実在を強制
@@ -1269,36 +1286,42 @@ const def: WorkflowDef = {
                     }
                     gateFeedbacks.push(`- ${gateKey}: ${input}`);
                   }
-                  return [
-                    "## 目的",
-                    "",
-                    "前回レビューサイクルの指摘を統合し、修正指示を feedback.json へ組み立てる。修正作業自体は行わない（execute_work の executor SubAgent が行う）。",
-                    "",
-                    "## 人間ゲートの差し戻し（gateAnswers。原文のまま扱う）",
-                    "",
-                    ...(gateFeedbacks.length > 0
-                      ? gateFeedbacks
-                      : ["- (なし。初回実行または前回 approve)"]),
-                    "",
-                    "## 手順",
-                    "",
-                    "1. セッションディレクトリの `findings.json` を読み、must / should / want の全指摘を抽出する",
-                    "2. セッションディレクトリの `verdict.json` と `difit-check.json` を読み、`blocking_threads[].body` と `replies`（人間 reply）を抽出する（`verdict.json` が SoT）",
-                    "3. 上記と「人間ゲートの差し戻し」を統合し、重複を除いて修正指示を組み立てる（要約・省略・taxonomy の変更をしない。人間コメント・人間 reply は原文のまま）",
-                    '4. 組み立てた修正指示をセッションディレクトリの `feedback.json` に保存する。契約: `{"items": [{"source": "<findings|verdict|difit|gate:<stepKey>>", "body": "<原文>"}]}`。修正ソースが無い実行では `{"items": []}` とする',
-                    "",
-                    "report 時の `artifacts` に以下を含める（申告漏れは check で fail になる）:",
-                    "```json",
-                    `{"key": "feedback.json", "path": "${ctx.sessionDir}/feedback.json"}`,
-                    "```",
-                    "",
-                    "## 禁止事項",
-                    "",
-                    "- リポジトリのファイルを編集しない（修正作業は execute_work の executor が行う）",
-                    "- workflow.db に触れない（巻き戻しは loop の continue が行う）",
-                    "",
-                    // セッション情報はエンジンが自動付与する（ADR-0003）
-                  ].join("\n");
+                  return buildStepPrompt({
+                    purpose: [
+                      "前回レビューサイクルの指摘を統合し、修正指示を feedback.json へ組み立てる。修正作業自体は行わない（execute_work の executor SubAgent が行う）。",
+                    ],
+                    criteria: [],
+                    approach: [
+                      {
+                        title: "人間ゲートの差し戻し（gateAnswers。原文のまま扱う）",
+                        content: [
+                          ...(gateFeedbacks.length > 0
+                            ? gateFeedbacks
+                            : ["- (なし。初回実行または前回 approve)"]),
+                          "",
+                        ],
+                      },
+                      {
+                        title: "手順",
+                        content: [
+                          "1. セッションディレクトリの `findings.json` を読み、must / should / want の全指摘を抽出する",
+                          "2. セッションディレクトリの `verdict.json` と `difit-check.json` を読み、`blocking_threads[].body` と `replies`（人間 reply）を抽出する（`verdict.json` が SoT）",
+                          "3. 上記と「人間ゲートの差し戻し」を統合し、重複を除いて修正指示を組み立てる（要約・省略・taxonomy の変更をしない。人間コメント・人間 reply は原文のまま）",
+                          '4. 組み立てた修正指示をセッションディレクトリの `feedback.json` に保存する。契約: `{"items": [{"source": "<findings|verdict|difit|gate:<stepKey>>", "body": "<原文>"}]}`。修正ソースが無い実行では `{"items": []}` とする',
+                          "",
+                          "report 時の `artifacts` に以下を含める（申告漏れは check で fail になる）:",
+                          "```json",
+                          `{"key": "feedback.json", "path": "${ctx.sessionDir}/feedback.json"}`,
+                          "```",
+                        ],
+                      },
+                    ],
+                    output: [],
+                    policy: [
+                      "- リポジトリのファイルを編集しない（修正作業は execute_work の executor が行う）",
+                      "- workflow.db に触れない（巻き戻しは loop の continue が行う）",
+                    ],
+                  });
                 },
               },
               check: (ctx: CheckCtx): CheckResult => {
@@ -1422,126 +1445,144 @@ const def: WorkflowDef = {
                 action: "orchestrate",
                 buildPrompt: (ctx: PromptCtx) => {
                   const difitFeedback = formatDifitFeedback(ctx);
-                  return [
-                    "## 目的",
-                    "",
-                    "計画 Issue の `## ✅ 完了条件`、`## 📦 アウトプット`、`## 🧭 方針` に従って作業を実行する。",
-                    "作業の実施は必ず `mt-plan-work-executor` SubAgent に委譲する。オーケストレーター自身はリポジトリのファイル編集を行わず、ミッションの割り振り・進行管理・Issue body 更新に専念する。",
-                    "",
-                    "## 修正ソース（再実行時に適用）",
-                    "",
-                    "自律ループの先頭（apply_feedback）から戻ってきた場合、以下のソースから修正指示を統合して executor SubAgent に渡す:",
-                    "",
-                    "1. **feedback.json の統合指示**（apply_feedback が組み立てた修正指示。findings / verdict / difit の指摘と人間ゲートの request_changes 追加入力を原文のまま含む。再実行時はこのファイルを最初に読む）",
-                    "2. **findings.json の must 指摘**（run_reviewers の SubAgent レビューで検出された必須修正）",
-                    "3. **findings.json の should 指摘**（difit 上で `🙋 question` として提示されたもの）",
-                    "4. **findings.json の want 指摘のうち人間 reply が付いたもの**（difit 上で人間が reply した want のみ。`mt difit check` の blocking_threads に blocking として現れる）",
-                    "5. **difit の blocking_threads**（`difit-check.json` / `verdict.json` の blocking_threads。未 resolve スレッドを人間 reply 込みで含む）",
-                    "",
-                    "各ソースの存在確認:",
-                    "- セッションディレクトリの `feedback.json` を読み、apply_feedback の統合指示を抽出する（feedback がある場合は、オーケストレーター自身の判断で握り潰さず executor への修正指示に原文のまま含める）",
-                    "- セッションディレクトリの `findings.json` を読み、must / should / want の全指摘を抽出する",
-                    "- セッションディレクトリの `verdict.json` と `difit-check.json` を読み、`blocking_threads[].body` と `replies`（人間 reply）を抽出する（`verdict.json` が SoT）",
-                    "- 存在しないファイルは無視する（初回実行時は修正ソースなし）",
-                    "",
-                    "want 指摘の修正対象判定:",
-                    "- difit では want はノンブロッキングのため、人間 reply が付いた want スレッドだけが `mt difit check` の blocking_threads に blocking として現れる（返されたスレッドは修正対象）",
-                    "- blocking_threads に現れない want（人間 reply なし）は修正対象にしない",
-                    "",
-                    "修正指示の仕分け:",
-                    "- 指摘を該当ミッションのスコープで仕分けし、担当の executor SubAgent に修正指示として渡す",
-                    "- must / should はすべて対応対象。want は人間 reply が付いたもの（blocking_threads に現れたもの）のみ対応対象",
-                    "- difit の人間コメント・人間 reply はテキスト原文として executor に渡し、要約・省略・taxonomy の変更をしない",
-                    "",
-                    "対応完了時のスレッド resolve:",
-                    "- executor は対応した AI 指摘のスレッドを `mt difit resolve <threadId>` で resolve する（state の読み取り → 記録 pid が記録 port を LISTEN していることの照合 → 選択固定セッションへの resolve までを 1 コマンドで行い、人間コメントのスレッドは拒否される。`.difit/difit-review.json` の port を直接読んで `difit` CLI を叩かない）",
-                    "- must / should（taxonomy issue / question）: 対応したスレッドを resolve する",
-                    "- 人間 reply が付いた want: 対応後にスレッド（AI want + 人間 reply）を resolve する",
-                    "- 人間コメント（`taxonomy` == `human`）: resolve しない。修正が必要な場合も resolve は人間に委ね、未 resolve のまま残す",
-                    "- 人間 reply が付いていない want: 修正対象外のため resolve しない",
-                    "",
-                    ...(difitFeedback ? [difitFeedback, ""] : []),
-                    "## 手順",
-                    "",
-                    "### 1. ミッションの読み取り",
-                    "",
-                    "Issue body（`gh issue view <number> --json body`）から `## 🧩 ミッション` セクションを読み取る:",
-                    "",
-                    "- セクションがある場合: `### 実行順` の Wave 定義と各 `### M<n>: <名前>` ミッションのスコープ・完了条件を把握する",
-                    "- セクションがない場合: 計画全体を 1 ミッション（`M1: 全体`、スコープは計画のアウトプット範囲、完了条件は全番号）として扱う",
-                    "",
-                    "### 2. executor SubAgent の起動",
-                    "",
-                    'Wave 方式に従って、Task ツールで `subagent_type = "mt-plan-work-executor"` を起動する:',
-                    "",
-                    "- 同じ Wave 内のミッションは並列起動する（最大 5 同時）。同一メッセージで複数の Task ツール呼び出しを行う",
-                    "- 異なる Wave は番号順に直列実行する（Wave 2 は Wave 1 の全ミッション完了後に開始）",
-                    "- 各 SubAgent に渡す情報:",
-                    "  - 計画 Issue body 全文（完了条件・方針・アウトプットの判断に必要）",
-                    "  - 担当ミッション定義（ID・名前・スコープ・完了条件番号・Wave 所属）",
-                    "  - 修正指示（再実行時のみ: findings.json、verdict.json/difit-check.json の blocking_threads / 人間 reply の該当指摘）",
-                    "",
-                    "### executor の完了報告契約",
-                    "",
-                    "各 executor は、作業結果を次の構造化 JSON オブジェクトとして必ず返す:",
-                    "```json",
-                    "{",
-                    '  "changedFiles": ["<repository-relative-path>"],',
-                    '  "checks": [{"command": "<command>", "result": "<result>"}],',
-                    '  "unresolvedIssues": []',
-                    "}",
-                    "```",
-                    "",
-                    "### 3. 完了報告の集約",
-                    "",
-                    "- 全ミッションの完了報告（変更ファイル一覧・検証結果・未解決事項）を集約する",
-                    "- 集約結果をセッションディレクトリの `execution-result.json` に保存する（executor 返却 JSON をミッション単位でマージ）:",
-                    "",
-                    "```json",
-                    "{",
-                    '  "changedFiles": ["<repository-relative-path>"],',
-                    '  "checks": [{"command": "<command>", "result": "<result>"}],',
-                    '  "unresolvedIssues": []',
-                    "}",
-                    "```",
-                    "",
-                    "report 時の `artifacts` に以下を含める（申告漏れは check で fail になる）:",
-                    "```json",
-                    `{"key": "execution-result.json", "path": "${ctx.sessionDir}/execution-result.json"}`,
-                    "```",
-                    "",
-                    "- ミッションがスコープ外変更の必要を報告した場合は、作業を止めてユーザーに計画修正を提案する",
-                    '- いずれかのミッションが失敗した場合は report を `status: "failed"` とし、失敗内容を errors に含める',
-                    "",
-                    "## Issue body 更新（オーケストレーターが実施）",
-                    "",
-                    "以下のタイミングで更新する:",
-                    "- 実行開始時: `## 🐢 履歴` へ開始を追記（`transition-plan.ts` が自動実行済み）",
-                    "- 全ミッション完了後: `## 🐢 履歴` へミッションごとの変更内容と確認結果を追記",
-                    "- 重要な判断があったとき: `## 🐿️ メモ` へ判断材料を追記",
-                    "- 中断時: `## 🐢 履歴` または `## 🐿️ メモ` へ完了済みミッション・次回再開位置・残論点を残す",
-                    "",
-                    "更新前は必ず `gh issue view` で body を読み、他者の差分を上書きしない。",
-                    "",
-                    "`## 🐿️ メモ` の運用:",
-                    "- `💭 背景:` … 前提・制約",
-                    "- `🤔 論点:` … 未決事項・要確認事項",
-                    "- `🧭 指針:` … 合意済み判断・運用ルール",
-                    "- 未解決の論点は Done 前に解消・方針へ取り込み・スコープ外化のいずれかを行う",
-                    "",
-                    "```bash",
-                    "gh issue edit <number> --repo <repo> --body-file <tmpfile>",
-                    "```",
-                    "",
-                    // セッション情報はエンジンが自動付与する（ADR-0003）
-                    "",
-                    "## 禁止事項",
-                    "",
-                    "- オーケストレーター自身がリポジトリのファイルを編集しない（作業は必ず executor SubAgent へ委譲）",
-                    "- 計画外のファイル編集や状態遷移が必要になった場合は実行を止め、計画修正を提案する",
-                    "- ユーザー承認前に `done` 化しない",
-                    "- 全ミッションの完了前に次のステップへ進まない",
-                  ].join("\n");
+                  return buildStepPrompt({
+                    purpose: [
+                      "計画 Issue の `## ✅ 完了条件`、`## 📦 アウトプット`、`## 🧭 方針` に従って作業を実行する。",
+                      "作業の実施は必ず `mt-plan-work-executor` SubAgent に委譲する。オーケストレーター自身はリポジトリのファイル編集を行わず、ミッションの割り振り・進行管理・Issue body 更新に専念する。",
+                    ],
+                    criteria: [],
+                    approach: [
+                      {
+                        title: "修正ソース（再実行時に適用）",
+                        content: [
+                          "自律ループの先頭（apply_feedback）から戻ってきた場合、以下のソースから修正指示を統合して executor SubAgent に渡す:",
+                          "",
+                          "1. **feedback.json の統合指示**（apply_feedback が組み立てた修正指示。findings / verdict / difit の指摘と人間ゲートの request_changes 追加入力を原文のまま含む。再実行時はこのファイルを最初に読む）",
+                          "2. **findings.json の must 指摘**（run_reviewers の SubAgent レビューで検出された必須修正）",
+                          "3. **findings.json の should 指摘**（difit 上で `🙋 question` として提示されたもの）",
+                          "4. **findings.json の want 指摘のうち人間 reply が付いたもの**（difit 上で人間が reply した want のみ。`mt difit check` の blocking_threads に blocking として現れる）",
+                          "5. **difit の blocking_threads**（`difit-check.json` / `verdict.json` の blocking_threads。未 resolve スレッドを人間 reply 込みで含む）",
+                          "",
+                          "各ソースの存在確認:",
+                          "- セッションディレクトリの `feedback.json` を読み、apply_feedback の統合指示を抽出する（feedback がある場合は、オーケストレーター自身の判断で握り潰さず executor への修正指示に原文のまま含める）",
+                          "- セッションディレクトリの `findings.json` を読み、must / should / want の全指摘を抽出する",
+                          "- セッションディレクトリの `verdict.json` と `difit-check.json` を読み、`blocking_threads[].body` と `replies`（人間 reply）を抽出する（`verdict.json` が SoT）",
+                          "- 存在しないファイルは無視する（初回実行時は修正ソースなし）",
+                          "",
+                          "want 指摘の修正対象判定:",
+                          "- difit では want はノンブロッキングのため、人間 reply が付いた want スレッドだけが `mt difit check` の blocking_threads に blocking として現れる（返されたスレッドは修正対象）",
+                          "- blocking_threads に現れない want（人間 reply なし）は修正対象にしない",
+                          "",
+                          "修正指示の仕分け:",
+                          "- 指摘を該当ミッションのスコープで仕分けし、担当の executor SubAgent に修正指示として渡す",
+                          "- must / should はすべて対応対象。want は人間 reply が付いたもの（blocking_threads に現れたもの）のみ対応対象",
+                          "- difit の人間コメント・人間 reply はテキスト原文として executor に渡し、要約・省略・taxonomy の変更をしない",
+                          "",
+                          "対応完了時のスレッド resolve:",
+                          "- executor は対応した AI 指摘のスレッドを `mt difit resolve <threadId>` で resolve する（state の読み取り → 記録 pid が記録 port を LISTEN していることの照合 → 選択固定セッションへの resolve までを 1 コマンドで行い、人間コメントのスレッドは拒否される。`.difit/difit-review.json` の port を直接読んで `difit` CLI を叩かない）",
+                          "- must / should（taxonomy issue / question）: 対応したスレッドを resolve する",
+                          "- 人間 reply が付いた want: 対応後にスレッド（AI want + 人間 reply）を resolve する",
+                          "- 人間コメント（`taxonomy` == `human`）: resolve しない。修正が必要な場合も resolve は人間に委ね、未 resolve のまま残す",
+                          "- 人間 reply が付いていない want: 修正対象外のため resolve しない",
+                          "",
+                          // difit 由来の動的文字列は素通し spread せず、原文維持のまま
+                          // コードフェンスで隔離して Section content へ渡す
+                          ...(difitFeedback ? [isolateDifitFeedback(difitFeedback), ""] : []),
+                        ],
+                      },
+                      {
+                        title: "1. ミッションの読み取り",
+                        content: [
+                          "Issue body（`gh issue view <number> --json body`）から `## 🧩 ミッション` セクションを読み取る:",
+                          "",
+                          "- セクションがある場合: `### 実行順` の Wave 定義と各 `### M<n>: <名前>` ミッションのスコープ・完了条件を把握する",
+                          "- セクションがない場合: 計画全体を 1 ミッション（`M1: 全体`、スコープは計画のアウトプット範囲、完了条件は全番号）として扱う",
+                          "",
+                        ],
+                      },
+                      {
+                        title: "2. executor SubAgent の起動",
+                        content: [
+                          'Wave 方式に従って、Task ツールで `subagent_type = "mt-plan-work-executor"` を起動する:',
+                          "",
+                          "- 同じ Wave 内のミッションは並列起動する（最大 5 同時）。同一メッセージで複数の Task ツール呼び出しを行う",
+                          "- 異なる Wave は番号順に直列実行する（Wave 2 は Wave 1 の全ミッション完了後に開始）",
+                          "- 各 SubAgent に渡す情報:",
+                          "  - 計画 Issue body 全文（完了条件・方針・アウトプットの判断に必要）",
+                          "  - 担当ミッション定義（ID・名前・スコープ・完了条件番号・Wave 所属）",
+                          "  - 修正指示（再実行時のみ: findings.json、verdict.json/difit-check.json の blocking_threads / 人間 reply の該当指摘）",
+                          "",
+                        ],
+                      },
+                      {
+                        title: "executor の完了報告契約",
+                        content: [
+                          "各 executor は、作業結果を次の構造化 JSON オブジェクトとして必ず返す:",
+                          "```json",
+                          "{",
+                          '  "changedFiles": ["<repository-relative-path>"],',
+                          '  "checks": [{"command": "<command>", "result": "<result>"}],',
+                          '  "unresolvedIssues": []',
+                          "}",
+                          "```",
+                          "",
+                        ],
+                      },
+                      {
+                        title: "3. 完了報告の集約",
+                        content: [
+                          "- 全ミッションの完了報告（変更ファイル一覧・検証結果・未解決事項）を集約する",
+                          "- 集約結果をセッションディレクトリの `execution-result.json` に保存する（executor 返却 JSON をミッション単位でマージ）:",
+                          "",
+                          "```json",
+                          "{",
+                          '  "changedFiles": ["<repository-relative-path>"],',
+                          '  "checks": [{"command": "<command>", "result": "<result>"}],',
+                          '  "unresolvedIssues": []',
+                          "}",
+                          "```",
+                          "",
+                          "report 時の `artifacts` に以下を含める（申告漏れは check で fail になる）:",
+                          "```json",
+                          `{"key": "execution-result.json", "path": "${ctx.sessionDir}/execution-result.json"}`,
+                          "```",
+                          "",
+                          "- ミッションがスコープ外変更の必要を報告した場合は、作業を止めてユーザーに計画修正を提案する",
+                          '- いずれかのミッションが失敗した場合は report を `status: "failed"` とし、失敗内容を errors に含める',
+                          "",
+                        ],
+                      },
+                      {
+                        title: "Issue body 更新（オーケストレーターが実施）",
+                        content: [
+                          "以下のタイミングで更新する:",
+                          "- 実行開始時: `## 🐢 履歴` へ開始を追記（`transition-plan.ts` が自動実行済み）",
+                          "- 全ミッション完了後: `## 🐢 履歴` へミッションごとの変更内容と確認結果を追記",
+                          "- 重要な判断があったとき: `## 🐿️ メモ` へ判断材料を追記",
+                          "- 中断時: `## 🐢 履歴` または `## 🐿️ メモ` へ完了済みミッション・次回再開位置・残論点を残す",
+                          "",
+                          "更新前は必ず `gh issue view` で body を読み、他者の差分を上書きしない。",
+                          "",
+                          "`## 🐿️ メモ` の運用:",
+                          "- `💭 背景:` … 前提・制約",
+                          "- `🤔 論点:` … 未決事項・要確認事項",
+                          "- `🧭 指針:` … 合意済み判断・運用ルール",
+                          "- 未解決の論点は Done 前に解消・方針へ取り込み・スコープ外化のいずれかを行う",
+                          "",
+                          "```bash",
+                          "gh issue edit <number> --repo <repo> --body-file <tmpfile>",
+                          "```",
+                        ],
+                      },
+                    ],
+                    output: [],
+                    policy: [
+                      "- オーケストレーター自身がリポジトリのファイルを編集しない（作業は必ず executor SubAgent へ委譲）",
+                      "- 計画外のファイル編集や状態遷移が必要になった場合は実行を止め、計画修正を提案する",
+                      "- ユーザー承認前に `done` 化しない",
+                      "- 全ミッションの完了前に次のステップへ進まない",
+                    ],
+                  });
                 },
               },
               check: (ctx: CheckCtx): CheckResult => {
@@ -1644,22 +1685,20 @@ const def: WorkflowDef = {
               task: {
                 action: "orchestrate",
                 buildPrompt: (ctx: PromptCtx) => {
-                  return [
-                    "## 目的",
-                    "",
-                    "Issue body の effort コメントから検証強度を解決する。人手選択は行わない。",
-                    "",
-                    "## 手順",
-                    "",
-                    "1. セッションディレクトリの issue-body.md（または artifacts の issue-body.md）を読み、末尾の `<!-- effort: width=... depth=... -->` を確認する",
-                    "2. コメントがあればその width/depth を報告する。なければ width=medium depth=medium を適用する旨を報告する",
-                    "3. プロンプト記法 `width=... depth=...` による上書きは無視する",
-                    "4. effort.json の生成は行わない（生成は collect_context が担う）。check は純粋判定のみ",
-                    "",
-                    "## セッション情報",
-                    "",
-                    `- セッションディレクトリ: ${ctx.sessionDir}`,
-                  ].join("\n");
+                  return buildStepPrompt({
+                    purpose: [
+                      "Issue body の effort コメントから検証強度を解決する。人手選択は行わない。",
+                    ],
+                    criteria: [],
+                    approach: [
+                      "1. セッションディレクトリの issue-body.md（または artifacts の issue-body.md）を読み、末尾の `<!-- effort: width=... depth=... -->` を確認する",
+                      "2. コメントがあればその width/depth を報告する。なければ width=medium depth=medium を適用する旨を報告する",
+                      "3. プロンプト記法 `width=... depth=...` による上書きは無視する",
+                      "4. effort.json の生成は行わない（生成は collect_context が担う）。check は純粋判定のみ",
+                    ],
+                    output: [],
+                    input: [`セッションディレクトリ: ${ctx.sessionDir}`],
+                  });
                 },
               },
               check: (ctx: CheckCtx): CheckResult => {
@@ -1751,19 +1790,26 @@ const def: WorkflowDef = {
                       buildPrompt: (ctx: PromptCtx) => string;
                     }
                   ).buildPrompt(ctx);
-                  const extra = [
-                    "",
-                    "## 追加手順（plan-run 固有: Issue body 由来の effort 補完）",
-                    "",
-                    "collect_context の agent は、effort.json が存在しない場合に以下で補完する（プロンプト記法 width=… depth=… による上書きは無視する）:",
-                    "1. セッションディレクトリの issue-body.md（または artifacts の issue-body.md）末尾の `<!-- effort: width=... depth=... -->` を解析し、width/depth を抽出できた場合はその値で effort.json を生成する",
-                    "2. 上記コメントがない場合は width=medium depth=medium で effort.json を生成する",
-                    "3. コメントがあるが形式不正（片方欠落・enum 外）の場合は生成せず error で停止し、mt-plan-create での修正を案内する",
-                    "4. base は未指定時に origin/HEAD 検出→失敗時 main、target は空の既定動作を維持する",
-                    "5. 生成時は `{ width, depth, round: 1 }` を effort.json として保存し、artifacts へ登録する",
-                    "なお check 段階ではファイル生成を行わず、ここで初めて生成する（check は純粋検証のみ）。",
-                  ].join("\n");
-                  return basePrompt + extra;
+                  const extra = buildStepPrompt({
+                    purpose: [],
+                    criteria: [],
+                    approach: [
+                      {
+                        title: "追加手順（plan-run 固有: Issue body 由来の effort 補完）",
+                        content: [
+                          "collect_context の agent は、effort.json が存在しない場合に以下で補完する（プロンプト記法 width=… depth=… による上書きは無視する）:",
+                          "1. セッションディレクトリの issue-body.md（または artifacts の issue-body.md）末尾の `<!-- effort: width=... depth=... -->` を解析し、width/depth を抽出できた場合はその値で effort.json を生成する",
+                          "2. 上記コメントがない場合は width=medium depth=medium で effort.json を生成する",
+                          "3. コメントがあるが形式不正（片方欠落・enum 外）の場合は生成せず error で停止し、mt-plan-create での修正を案内する",
+                          "4. base は未指定時に origin/HEAD 検出→失敗時 main、target は空の既定動作を維持する",
+                          "5. 生成時は `{ width, depth, round: 1 }` を effort.json として保存し、artifacts へ登録する",
+                          "なお check 段階ではファイル生成を行わず、ここで初めて生成する（check は純粋検証のみ）。",
+                        ],
+                      },
+                    ],
+                    output: [],
+                  });
+                  return `${basePrompt}\n\n${extra}`;
                 },
               },
               check: (ctx: CheckCtx): CheckResult => {
@@ -1834,23 +1880,21 @@ const def: WorkflowDef = {
               task: {
                 action: "orchestrate",
                 buildPrompt: (ctx: PromptCtx) => {
-                  return [
-                    "## 目的",
-                    "",
-                    "normalize_findings が生成した findings.json の must 件数で自律/人相を振り分ける。人への受け渡しは行わない。",
-                    "",
-                    "## 手順",
-                    "",
-                    "1. セッションディレクトリの findings.json を読み、counts.must / counts.should と round を確認する",
-                    "2. round が上限（3）未満で must>0 の場合は修正が必要な旨を報告する（check が自律ループの継続 `continue` を判定し、apply_feedback 先頭へ巻き戻る）",
-                    "3. round が上限（3）に達して must>0 の場合は、round を進めず collect_verdict の round limit 判定から round_limit_gate（人間判断）へエスカレーションする旨を報告する",
-                    "4. round が前回 verdict から進んでいない場合は、round_stall_gate（人間判断）へエスカレーションする旨を報告する",
-                    "5. must==0 の場合は人相へ進める旨を報告する",
-                    "",
-                    "## セッション情報",
-                    "",
-                    `- セッションディレクトリ: ${ctx.sessionDir}`,
-                  ].join("\n");
+                  return buildStepPrompt({
+                    purpose: [
+                      "normalize_findings が生成した findings.json の must 件数で自律/人相を振り分ける。人への受け渡しは行わない。",
+                    ],
+                    criteria: [],
+                    approach: [
+                      "1. セッションディレクトリの findings.json を読み、counts.must / counts.should と round を確認する",
+                      "2. round が上限（3）未満で must>0 の場合は修正が必要な旨を報告する（check が自律ループの継続 `continue` を判定し、apply_feedback 先頭へ巻き戻る）",
+                      "3. round が上限（3）に達して must>0 の場合は、round を進めず collect_verdict の round limit 判定から round_limit_gate（人間判断）へエスカレーションする旨を報告する",
+                      "4. round が前回 verdict から進んでいない場合は、round_stall_gate（人間判断）へエスカレーションする旨を報告する",
+                      "5. must==0 の場合は人相へ進める旨を報告する",
+                    ],
+                    output: [],
+                    input: [`セッションディレクトリ: ${ctx.sessionDir}`],
+                  });
                 },
               },
               check: (ctx: CheckCtx): CheckResult => {
@@ -2248,20 +2292,18 @@ const def: WorkflowDef = {
                 action: "orchestrate",
                 readonly: false,
                 buildPrompt: (ctx: PromptCtx) =>
-                  [
-                    "## 目的",
-                    "",
-                    "round_stall_gate の人間判断（gateAnswers）を分岐判定の材料として報告する。分岐自体はこのステップの check が行う。",
-                    "",
-                    "## 指示",
-                    "",
-                    "- agent は report のみ行い、ファイルの作成・編集、`mt difit` コマンドの実行をしない（agent の作業は read-only）",
-                    "- 分岐判定と round 前進は check が決定論的に行う（request_changes の継続時は effort.json の round を次ラウンドへ前進させる）。分岐判定が check に委ねられていることを報告する",
-                    "",
-                    "## セッション情報",
-                    "",
-                    `- セッションディレクトリ: ${ctx.sessionDir}`,
-                  ].join("\n"),
+                  buildStepPrompt({
+                    purpose: [
+                      "round_stall_gate の人間判断（gateAnswers）を分岐判定の材料として報告する。分岐自体はこのステップの check が行う。",
+                    ],
+                    criteria: [],
+                    approach: [
+                      "- agent は report のみ行い、ファイルの作成・編集、`mt difit` コマンドの実行をしない（agent の作業は read-only）",
+                      "- 分岐判定と round 前進は check が決定論的に行う（request_changes の継続時は effort.json の round を次ラウンドへ前進させる）。分岐判定が check に委ねられていることを報告する",
+                    ],
+                    output: [],
+                    input: [`セッションディレクトリ: ${ctx.sessionDir}`],
+                  }),
               },
               check: (ctx: CheckCtx): CheckResult => {
                 // stall ゲートが skip された反復では差し戻し対象が無いため pass（回答の有無を問わない）。
@@ -2362,20 +2404,18 @@ const def: WorkflowDef = {
             action: "orchestrate",
             readonly: true,
             buildPrompt: (ctx: PromptCtx) =>
-              [
-                "## 目的",
-                "",
-                "await_human_review の人間判断（gateAnswers）を分岐判定の材料として報告する。分岐自体はこのステップの check が行う。",
-                "",
-                "## 指示",
-                "",
-                "- 状態を変更しない（read-only）。ファイルの作成・編集、`mt difit` コマンドの実行をしない",
-                "- report のみ行い、分岐判定が check に委ねられていることを報告する",
-                "",
-                "## セッション情報",
-                "",
-                `- セッションディレクトリ: ${ctx.sessionDir}`,
-              ].join("\n"),
+              buildStepPrompt({
+                purpose: [
+                  "await_human_review の人間判断（gateAnswers）を分岐判定の材料として報告する。分岐自体はこのステップの check が行う。",
+                ],
+                criteria: [],
+                approach: [
+                  "- 状態を変更しない（read-only）。ファイルの作成・編集、`mt difit` コマンドの実行をしない",
+                  "- report のみ行い、分岐判定が check に委ねられていることを報告する",
+                ],
+                output: [],
+                input: [`セッションディレクトリ: ${ctx.sessionDir}`],
+              }),
           },
           check: (ctx: CheckCtx): CheckResult => {
             // await_human_review の condition（isHumanReviewPhase と共有）は findings 不正時に
@@ -2536,20 +2576,18 @@ const def: WorkflowDef = {
         action: "orchestrate",
         readonly: true,
         buildPrompt: (ctx: PromptCtx) =>
-          [
-            "## 目的",
-            "",
-            "round_limit_gate で「受容して完了処理へ」が選ばれた。difit セッションの後始末（`mt difit done` の実行・state 消失・pid 終了の検証）はこのステップの check が決定論的に実行する。",
-            "",
-            "## 指示",
-            "",
-            "- 状態を変更しない（read-only）。`mt difit done` / `mt difit check` / `mt difit start` / コメント resolve を実行しない",
-            "- report のみ行い、後始末が check に委ねられていることを報告する",
-            "",
-            "## セッション情報",
-            "",
-            `- セッションディレクトリ: ${ctx.sessionDir}`,
-          ].join("\n"),
+          buildStepPrompt({
+            purpose: [
+              "round_limit_gate で「受容して完了処理へ」が選ばれた。difit セッションの後始末（`mt difit done` の実行・state 消失・pid 終了の検証）はこのステップの check が決定論的に実行する。",
+            ],
+            criteria: [],
+            approach: [
+              "- 状態を変更しない（read-only）。`mt difit done` / `mt difit check` / `mt difit start` / コメント resolve を実行しない",
+              "- report のみ行い、後始末が check に委ねられていることを報告する",
+            ],
+            output: [],
+            input: [`セッションディレクトリ: ${ctx.sessionDir}`],
+          }),
       },
       check: (_ctx: CheckCtx): CheckResult => {
         // 受容経路の後始末は task の実行漏れに依存しないよう check 側で決定論的に実行する
@@ -2579,45 +2617,39 @@ const def: WorkflowDef = {
       task: {
         action: "orchestrate",
         buildPrompt: (ctx: PromptCtx) => {
-          return [
-            "## 目的",
-            "",
-            "計画 Issue を `done` に遷移し、完了処理を行う。",
-            "",
-            "## 手順",
-            "",
-            "1. Issue body を再読み込みし、完了条件がすべて満たされていることを最終確認する",
-            "",
-            "2. `transition-plan.ts` を使って `in-progress` → `done` に遷移する:",
-            "",
-            "```bash",
-            `bun run ${join(import.meta.dir, "../_shared/mt-plan-transition-plan.ts")} <number> done`,
-            "```",
-            "",
-            "このコマンドは以下を自動実行する:",
-            "- GitHub Project の Status を `done` に更新",
-            "- Issue を close",
-            "- `## 🐢 履歴` へ遷移エントリを追記",
-            "- 親計画が存在する場合は自動的に親の状態集約を行う（出力の `parent:` 行を確認）",
-            "",
-            "3. 完了を報告する:",
-            "   - Issue の URL・番号",
-            "   - 完了した作業",
-            "   - 残っている未決事項（あれば）",
-            "",
-            "4. round limit 受容で findings の must が残存している場合は、このまま done にしない。残 must の追加対応を別計画 Issue（`mt-plan-create`）で起票し、番号をセッションディレクトリの `replan-plan-number.txt` に保存して report の `artifacts` に申告し、finalize_done を再実行する（loop 外からの継続は設けない）",
-            "",
-            "## 成果物",
-            "",
-            "report 時の `artifacts` に以下を含める（申告漏れは check で fail になる）:",
-            "```json",
-            `{"key": "plan-number.txt", "path": "${ctx.sessionDir}/plan-number.txt"}`,
-            "```",
-            "",
-            "## セッション情報",
-            "",
-            `- セッションディレクトリ: ${ctx.sessionDir}`,
-          ].join("\n");
+          return buildStepPrompt({
+            purpose: ["計画 Issue を `done` に遷移し、完了処理を行う。"],
+            criteria: [],
+            approach: [
+              "1. Issue body を再読み込みし、完了条件がすべて満たされていることを最終確認する",
+              "",
+              "2. `transition-plan.ts` を使って `in-progress` → `done` に遷移する:",
+              "",
+              "```bash",
+              `bun run ${join(import.meta.dir, "../_shared/mt-plan-transition-plan.ts")} <number> done`,
+              "```",
+              "",
+              "このコマンドは以下を自動実行する:",
+              "- GitHub Project の Status を `done` に更新",
+              "- Issue を close",
+              "- `## 🐢 履歴` へ遷移エントリを追記",
+              "- 親計画が存在する場合は自動的に親の状態集約を行う（出力の `parent:` 行を確認）",
+              "",
+              "3. 完了を報告する:",
+              "   - Issue の URL・番号",
+              "   - 完了した作業",
+              "   - 残っている未決事項（あれば）",
+              "",
+              "4. round limit 受容で findings の must が残存している場合は、このまま done にしない。残 must の追加対応を別計画 Issue（`mt-plan-create`）で起票し、番号をセッションディレクトリの `replan-plan-number.txt` に保存して report の `artifacts` に申告し、finalize_done を再実行する（loop 外からの継続は設けない）",
+            ],
+            output: [
+              "report 時の `artifacts` に以下を含める（申告漏れは check で fail になる）:",
+              "```json",
+              `{"key": "plan-number.txt", "path": "${ctx.sessionDir}/plan-number.txt"}`,
+              "```",
+            ],
+            input: [`セッションディレクトリ: ${ctx.sessionDir}`],
+          });
         },
       },
       // 統一最低ライン+ 副作用実照合: done 遷移の実態（Issue が CLOSED）を gh で確認。
