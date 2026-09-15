@@ -742,18 +742,18 @@ exit 0`,
       expect(result.reasons.join("\n")).toContain("語彙");
     });
 
-    it("should-only でも items が空なら fail する（should の無音消失を防ぐ）", () => {
-      // buildPrompt は must/should/want 全抽出を謳う。空ガードが must のみでは
-      // must=0 should=2 の items=[] が素通りする。
+    it("should-only は自律対象外のため items が空でも pass する", () => {
+      // must のみ必須・should/want は任意。should 修正に起因する新規 must 発生での
+      // 発散を断つため、must=0 should=2 の items=[] は素通りではなく正常系として pass。
       writeFindings({ must: 0, should: 2, want: 0 });
       const filePath = writeFeedback([]);
       const result = stepCheck("apply_feedback")(
         makeCtx({ artifacts: [artifactRecord("feedback.json", filePath)] }),
       );
-      expect(result.status).toBe("fail");
+      expect(result.status).toBe("pass");
     });
 
-    it("should 指摘を原文被覆すれば pass する（should-only の正常系）", () => {
+    it("should 指摘を含めても pass する（should 任意・混入許容）", () => {
       writeFindings({ must: 0, should: 2, want: 0 });
       const filePath = writeFeedback([
         { source: "findings", body: "should detail 0" },
@@ -1823,9 +1823,9 @@ exit 0`,
       expect(result.status).toBe("pass");
     });
 
-    it("findings should-only でも feedback.json が空なら fail する（apply 側の should 被覆との配線統一）", () => {
-      // apply_feedback は must/should の双方向被覆を要求する。execute_work の needsFeedback が
-      // must のみだと should-only が接続検証を素通りする（should>0 も needsFeedback に含める）。
+    it("findings should-only は自律対象外のため feedback.json が空でも pass する", () => {
+      // apply_feedback は must のみ必須・should/want は任意。execute_work の needsFeedback も
+      // must のみのため、should-only は接続検証の対象外として pass する。
       writeFindings({ must: 0, should: 1, want: 0 });
       const resultPath = path.join(sessionDir, "execution-result.json");
       fs.writeFileSync(
@@ -1836,11 +1836,10 @@ exit 0`,
         makeCtx({ artifacts: [artifactRecord("execution-result.json", resultPath)] }),
       );
 
-      expect(result.status).toBe("fail");
-      expect(result.reasons.join("\n")).toContain("feedback.json");
+      expect(result.status).toBe("pass");
     });
 
-    it("findings should-only でも findings 対応があれば pass する", () => {
+    it("findings should-only でも findings 対応があれば pass する（任意混入の許容）", () => {
       writeFindings({ must: 0, should: 1, want: 0 });
       const resultPath = path.join(sessionDir, "execution-result.json");
       fs.writeFileSync(

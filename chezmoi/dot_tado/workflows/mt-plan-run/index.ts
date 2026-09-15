@@ -652,7 +652,8 @@ function verdictBlockingTexts(verdict: VerdictJson): string[] {
 /// 空 items の素通り防止はこの一般形に含める（期待があれば空でも fail、期待なしの空は pass）。
 /// 呼び出し元: apply_feedback の check（厳密・全文被覆）、execute_work の check
 /// （軽量・source 対応。原文被覆の厳密検証は apply_feedback が担う）。
-/// 期待の解決: findings（must/should 詳細）・verdict（blocking 全文）・difit（blocking 全文）。
+/// 期待の解決: findings（must 詳細のみ必須・should/want は任意）・verdict（blocking 全文）・difit（blocking 全文）。
+/// should/want 詳細は自律対象外のため、findings 側では必須化しない（有っても無くてもよい）。
 /// want 詳細は人間 reply 付きのみ blocking に現れるため、findings 側では要求しない。
 function verifyFeedbackItems(
   items: FeedbackItem[],
@@ -731,6 +732,8 @@ function verifyFeedbackItems(
   }
 
   // 期待→実績（欠落の検出）。items 非空でも must 件数分・blocking 被覆を検証する。
+  // should/want は自律対象外のため必須化しない（must 修正に起因する新規 must 発生での
+  // 発散を断つ。should/want が feedback に有っても無くてもよい）。
   if (opts.strictBodyCoverage) {
     for (const { gateKey, input } of expected.gateInputs) {
       // 実績→期待側で既に報告済みの gate は重複報告しない（対応 item が無い場合のみ）。
@@ -742,7 +745,7 @@ function verifyFeedbackItems(
       }
     }
     for (const f of expected.findingDetails) {
-      if (f.severity !== "must" && f.severity !== "should") continue;
+      if (f.severity !== "must") continue;
       if (bySource("findings").some((i) => feedbackBodyEquals(i.body, f.detail))) continue;
       reasons.push(
         `findings[${f.index}] (${f.severity}) の指摘詳細が feedback.json の items（source=findings）に原文のまま含まれていません。指摘の欠落として fail とする`,
@@ -774,7 +777,7 @@ interface FeedbackCoverageExpected {
 }
 
 /// feedback.json の被覆検証に使う期待集合を解決する。
-/// findings（must/should 詳細）・verdict（blocking 全文）・difit（blocking 全文）と
+/// findings（must 詳細のみ必須・should/want は任意）・verdict（blocking 全文）・difit（blocking 全文）と
 /// gate 差し戻し（loop 外除外・追加入力あり のみ）を束ねる。apply_feedback の check
 /// （厳密・全文被覆）と execute_work の check（TOCTOU・差し替えの再検証）が同じ
 /// 期待を使い、apply 通過後の差し替え・dummy すり替えを execute 側でも fail にする。
@@ -1304,7 +1307,7 @@ const def: WorkflowDef = {
                       {
                         title: "手順",
                         content: [
-                          "1. セッションディレクトリの `findings.json` を読み、must / should / want の全指摘を抽出する",
+                          "1. セッションディレクトリの `findings.json` を読み、must の全指摘を抽出する（should / want は自律対象外のため統合しない。feedback に含めても除外してもよい）",
                           "2. セッションディレクトリの `verdict.json` と `difit-check.json` を読み、`blocking_threads[].body` と `replies`（人間 reply）を抽出する（`verdict.json` が SoT）",
                           "3. 上記と「人間ゲートの差し戻し」を統合し、重複を除いて修正指示を組み立てる（要約・省略・taxonomy の変更をしない。人間コメント・人間 reply は原文のまま）",
                           '4. 組み立てた修正指示をセッションディレクトリの `feedback.json` に保存する。契約: `{"items": [{"source": "<findings|verdict|difit|gate:<stepKey>>", "body": "<原文>"}]}`。修正ソースが無い実行では `{"items": []}` とする',
@@ -1407,11 +1410,11 @@ const def: WorkflowDef = {
                     };
                   }
                 }
-                // 双方向の被覆検証（期待⊆実績・実績⊆期待）。items 非空でも findings must/should
+                // 双方向の被覆検証（期待⊆実績・実績⊆期待）。items 非空でも findings must
                 // 件数分・verdict blocking 被覆を検証し、ダミー混入・must 欠落を塞ぐ。
-                // 空 items ガードはこの一般形に含める: 期待（gate 差し戻し / findings must・should /
+                // 空 items ガードはこの一般形に含める: 期待（gate 差し戻し / findings must /
                 // verdict blocking）があるのに items が空なら fail。修正ソースなしの初回実行は
-                // pass のまま。should-only の素通りは fail（buildPrompt は must/should/want 全抽出）。
+                // pass のまま。should-only は自律対象外のため items=[] で pass（should/want は任意）。
                 // want 詳細は人間 reply 付きのみ blocking に現れるため findings 側では要求しない。
                 // 期待の組み立ては execute_work と共有（buildFeedbackCoverageExpected）し、
                 // 写像ドリフトを作らない。
@@ -1457,33 +1460,31 @@ const def: WorkflowDef = {
                         content: [
                           "自律ループの先頭（apply_feedback）から戻ってきた場合、以下のソースから修正指示を統合して executor SubAgent に渡す:",
                           "",
-                          "1. **feedback.json の統合指示**（apply_feedback が組み立てた修正指示。findings / verdict / difit の指摘と人間ゲートの request_changes 追加入力を原文のまま含む。再実行時はこのファイルを最初に読む）",
-                          "2. **findings.json の must 指摘**（run_reviewers の SubAgent レビューで検出された必須修正）",
-                          "3. **findings.json の should 指摘**（difit 上で `🙋 question` として提示されたもの）",
-                          "4. **findings.json の want 指摘のうち人間 reply が付いたもの**（difit 上で人間が reply した want のみ。`mt difit check` の blocking_threads に blocking として現れる）",
-                          "5. **difit の blocking_threads**（`difit-check.json` / `verdict.json` の blocking_threads。未 resolve スレッドを人間 reply 込みで含む）",
+                          "1. **feedback.json の統合指示**（apply_feedback が組み立てた修正指示。findings must / verdict / difit の指摘と人間ゲートの request_changes 追加入力を原文のまま含む。再実行時はこのファイルを最初に読む）",
+                          "2. **findings.json の must 指摘のみ**（run_reviewers の SubAgent レビューで検出された必須修正。should / want は自律対象外）",
+                          "3. **difit の blocking_threads のうち must 由来**（`difit-check.json` / `verdict.json` の blocking_threads。未 resolve スレッドを人間 reply 込みで含むが、should / want は自律対象外）",
                           "",
                           "各ソースの存在確認:",
                           "- セッションディレクトリの `feedback.json` を読み、apply_feedback の統合指示を抽出する（feedback がある場合は、オーケストレーター自身の判断で握り潰さず executor への修正指示に原文のまま含める）",
-                          "- セッションディレクトリの `findings.json` を読み、must / should / want の全指摘を抽出する",
-                          "- セッションディレクトリの `verdict.json` と `difit-check.json` を読み、`blocking_threads[].body` と `replies`（人間 reply）を抽出する（`verdict.json` が SoT）",
+                          "- セッションディレクトリの `findings.json` を読み、must 指摘を抽出する（should / want は自律対象外のため executor への修正指示に含めない）",
+                          "- セッションディレクトリの `verdict.json` と `difit-check.json` を読み、`blocking_threads[].body` と `replies`（人間 reply）を抽出する（`verdict.json` が SoT。must 由来のみ修正対象）",
                           "- 存在しないファイルは無視する（初回実行時は修正ソースなし）",
                           "",
-                          "want 指摘の修正対象判定:",
-                          "- difit では want はノンブロッキングのため、人間 reply が付いた want スレッドだけが `mt difit check` の blocking_threads に blocking として現れる（返されたスレッドは修正対象）",
-                          "- blocking_threads に現れない want（人間 reply なし）は修正対象にしない",
+                          "should / want 指摘の扱い:",
+                          "- should / want は自律対象外のため修正しない（should 修正に起因する新規 must 発生での発散を断つ）",
+                          "- should / want スレッドは未 resolve のまま残し、人間フェーズの判断に委ねる",
+                          "- must 修正に付随して should / want 箇所が偶発的に解消されることは許容するが、should / want 狙いの編集は禁止する",
                           "",
                           "修正指示の仕分け:",
                           "- 指摘を該当ミッションのスコープで仕分けし、担当の executor SubAgent に修正指示として渡す",
-                          "- must / should はすべて対応対象。want は人間 reply が付いたもの（blocking_threads に現れたもの）のみ対応対象",
+                          "- must のみ対応対象。should / want（人間 reply 付きを含む）は対応対象外",
                           "- difit の人間コメント・人間 reply はテキスト原文として executor に渡し、要約・省略・taxonomy の変更をしない",
                           "",
                           "対応完了時のスレッド resolve:",
                           "- executor は対応した AI 指摘のスレッドを `mt difit resolve <threadId>` で resolve する（state の読み取り → 記録 pid が記録 port を LISTEN していることの照合 → 選択固定セッションへの resolve までを 1 コマンドで行い、人間コメントのスレッドは拒否される。`.difit/difit-review.json` の port を直接読んで `difit` CLI を叩かない）",
-                          "- must / should（taxonomy issue / question）: 対応したスレッドを resolve する",
-                          "- 人間 reply が付いた want: 対応後にスレッド（AI want + 人間 reply）を resolve する",
+                          "- must（taxonomy issue）: 対応したスレッドを resolve する",
+                          "- should（taxonomy question）/ want: 自律では resolve しない。未 resolve のまま残す",
                           "- 人間コメント（`taxonomy` == `human`）: resolve しない。修正が必要な場合も resolve は人間に委ね、未 resolve のまま残す",
-                          "- 人間 reply が付いていない want: 修正対象外のため resolve しない",
                           "",
                           // difit 由来の動的文字列は素通し spread せず、原文維持のまま
                           // コードフェンスで隔離して Section content へ渡す
@@ -1601,9 +1602,10 @@ const def: WorkflowDef = {
                 // 空・不在なら、差し戻しが握り潰されるため fail（LLM の申告だけに頼らない最小限の接続）。
                 // skip ゲートの stale 回答は同一写像で除外する（世代管理）。
                 // NOTE(logic-2): source 存在のみでは apply 通過後の差し替え（TOCTOU）や
-                // dummy すり替えが素通りする。gate 差し戻し・must / should / blocking 時は
+                // dummy すり替えが素通りする。gate 差し戻し・must / blocking 時は
                 // apply_feedback と同じ期待（buildFeedbackCoverageExpected）で正規化後厳密一致の
                 // 双方向被覆を再検証し、無関係 body のみの素通りを fail にする。
+                // should/want は自律対象外のため needsFeedback・被覆必須に含めない。
                 // 原文の厳密被覆の SoT は apply_feedback であり、ここでは接続の再検証として
                 // 同じ verifyFeedbackItems を使う（写像ドリフトを作らない）。
                 const reworkRequests = collectGateReworkRequests(ctx.gateAnswers, ctx).filter(
@@ -1613,8 +1615,7 @@ const def: WorkflowDef = {
                 const verdictForWork = resolveReviewVerdict(ctx);
                 const needsFeedback =
                   reworkRequests.length > 0 ||
-                  (findingsForWork !== undefined &&
-                    (findingsForWork.counts.must > 0 || findingsForWork.counts.should > 0)) ||
+                  (findingsForWork !== undefined && findingsForWork.counts.must > 0) ||
                   (verdictForWork !== undefined && verdictForWork.blocking_threads.length > 0);
                 if (needsFeedback) {
                   const feedbackRaw =
@@ -1641,8 +1642,7 @@ const def: WorkflowDef = {
                     const what =
                       reworkRequests.length > 0
                         ? `gate 差し戻し（${reworkRequests.map((r) => r.gateKey).join(", ")}）`
-                        : findingsForWork !== undefined &&
-                            (findingsForWork.counts.must > 0 || findingsForWork.counts.should > 0)
+                        : findingsForWork !== undefined && findingsForWork.counts.must > 0
                           ? `findings must=${findingsForWork.counts.must} should=${findingsForWork.counts.should}`
                           : `verdict blocking=${verdictForWork?.blocking_threads.length ?? 0}`;
                     return {
@@ -1652,7 +1652,7 @@ const def: WorkflowDef = {
                       ],
                     };
                   }
-                  // gate 差し戻し・must / should・blocking の原文被覆を、apply_feedback と
+                  // gate 差し戻し・must・blocking の原文被覆を、apply_feedback と
                   // 同じ期待で再検証する（apply 通過後の差し替え・dummy すり替えの検出）。
                   const coverage = verifyFeedbackItems(
                     feedbackItems,
