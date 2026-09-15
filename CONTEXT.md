@@ -247,3 +247,33 @@ _Avoid_: shared, 共通化
 **敵対的検証**:
 差分を「正しいことの確認」ではなく「崩せるかという反証」の視座で容赦なく突く検証スタンス。攻撃者・利用者・保守者の敵対的視点で弱点・前提崩れ・悪用可能性を暴露する。
 _Avoid_: レビュー, code review
+
+# tado Section移行
+
+tado #14 の Section 型へ tools 側 5 ワークフローを移行する文脈。
+
+## Language
+
+**buildStepPrompt**:
+固定 H2 構成でプロンプトを組み立てる tado の純粋フォーマッター。
+_Avoid_: 手動join, 生文字列結合
+
+**Section**:
+`{title, content}` の再帰構造。depth3 から開始しネストで自動増分、H6 でキャップする。
+_Avoid_: 手動###, 見出し文字列
+
+**PromptString**:
+行頭 `#` を型レベルで拒否する文字列型。`## 手順` 等の直書きはコンパイルエラーになる。
+_Avoid_: シャープ開始文字列
+
+**purpose**:
+`StepPromptSpec` の目的フィールド。生 join の `## 目的` に対応する移行先。
+_Avoid_: 目的見出し文字列
+
+**approach**:
+`StepPromptSpec` の手順フィールド。`## 手順` 以降の内部見出しはここへ分配する。
+_Avoid_: 手順見出し文字列
+
+**scaffold**:
+`tado install` が actual 設定を一度だけ雛形生成し、以後は利用者が所有する提供方式。
+_Avoid_: 継続同期, 手動コピペ

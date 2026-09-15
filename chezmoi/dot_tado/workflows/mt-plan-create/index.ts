@@ -8,6 +8,7 @@ import type {
   GateAnswers,
   ConditionCtx,
 } from "tado";
+import { buildStepPrompt } from "../_shared/mt-prompt";
 import { join, resolve } from "node:path";
 import { writeFileSync, readFileSync, readdirSync, lstatSync, unlinkSync } from "node:fs";
 import { execSync } from "node:child_process";
@@ -333,20 +334,22 @@ function isLoopExhausted(sessionDir: string, markerKey: string, loopKey: string)
   return marker.loop === loopKey;
 }
 
-// loop 先頭 worker の prompt へ注入する差し戻し文面。初回実行（未回答・approve・
-// 入力空）は「なし」行を返す。捏造の "(追加入力なし)" は作らない（欠落は judge が fail で止める）。
+// loop 先頭 worker の prompt へ注入する差し戻しデータ行（見出しなし。呼び出し側は
+// {title: "前回の差し戻し", content} の Section に載せて input 先頭に配置する）。
+// 初回実行（未回答・approve・入力空）は「なし」行を返す。捏造の "(追加入力なし)" は
+// 作らない（欠落は judge が fail で止める）。戻り値は動的 string のため PromptString
+// の行頭#検査を素通しする。行頭#（## 等）を含めないこと。
 function reworkFeedbackSection(gateAnswers: GateAnswers, gateKey: string): string[] {
   const value = gateDecisionValue(gateAnswers, gateKey);
   const input = gateDecisionInput(gateAnswers, gateKey);
   if (value === "request_changes" && input !== undefined && input.trim() !== "") {
     return [
-      "## 前回の差し戻し（loop 再実行時はこの指摘を反映する）",
-      "",
+      `前回の差し戻し (gate:${gateKey}。loop 再実行時はこの指摘を反映する):`,
       `- ${gateKey}: ${input.trim()}`,
       "",
     ];
   }
-  return ["## 前回の差し戻し", "", "- (なし。初回実行)", ""];
+  return [`前回の差し戻し (gate:${gateKey}):`, "- (なし。初回実行)", ""];
 }
 
 function judgeGateRework(
@@ -531,65 +534,83 @@ const def: WorkflowDef = {
 
               const hearingSection = withDocs
                 ? [
-                    "### 2. 徹底ヒアリング + ドメインモデリング",
-                    "",
-                    `mt-grill-rounds スキル（${join(mtGrillRoundsDir, "SKILL.md")}）をロードし、その指示に従ってヒアリングを行う。`,
-                    "",
-                    `加えて mt-domain-modeling スキル（${join(mtDomainModelingDir, "SKILL.md")}）を参照し、その規律をすべて適用する。`,
-                    "",
-                    "**重要:** repo へのファイル書き込み（CONTEXT.md の更新、ADR ファイルの作成）は禁止。",
-                    "確定した用語・ADR 案はすべてライブ地図の `## 確定用語` / `## ADR 案` セクションに記録すること。",
-                    `フォーマットは ${join(mtDomainModelingDir, "CONTEXT-FORMAT.md")} / ${join(mtDomainModelingDir, "ADR-FORMAT.md")} に従う。`,
+                    {
+                      title: "2. 徹底ヒアリング + ドメインモデリング",
+                      content: [
+                        `mt-grill-rounds スキル（${join(mtGrillRoundsDir, "SKILL.md")}）をロードし、その指示に従ってヒアリングを行う。`,
+                        "",
+                        `加えて mt-domain-modeling スキル（${join(mtDomainModelingDir, "SKILL.md")}）を参照し、その規律をすべて適用する。`,
+                        "",
+                        "確定した用語・ADR 案はすべてライブ地図の `## 確定用語` / `## ADR 案` セクションに記録すること。",
+                        `フォーマットは ${join(mtDomainModelingDir, "CONTEXT-FORMAT.md")} / ${join(mtDomainModelingDir, "ADR-FORMAT.md")} に従う。`,
+                      ],
+                    },
                   ]
                 : [
-                    "### 2. 徹底ヒアリング",
-                    "",
-                    `mt-grill-rounds スキル（${join(mtGrillRoundsDir, "SKILL.md")}）をロードし、その指示に従ってヒアリングを行う。`,
+                    {
+                      title: "2. 徹底ヒアリング",
+                      content: [
+                        `mt-grill-rounds スキル（${join(mtGrillRoundsDir, "SKILL.md")}）をロードし、その指示に従ってヒアリングを行う。`,
+                      ],
+                    },
                   ];
 
-              return [
-                "## 目的",
-                "",
-                "計画の全側面についてユーザーと共通認識に達するまでヒアリングを行う（Grill Phase）。",
-                "",
-                ...reworkFeedbackSection(ctx.gateAnswers, "review_gate"),
-                "## 手順",
-                "",
-                "### 1. from-Issue フローの確認",
-                "",
-                "ユーザーに「既存 Issue を取り込みますか？」と確認する。",
-                "- Yes の場合: `gh issue view <number> --json title,body,labels,state` で Issue メタデータを取得し、ヒアリングの素材として使う",
-                "- No の場合: 新規計画としてヒアリングを開始する",
-                "",
-                ...hearingSection,
-                "",
-                "ヒアリングは mt-grill-rounds の方式に従って進める:",
-                `- ライブ地図のパスは既定パスではなく \`${grillMapPath}\`（セッションディレクトリ配下）を明示的に指定し、このパスで地図を育成する`,
-                "- 各ラウンドでフロンティア（前提がすべて確定済みの決定）の質問全体をまとめて提示し、ユーザーの回答を待ってから次のラウンドに進む",
-                "- 回答をライブ地図へ反映した後にフロンティアを再計算し、次のラウンドを提示する",
-                "- フロンティアが空になり、ユーザーが共通認識を確認するまでラウンドを継続する",
-                "",
-                "### 3. ライブ地図の最終確認",
-                "",
-                `ヒアリングの全決定がセッションディレクトリのライブ地図 \`${grillMapPath}\` に蒸留されていることを確認する。`,
-                "地図は Markdown 入れ子リスト＋状態マーカー（`[確定]` / `[未決]` / `[保留]`）の単一ファイルとし、質疑ログなどの別ファイルは残さない。",
-                ...(withDocs
+              return buildStepPrompt({
+                purpose: [
+                  "計画の全側面についてユーザーと共通認識に達するまでヒアリングを行う（Grill Phase）。",
+                ],
+                criteria: [
+                  "フロンティア（前提がすべて確定済みの決定）が空になり、ユーザーが共通認識を確認した",
+                  "全決定がライブ地図 `grill-map.md` に `[確定]` として蒸留されている（check が実在・非空を検証）",
+                ],
+                approach: [
+                  {
+                    title: "1. from-Issue フローの確認",
+                    content: [
+                      "ユーザーに「既存 Issue を取り込みますか？」と確認する。",
+                      "- Yes の場合: `gh issue view <number> --json title,body,labels,state` で Issue メタデータを取得し、ヒアリングの素材として使う",
+                      "- No の場合: 新規計画としてヒアリングを開始する",
+                    ],
+                  },
+                  ...hearingSection,
+                  "ヒアリングは mt-grill-rounds の方式に従って進める:",
+                  `- ライブ地図のパスは既定パスではなく \`${grillMapPath}\`（セッションディレクトリ配下）を明示的に指定し、このパスで地図を育成する`,
+                  "- 各ラウンドでフロンティア（前提がすべて確定済みの決定）の質問全体をまとめて提示し、ユーザーの回答を待ってから次のラウンドに進む",
+                  "- 回答をライブ地図へ反映した後にフロンティアを再計算し、次のラウンドを提示する",
+                  "- フロンティアが空になり、ユーザーが共通認識を確認するまでラウンドを継続する",
+                  "",
+                  {
+                    title: "3. ライブ地図の最終確認",
+                    content: [
+                      `ヒアリングの全決定がセッションディレクトリのライブ地図 \`${grillMapPath}\` に蒸留されていることを確認する。`,
+                      "地図は Markdown 入れ子リスト＋状態マーカー（`[確定]` / `[未決]` / `[保留]`）の単一ファイルとし、質疑ログなどの別ファイルは残さない。",
+                      ...(withDocs
+                        ? [
+                            "ドメインモデリングで確定した用語・ADR 案が `## 確定用語` / `## ADR 案` セクションに記録されていることも確認する。",
+                          ]
+                        : []),
+                    ],
+                  },
+                ],
+                output: [
+                  "report 時の `artifacts` に以下を含める:",
+                  "```json",
+                  `{"key": "${GRILL_MAP_KEY}", "path": "${grillMapPath}"}`,
+                  "```",
+                ],
+                policy: withDocs
                   ? [
-                      "ドメインモデリングで確定した用語・ADR 案が `## 確定用語` / `## ADR 案` セクションに記録されていることも確認する。",
+                      "repo へのファイル書き込み（CONTEXT.md の更新、ADR ファイルの作成）は禁止する。確定した用語・ADR 案はライブ地図の `## 確定用語` / `## ADR 案` セクションへの記録に留めること",
                     ]
-                  : []),
-                "",
-                "## 成果物",
-                "",
-                "report 時の `artifacts` に以下を含める:",
-                "```json",
-                `{"key": "${GRILL_MAP_KEY}", "path": "${grillMapPath}"}`,
-                "```",
-                "",
-                "## セッション情報",
-                "",
-                `- セッションディレクトリ: ${ctx.sessionDir}`,
-              ].join("\n");
+                  : [],
+                input: [
+                  {
+                    title: "前回の差し戻し",
+                    content: reworkFeedbackSection(ctx.gateAnswers, "review_gate"),
+                  },
+                  `セッションディレクトリ: ${ctx.sessionDir}`,
+                ],
+              });
             },
           },
           // 統一最低ライン: ライブ地図の申告・実在・非空を強制する。
@@ -613,67 +634,74 @@ const def: WorkflowDef = {
             buildPrompt: (ctx: PromptCtx) => {
               const withDocs = isTMiura024(ctx.artifacts, ctx.sessionDir);
 
-              return [
-                "## 目的",
-                "",
-                "ヒアリングで集まった情報を plan-format.md のテンプレートにマッピングし、Issue body の最終本文を確定する。",
-                "分解モードの場合は子 Issue の body もすべてこのステップで生成する。",
-                "",
-                "## 手順",
-                "",
-                "### 1. ヒアリング結果の読み込み",
-                "",
-                `セッションディレクトリの \`${GRILL_MAP_KEY}\`（ライブ地図）を読み込む。`,
-                "from-Issue フローの場合は既存 Issue の内容も合わせて参照する。",
-                "",
-                ...(withDocs
-                  ? [
-                      "### 2. ドキュメントの整形・埋め込み",
+              return buildStepPrompt({
+                purpose: [
+                  "ヒアリングで集まった情報を plan-format.md のテンプレートにマッピングし、Issue body の最終本文を確定する。",
+                  "分解モードの場合は子 Issue の body もすべてこのステップで生成する。",
+                ],
+                criteria: [
+                  "Issue body 最終本文が `issue-body.md`（分解時は `issue-body-<n>.md` 全件）に書き出されている",
+                  "各 body 末尾に `<!-- effort: width=... depth=... -->` コメントが形式どおり付与されている",
+                ],
+                approach: [
+                  {
+                    title: "1. ヒアリング結果の読み込み",
+                    content: [
+                      `セッションディレクトリの \`${GRILL_MAP_KEY}\`（ライブ地図）を読み込む。`,
+                      "from-Issue フローの場合は既存 Issue の内容も合わせて参照する。",
+                    ],
+                  },
+                  ...(withDocs
+                    ? [
+                        {
+                          title: "2. ドキュメントの整形・埋め込み",
+                          content: [
+                            `Grill Phase で \`${GRILL_MAP_KEY}\` の \`## 確定用語\` / \`## ADR 案\` セクションに記録された確定用語・ADR 案は確定済みとして扱う。要否の再判断はしない。`,
+                            "",
+                            "以下を行い、plan-format.md の `## 📄 ドキュメント` セクションに埋め込む:",
+                            `- CONTEXT は ${join(mtDomainModelingDir, "CONTEXT-FORMAT.md")} に従い本文を整形する`,
+                            `- ADR は ${join(mtDomainModelingDir, "ADR-FORMAT.md")} に従い本文を整形する`,
+                            "- ADR 連番は対象 repo の `docs/adr/` を確認して次番号を確定する",
+                            "- セクション形式: `### <リポジトリ相対パス>` + コードフェンス全文",
+                          ],
+                        },
+                      ]
+                    : []),
+                  {
+                    title: "縦切り分解の検討",
+                    content: [
+                      "大きな計画を実行可能なミッションへ割る場合は、次を守る:",
+                      "- 各ミッションは 1 層だけ切らず、必要な層を縦に貫く tracer bullet にする",
+                      "- 単独で確認できる振る舞いを持つ",
+                      "- 依存関係は実行順の Wave 配置で表現する（plan-format.md の `### 実行順` 参照）",
+                    ],
+                  },
+                  {
+                    title: "最終本文の確定",
+                    content: [
+                      `plan-format.md（${join(import.meta.dir, "..", "_shared", "mt-plan-plan-format.md")}）に従い、Issue body の最終本文を確定する。`,
+                      `確定した本文をセッションディレクトリに \`${ISSUE_BODY_KEY}\` として書き出す。`,
+                      "Issue body の末尾には検証強度の推奨を `<!-- effort: width=<low|medium|high|xhigh|max> depth=<low|medium|high|xhigh|max> -->` 形式の HTML コメントとして必ず追記する（例: `<!-- effort: width=medium depth=medium -->`）。値は計画の複雑さ・影響範囲から推奨を選び、このコメントを検証強度の決定値の初期値とする（review_gate に width/depth 質問は置かない。変更はファイル直接編集で行う）。既存 Issue（本変更以前に作成されたものでコメントが無いもの）では mt-plan-run の parseEffortFromIssueBody がコメント未検出時に width=medium depth=medium へフォールバックする（既存 Issue 対応）。",
+                      '生成直後に `grep -E "<!-- effort: width=(low|medium|high|xhigh|max) depth=(low|medium|high|xhigh|max) -->" issue-body.md` で検証し、不一致・欠落があればコメントを追記/修正して再生成する。値は /^[a-z]+$/ の enum のみを許容し、不正値があれば medium に正規化する。',
+                      "mt-plan-run はこのコメントを parseEffortFromIssueBody で読み取り effort.json 生成に利用するため、コメントの形式は厳守する。",
                       "",
-                      `Grill Phase で \`${GRILL_MAP_KEY}\` の \`## 確定用語\` / \`## ADR 案\` セクションに記録された確定用語・ADR 案は確定済みとして扱う。要否の再判断はしない。`,
-                      "",
-                      "以下を行い、plan-format.md の `## 📄 ドキュメント` セクションに埋め込む:",
-                      `- CONTEXT は ${join(mtDomainModelingDir, "CONTEXT-FORMAT.md")} に従い本文を整形する`,
-                      `- ADR は ${join(mtDomainModelingDir, "ADR-FORMAT.md")} に従い本文を整形する`,
-                      "- ADR 連番は対象 repo の `docs/adr/` を確認して次番号を確定する",
-                      "- セクション形式: `### <リポジトリ相対パス>` + コードフェンス全文",
-                      "",
-                    ]
-                  : []),
-                "",
-                `### ${withDocs ? "3" : "2"}. 縦切り分解の検討`,
-                "",
-                "大きな計画を実行可能なミッションへ割る場合は、次を守る:",
-                "- 各ミッションは 1 層だけ切らず、必要な層を縦に貫く tracer bullet にする",
-                "- 単独で確認できる振る舞いを持つ",
-                "- 依存関係は実行順の Wave 配置で表現する（plan-format.md の `### 実行順` 参照）",
-                "",
-                `### ${withDocs ? "4" : "3"}. 最終本文の確定`,
-                "",
-                `plan-format.md（${join(import.meta.dir, "..", "_shared", "mt-plan-plan-format.md")}）に従い、Issue body の最終本文を確定する。`,
-                `確定した本文をセッションディレクトリに \`${ISSUE_BODY_KEY}\` として書き出す。`,
-                "Issue body の末尾には検証強度の推奨を `<!-- effort: width=<low|medium|high|xhigh|max> depth=<low|medium|high|xhigh|max> -->` 形式の HTML コメントとして必ず追記する（例: `<!-- effort: width=medium depth=medium -->`）。値は計画の複雑さ・影響範囲から推奨を選び、このコメントを検証強度の決定値の初期値とする（review_gate に width/depth 質問は置かない。変更はファイル直接編集で行う）。既存 Issue（本変更以前に作成されたものでコメントが無いもの）では mt-plan-run の parseEffortFromIssueBody がコメント未検出時に width=medium depth=medium へフォールバックする（既存 Issue 対応）。",
-                '生成直後に `grep -E "<!-- effort: width=(low|medium|high|xhigh|max) depth=(low|medium|high|xhigh|max) -->" issue-body.md` で検証し、不一致・欠落があればコメントを追記/修正して再生成する。値は /^[a-z]+$/ の enum のみを許容し、不正値があれば medium に正規化する。',
-                "mt-plan-run はこのコメントを parseEffortFromIssueBody で読み取り effort.json 生成に利用するため、コメントの形式は厳守する。",
-                "",
-                "分解モードの場合:",
-                "- 親 Issue の body を `issue-body.md` として書き出す",
-                "- 各子計画の body を `issue-body-<n>.md`（n = 1, 2, 3...）として書き出す",
-                "- ドキュメントセクション（`## 📄 ドキュメント`）は対応する子計画の body に配置し、親には残さない",
-                "- 子計画は 1 階層までとし、再分解しない",
-                "- 子の目的・対応スコープの和集合が親計画を過不足なく満たすこと",
-                "",
-                "## 成果物",
-                "",
-                "report 時の `artifacts` に以下を含める:",
-                "```json",
-                `{"key": "${ISSUE_BODY_KEY}", "path": "${join(ctx.sessionDir, ISSUE_BODY_KEY)}"}`,
-                "```",
-                "",
-                "## セッション情報",
-                "",
-                `- セッションディレクトリ: ${ctx.sessionDir}`,
-              ].join("\n");
+                      "分解モードの場合:",
+                      "- 親 Issue の body を `issue-body.md` として書き出す",
+                      "- 各子計画の body を `issue-body-<n>.md`（n = 1, 2, 3...）として書き出す",
+                      "- ドキュメントセクション（`## 📄 ドキュメント`）は対応する子計画の body に配置し、親には残さない",
+                      "- 子計画は 1 階層までとし、再分解しない",
+                      "- 子の目的・対応スコープの和集合が親計画を過不足なく満たすこと",
+                    ],
+                  },
+                ],
+                output: [
+                  "report 時の `artifacts` に以下を含める:",
+                  "```json",
+                  `{"key": "${ISSUE_BODY_KEY}", "path": "${join(ctx.sessionDir, ISSUE_BODY_KEY)}"}`,
+                  "```",
+                ],
+                input: [`セッションディレクトリ: ${ctx.sessionDir}`],
+              });
             },
           },
           check: (ctx: CheckCtx): CheckResult => {
@@ -702,106 +730,113 @@ const def: WorkflowDef = {
             buildPrompt: (ctx: PromptCtx) => {
               // NOTE: owner 分岐（withDocs）は grill / draft_body / review_body の3箇所に分散する。
               // _shared への抽出は最小差分方針のため見送る（条件変更時は3箇所を同時更新すること）。
+              // NOTE(arch-2): buildStepPrompt は _shared/mt-prompt.ts 経由に集約済み（純粋フォーマッターであり ADR-0019 の StepDef 限定と競合しない）。
               const withDocs = isTMiura024(ctx.artifacts, ctx.sessionDir);
 
               const perspectiveC = withDocs
                 ? [
-                    "### C: 思想・ポリシー違反＋ADR記載明記",
-                    "",
-                    "プロジェクト思想・ポリシー（mt-domain-modeling の規律）への違反がないか確認する。",
-                    "確定した用語・ADR 案が plan-format.md の `## 📄 ドキュメント` セクションに `### <リポジトリ相対パス>` + コードフェンス全文の形式で明記されているか確認する。",
-                    "",
+                    {
+                      title: "C: 思想・ポリシー違反＋ADR記載明記",
+                      content: [
+                        "プロジェクト思想・ポリシー（mt-domain-modeling の規律）への違反がないか確認する。",
+                        "確定した用語・ADR 案が plan-format.md の `## 📄 ドキュメント` セクションに `### <リポジトリ相対パス>` + コードフェンス全文の形式で明記されているか確認する。",
+                      ],
+                    },
                   ]
                 : [
-                    "### C: 思想・ポリシー違反＋ADR記載明記（本 repo ではスキップ）",
-                    "",
-                    "owner が t-miura-024 の場合のみ適用する観点のため、本 repo ではレビュー対象外とする。",
-                    "",
+                    {
+                      title: "C: 思想・ポリシー違反＋ADR記載明記（本 repo ではスキップ）",
+                      content: [
+                        "owner が t-miura-024 の場合のみ適用する観点のため、本 repo ではレビュー対象外とする。",
+                      ],
+                    },
                   ];
 
-              return [
-                "## 目的",
-                "",
-                "draft_body で確定した Issue body を 6 観点で自己レビューし、指摘を重み付けして review-body.md に記録する。",
-                "SubAgent は使わず、このステップのエージェント自身がレビューする。起草者自身のレビューのため盲点が残り得るが、grill-map 確定事項との突合という機械的照合を中心とし、残存リスクは後段の review_gate で人間が must/should の有無を見て approve/request_changes を選ぶことで回収する。review_gate では人間が判断材料の件数だけでなく review-body.md 全文と grill-map 確定事項に対する body の反映差分を直接確認してから approve/request_changes を選ぶこと。body の修正は行わず、指摘の記録に専念する。must/should が残る場合は review_gate で人間が request_changes を選び grill に戻って再生成する（approve は must/should がゼロの場合のみ）。記録専用であるため軽微な指摘でも request_changes→grill→draft→review の全再生成という往復コストが発生するが、SubAgent 新設なし・差分最小の方針のため許容する。",
-                "",
-                "## 手順",
-                "",
-                "### 1. 入力の読み込み",
-                "",
-                `セッションディレクトリの \`${GRILL_MAP_KEY}\`（ライブ地図）と \`${ISSUE_BODY_KEY}\`（親 body）を読み込む。`,
-                "分解モード（子 body `issue-body-<n>.md` が存在する場合）は `ls issue-body-*.md` で全件検出してすべて読み込み、全件を必須レビュー対象とする。子への指摘は `対象` 欄に `issue-body-<n>.md` を明記する。通常モード（子 body が存在しない場合）のレビュー対象は親 body のみとする。",
-                `判定基準として plan-format.md（${join(import.meta.dir, "..", "_shared", "mt-plan-plan-format.md")}）を参照する。`,
-                "",
-                "### 2. 6観点レビュー",
-                "",
-                "以下の 6 観点で本文をレビューする:",
-                "",
-                "### A: 追加すり合わせ候補",
-                "",
-                "Grill で聞き漏らした曖昧さ・未決事項がないか洗い出す。背景・完了条件・方針の各記述が検証可能な粒度になっているか確認する。",
-                "",
-                "### B: 決定間矛盾",
-                "",
-                "完了条件・方針・アウトプット・ミッション間の矛盾がないか確認する。ミッションのスコープと完了条件番号の対応に漏れ・重複がないか確認する。",
-                "",
-                ...perspectiveC,
-                "### D: grill-map反映完全性",
-                "",
-                `ライブ地図（\`${GRILL_MAP_KEY}\`）の \`[確定]\` 事項が body に過不足なく反映されているか確認する。`,
-                "from-Issue フローの場合は既存 Issue 内容の取り込み漏れも確認する。",
-                "",
-                "### E: plan-format準拠性",
-                "",
-                "必須セクションの有無、ミッション定義（スコープ重複なし・完了条件カバー）、effort コメントの形式（`<!-- effort: width=... depth=... -->`）、Issue title と body の役割分担（body に `# 計画タイトル` を含めない）を確認する。",
-                "",
-                "### F: 実行可能性・検証可能性",
-                "",
-                "完了条件が Yes/No で判定可能な状態として書かれているか確認する。分解する場合は各ミッションが縦に貫く tracer bullet になっており、Wave 配置が依存順になっているか確認する。",
-                "",
-                "### 3. 指摘の重み付け",
-                "",
-                "各指摘を create 用の判定基準で must/should/want に重み付けする（ラベル定義は mt-plan-run と一致）:",
-                "",
-                "- 🚨 must: 完了条件の充足を阻害する欠陥。ニーズ充足の漏れ、実行不能を招く決定間矛盾、必須セクション・effort コメントの欠落、grill-map 確定事項の反映漏れなど。review_gate の decision で人間が対応可否を判断する（must が残る場合は request_changes を選び grill に戻る。approve は選択不可）。",
-                "- ⚠️ should: 実行は可能だが品質・明確性を著しく損なう問題。完了条件の検証可能性が低い表現、スコープ境界の曖昧さ、ミッション分割の不備の疑いなど。review_gate の decision で人間が対応可否を判断する（should が残る場合も request_changes 推奨。approve は人間が対応不要と判断した場合のみ）。",
-                "- 💡 want: 対応任意の改善提案・軽微な追加すり合わせ候補。review_gate をブロックしない（approve 可）。",
-                "",
-                "### 4. レビュー結果の書き出し",
-                "",
-                `レビュー結果を ${ctx.sessionDir}/${REVIEW_BODY_KEY} に書き出す。形式:`,
-                "",
-                "```markdown",
-                "## レビュー結果",
-                "",
-                "概要（指摘件数: must n / should n / want n、総合判断）を書く。",
-                "",
-                "## 指摘一覧",
-                "",
-                "### 1. <指摘タイトル>",
-                "",
-                "| 項目 | 内容 |",
-                "|------|------|",
-                "| 優先度 | 🚨 must |",
-                "| 観点 | A: 追加すり合わせ候補 |",
-                "| 対象 | issue-body-1.md の§X |",
-                "",
-                "<指摘内容の詳細。理由と対応案を書く。>",
-                "```",
-                "",
-                "指摘が 0 件の場合は `## 指摘一覧` に `指摘なし` と明記する。",
-                "",
-                "## 成果物",
-                "",
-                "report 時の `artifacts` に以下を含める:",
-                "```json",
-                `{"key": "${REVIEW_BODY_KEY}", "path": "${join(ctx.sessionDir, REVIEW_BODY_KEY)}"}`,
-                "```",
-                "",
-                "## セッション情報",
-                "",
-                `- セッションディレクトリ: ${ctx.sessionDir}`,
-              ].join("\n");
+              return buildStepPrompt({
+                purpose: [
+                  "draft_body で確定した Issue body を 6 観点で自己レビューし、指摘を重み付けして review-body.md に記録する。",
+                  "SubAgent は使わず、このステップのエージェント自身がレビューする。起草者自身のレビューのため盲点が残り得るが、grill-map 確定事項との突合という機械的照合を中心とし、残存リスクは後段の review_gate で人間が must/should の有無を見て approve/request_changes を選ぶことで回収する。review_gate では人間が判断材料の件数だけでなく review-body.md 全文と grill-map 確定事項に対する body の反映差分を直接確認してから approve/request_changes を選ぶこと。body の修正は行わず、指摘の記録に専念する。must/should が残る場合は review_gate で人間が request_changes を選び grill に戻って再生成する（approve は must/should がゼロの場合のみ）。記録専用であるため軽微な指摘でも request_changes→grill→draft→review の全再生成という往復コストが発生するが、SubAgent 新設なし・差分最小の方針のため許容する。",
+                ],
+                criteria: [
+                  "`review-body.md` に `## レビュー結果` / `## 指摘一覧` が記録され、各指摘が must/should/want に重み付けされている（指摘0件時は `指摘なし` 明記）",
+                  "分解モード時は子 body 全件への指摘が `対象` 欄に `issue-body-<n>.md` 付きで明記されている",
+                ],
+                approach: [
+                  {
+                    title: "1. 入力の読み込み",
+                    content: [
+                      `セッションディレクトリの \`${GRILL_MAP_KEY}\`（ライブ地図）と \`${ISSUE_BODY_KEY}\`（親 body）を読み込む。`,
+                      "分解モード（子 body `issue-body-<n>.md` が存在する場合）は `ls issue-body-*.md` で全件検出してすべて読み込み、全件を必須レビュー対象とする。子への指摘は `対象` 欄に `issue-body-<n>.md` を明記する。通常モード（子 body が存在しない場合）のレビュー対象は親 body のみとする。",
+                      `判定基準として plan-format.md（${join(import.meta.dir, "..", "_shared", "mt-plan-plan-format.md")}）を参照する。`,
+                    ],
+                  },
+                  {
+                    title: "2. 6観点レビュー",
+                    content: ["以下の 6 観点で本文をレビューする:"],
+                  },
+                  {
+                    title: "A: 追加すり合わせ候補",
+                    content: [
+                      "Grill で聞き漏らした曖昧さ・未決事項がないか洗い出す。背景・完了条件・方針の各記述が検証可能な粒度になっているか確認する。",
+                    ],
+                  },
+                  {
+                    title: "B: 決定間矛盾",
+                    content: [
+                      "完了条件・方針・アウトプット・ミッション間の矛盾がないか確認する。ミッションのスコープと完了条件番号の対応に漏れ・重複がないか確認する。",
+                    ],
+                  },
+                  ...perspectiveC,
+                  {
+                    title: "D: grill-map反映完全性",
+                    content: [
+                      `ライブ地図（\`${GRILL_MAP_KEY}\`）の \`[確定]\` 事項が body に過不足なく反映されているか確認する。`,
+                      "from-Issue フローの場合は既存 Issue 内容の取り込み漏れも確認する。",
+                    ],
+                  },
+                  {
+                    title: "E: plan-format準拠性",
+                    content: [
+                      "必須セクションの有無、ミッション定義（スコープ重複なし・完了条件カバー）、effort コメントの形式（`<!-- effort: width=... depth=... -->`）、Issue title と body の役割分担（body に `# 計画タイトル` を含めない）を確認する。",
+                    ],
+                  },
+                  {
+                    title: "F: 実行可能性・検証可能性",
+                    content: [
+                      "完了条件が Yes/No で判定可能な状態として書かれているか確認する。分解する場合は各ミッションが縦に貫く tracer bullet になっており、Wave 配置が依存順になっているか確認する。",
+                    ],
+                  },
+                  {
+                    title: "3. 指摘の重み付け",
+                    content: [
+                      "各指摘を create 用の判定基準で must/should/want に重み付けする（ラベル定義は mt-plan-run と一致）:",
+                      "",
+                      "- 🚨 must: 完了条件の充足を阻害する欠陥。ニーズ充足の漏れ、実行不能を招く決定間矛盾、必須セクション・effort コメントの欠落、grill-map 確定事項の反映漏れなど。review_gate の decision で人間が対応可否を判断する（must が残る場合は request_changes を選び grill に戻る。approve は選択不可）。",
+                      "- ⚠️ should: 実行は可能だが品質・明確性を著しく損なう問題。完了条件の検証可能性が低い表現、スコープ境界の曖昧さ、ミッション分割の不備の疑いなど。review_gate の decision で人間が対応可否を判断する（should が残る場合も request_changes 推奨。approve は人間が対応不要と判断した場合のみ）。",
+                      "- 💡 want: 対応任意の改善提案・軽微な追加すり合わせ候補。review_gate をブロックしない（approve 可）。",
+                    ],
+                  },
+                  {
+                    title: "4. レビュー結果の書き出し",
+                    content: [
+                      `レビュー結果を ${ctx.sessionDir}/${REVIEW_BODY_KEY} に書き出す。形式:`,
+                      "",
+                      // 例示ブロック全体をコードフェンス文字列に隔離する（先頭が ``` のため
+                      // PromptString の行頭#検査に触れない。連結ハックは使わない）。
+                      "```markdown\n## レビュー結果\n\n概要（指摘件数: must n / should n / want n、総合判断）を書く。\n\n## 指摘一覧\n\n### 1. <指摘タイトル>\n\n| 項目 | 内容 |\n|------|------|\n| 優先度 | 🚨 must |\n| 観点 | A: 追加すり合わせ候補 |\n| 対象 | issue-body-1.md の§X |\n\n<指摘内容の詳細。理由と対応案を書く。>\n```",
+                      "",
+                      "指摘が 0 件の場合は `## 指摘一覧` に `指摘なし` と明記する。",
+                    ],
+                  },
+                ],
+                output: [
+                  "report 時の `artifacts` に以下を含める:",
+                  "```json",
+                  `{"key": "${REVIEW_BODY_KEY}", "path": "${join(ctx.sessionDir, REVIEW_BODY_KEY)}"}`,
+                  "```",
+                ],
+                input: [`セッションディレクトリ: ${ctx.sessionDir}`],
+              });
             },
           },
           check: (ctx: CheckCtx): CheckResult => {
@@ -836,68 +871,77 @@ const def: WorkflowDef = {
             buildPrompt: (ctx: PromptCtx) => {
               const repoInfo = readRepoInfo(ctx.artifacts, ctx.sessionDir);
 
-              return [
-                "## 目的",
-                "",
-                "起票に必要な環境整備（label 確認）を行い、分解要否の判定材料を artifact に書き出す。",
-                "",
-                "## 手順",
-                "",
-                "### 1. 対象 repo の確認",
-                "",
-                `対象 repo: \`${repoInfo.nameWithOwner}\`（afterInit で取得済み）`,
-                "",
-                "- owner が `t-miura-024` → そのまま",
-                "- それ以外 → `t-miura-024/note` + `external/<repo>` label",
-                "",
-                "### 2. label の確認・自動作成",
-                "",
-                "`kind/plan` label がなければ自動作成。`external/<repo>` label も同様（冪等に）。",
-                "",
-                "```bash",
-                'gh label list --search "kind/plan" --json name',
-                'gh label create "kind/plan" --description "計画 Issue" --color "0075ca" 2>/dev/null || true',
-                "```",
-                "",
-                "### 3. 分解要否の判定",
-                "",
-                `Grill Phase で確定した内容（ライブ地図 \`${GRILL_MAP_KEY}\`）を確認し、以下を判定する:`,
-                "",
-                '- 計画が複数の機能・領域を含み、単一 Issue では独立した完了条件と進捗を管理できない場合 → `mode: "decompose"`',
-                '- それ以外 → `mode: "update"`',
-                "",
-                "from-Issue フローの場合は既存 Issue 番号も記録する。",
-                "",
-                "### 4. 判定結果の書き出し",
-                "",
-                `判定結果を ${ctx.sessionDir}/prepare-decision.json に書き出す:`,
-                "",
-                "```json",
-                "{",
-                '  "mode": "update" | "decompose",',
-                '  "fromIssue": true | false,',
-                '  "issueNumber": <number | null>,',
-                '  "repo": "<owner>/<repo>"',
-                "}",
-                "```",
-                "",
-                "### 5. 起票案の提示",
-                "",
-                "分解する場合は、親・子の計画案（各子の目的・対応スコープ）を提示する準備をする。",
-                "- 子計画は 1 階層までとし、再分解しない",
-                "- 子の目的・対応スコープの和集合が親計画を過不足なく満たすことを確認する",
-                "",
-                "## 成果物",
-                "",
-                "report 時の `artifacts` に以下を含める:",
-                "```json",
-                `{"key": "prepare-decision.json", "path": "${ctx.sessionDir}/prepare-decision.json"}`,
-                "```",
-                "",
-                "## セッション情報",
-                "",
-                `- セッションディレクトリ: ${ctx.sessionDir}`,
-              ].join("\n");
+              return buildStepPrompt({
+                purpose: [
+                  "起票に必要な環境整備（label 確認）を行い、分解要否の判定材料を artifact に書き出す。",
+                ],
+                criteria: [
+                  "`prepare-decision.json` に mode / fromIssue / issueNumber / repo が書き出されている",
+                ],
+                approach: [
+                  {
+                    title: "1. 対象 repo の確認",
+                    content: [
+                      `対象 repo: \`${repoInfo.nameWithOwner}\`（afterInit で取得済み）`,
+                      "",
+                      "- owner が `t-miura-024` → そのまま",
+                      "- それ以外 → `t-miura-024/note` + `external/<repo>` label",
+                    ],
+                  },
+                  {
+                    title: "2. label の確認・自動作成",
+                    content: [
+                      "`kind/plan` label がなければ自動作成。`external/<repo>` label も同様（冪等に）。",
+                      "",
+                      "```bash",
+                      'gh label list --search "kind/plan" --json name',
+                      'gh label create "kind/plan" --description "計画 Issue" --color "0075ca" 2>/dev/null || true',
+                      "```",
+                    ],
+                  },
+                  {
+                    title: "3. 分解要否の判定",
+                    content: [
+                      `Grill Phase で確定した内容（ライブ地図 \`${GRILL_MAP_KEY}\`）を確認し、以下を判定する:`,
+                      "",
+                      '- 計画が複数の機能・領域を含み、単一 Issue では独立した完了条件と進捗を管理できない場合 → `mode: "decompose"`',
+                      '- それ以外 → `mode: "update"`',
+                      "",
+                      "from-Issue フローの場合は既存 Issue 番号も記録する。",
+                    ],
+                  },
+                  {
+                    title: "4. 判定結果の書き出し",
+                    content: [
+                      `判定結果を ${ctx.sessionDir}/prepare-decision.json に書き出す:`,
+                      "",
+                      "```json",
+                      "{",
+                      '  "mode": "update" | "decompose",',
+                      '  "fromIssue": true | false,',
+                      '  "issueNumber": <number | null>,',
+                      '  "repo": "<owner>/<repo>"',
+                      "}",
+                      "```",
+                    ],
+                  },
+                  {
+                    title: "5. 起票案の提示",
+                    content: [
+                      "分解する場合は、親・子の計画案（各子の目的・対応スコープ）を提示する準備をする。",
+                      "- 子計画は 1 階層までとし、再分解しない",
+                      "- 子の目的・対応スコープの和集合が親計画を過不足なく満たすことを確認する",
+                    ],
+                  },
+                ],
+                output: [
+                  "report 時の `artifacts` に以下を含める:",
+                  "```json",
+                  `{"key": "prepare-decision.json", "path": "${ctx.sessionDir}/prepare-decision.json"}`,
+                  "```",
+                ],
+                input: [`セッションディレクトリ: ${ctx.sessionDir}`],
+              });
             },
           },
           check: (ctx: CheckCtx): CheckResult => {
@@ -981,20 +1025,21 @@ const def: WorkflowDef = {
             // 永続化という副作用を持つため readonly:true の宣言は実態と合わない。外す。
             readonly: false,
             buildPrompt: (ctx: PromptCtx) =>
-              [
-                "## 目的",
-                "",
-                "review_gate の人間判断（gateAnswers）を分岐判定の材料として報告する。分岐自体はこのステップの check が行う。",
-                "",
-                "## 指示",
-                "",
-                "- agent は report のみ行い、ファイルの作成・編集を実行しない（agent の作業は read-only）",
-                "- 分岐判定と枯渇マーカーの永続化は check が決定論的に行う。分岐判定が check に委ねられていることを報告する",
-                "",
-                "## セッション情報",
-                "",
-                `- セッションディレクトリ: ${ctx.sessionDir}`,
-              ].join("\n"),
+              buildStepPrompt({
+                purpose: [
+                  "review_gate の人間判断（gateAnswers）を分岐判定の材料として報告する。分岐自体はこのステップの check が行う。",
+                ],
+                // criteria空: 分岐判定は check が決定論的に行い agent 作業は report のみのため検証可能な完了条件なし
+                criteria: [],
+                approach: [
+                  "- 分岐判定と枯渇マーカーの永続化は check が決定論的に行う。分岐判定が check に委ねられていることを報告する",
+                ],
+                policy: [
+                  "- agent は report のみ行い、ファイルの作成・編集を実行しない（agent の作業は read-only）",
+                ],
+                output: [],
+                input: [`セッションディレクトリ: ${ctx.sessionDir}`],
+              }),
           },
           check: (ctx: CheckCtx): CheckResult =>
             judgeGateRework(ctx, {
@@ -1061,95 +1106,118 @@ const def: WorkflowDef = {
       task: {
         action: "orchestrate",
         buildPrompt: (ctx: PromptCtx) => {
-          return [
-            "## 目的",
-            "",
-            "review_gate で承認された Issue body を使って Refined Issue を直接作成（または更新）する。",
-            "コンテンツ生成は行わず、effort コメント確定と GitHub 操作のみに専念する。",
-            "承認前の作成はしない（本ステップは review_gate 通過後のみ実行される）。",
-            "",
-            "## 手順",
-            "",
-            "### 1. 入力情報の読み込み",
-            "",
-            `セッションディレクトリの \`${ISSUE_BODY_KEY}\` と \`${PREPARE_DECISION_KEY}\` と \`${REVIEW_BODY_KEY}\` を読み込む。`,
-            "分解モードの場合は `issue-body-<n>.md` も `ls issue-body-*.md` で全件検出して読み込む。分解モードで子 body が存在するのに review-body.md に子への言及（`issue-body-<n>.md` の記載）がない場合は子未レビューのため GitHub 操作へ進まず escalate する（未レビュー子の refined 化を禁止。GitHub 操作を停止し失敗報告のみ行うこと）。",
-            "prepare-decision.json から mode / fromIssue / issueNumber / repo を確認する。",
-            "review-body.md の 🚨 must 有無を確認する。must が残るまま本ステップに到達した場合は判断漏れのため GitHub 操作へ進まず escalate する（create_refined の check が must 残存で fail し onFail escalate となる。tado 上で review_gate の request_changes を選び grill に戻って再生成すること）。ただし review-cycle-exhausted.json の valid マーカーがある枯渇経由（review_exhausted の approve）の場合は警告として記録し作成へ進む（check が警告付きで後続へ進む）。body の再生成はしない（修正は request_changes→grill 経由の再生成に一本化）。",
-            "",
-            "### 2. effort コメントの確定",
-            "",
-            "各ファイル末尾の `<!-- effort: width=... depth=... -->` コメント（draft_body が書き出した初期値を決定値とする）を維持し、形式検証のみ行う。各ファイルで既存 `<!-- effort:.*?-->` を `/<!-- effort:.*?-->/` で置換せず、そのまま残す。コメントが欠落している場合のみ末尾に追記する（冪等）。分解モードでは `ls issue-body-*.md 2>/dev/null` で全件検出し各ファイルで同様に確認する。新規作成フローでは Issue 作成前のため `gh issue edit` は不要だが、from-Issue フロー・リトライ更新パスでは後段 §3 の `gh issue edit` で effort 反映済み body を更新すること。",
-            'このコメントは mt-plan-run の parseEffortFromIssueBody が読み取るため形式は厳守する。更新後は `grep -E "<!-- effort: width=(low|medium|high|xhigh|max) depth=(low|medium|high|xhigh|max) -->" issue-body.md`（分解モードでは `issue-body-*.md` の各件も対象にして）で検証する。不一致・欠落があればコメントを修正して再検証するループを繰り返し、それでも一致しなければ escalate して GitHub 作成へ進まない（失敗報告し、作成コマンドを実行しない）。',
-            "",
-            "### 3. Refined Issue の作成または更新",
-            "",
-            `セッションディレクトリに issue-number.txt が存在する場合（リトライ時）は、既存 Issue を \`gh issue edit\` で更新し、新規作成はしない（冪等ガード）。`,
-            "存在しない場合は新規作成する。",
-            "分解モードで子 Issue の作成まで進んで失敗した場合は、作成済みの子は再作成せず既存番号を使い、未作成の子のみ作成する。部分失敗時の再実行は issue-number.txt を起点に本ステップから再開する（finalize から再開しない）。",
-            "",
-            '**番号検証（必須）:** `gh issue edit` / `mt-plan-transition-plan.ts` に渡す番号は、必ずセッションディレクトリ内の `issue-number.txt` と `issue-number-<n>.txt` の全件から読み取った値のみ使う。LLM が記憶・推測した番号を直接埋め込まない。使う前に全件の数字形式を検証し（例: `for f in ${ctx.sessionDir}/issue-number.txt ${ctx.sessionDir}/issue-number-*.txt; do [ -f "$f" ] || continue; grep -Eq \'^[0-9]+$\' "$f" || echo "NG: $f"; done`）、1件でも不一致・空・欠落があれば GitHub 操作へ進まず escalate する。シェルに渡すパスはセッションディレクトリ配下の絶対パスで指定し、クォートする。',
-            "",
-            "#### 3a. from-Issue フロー（既存 Issue を更新）",
-            "",
-            "```bash",
-            `gh issue edit <number> --body-file ${ctx.sessionDir}/issue-body.md`,
-            "```",
-            "",
-            "**重要:** 新規作成せず、必ず既存 Issue を更新すること。",
-            "",
-            "#### 3b. 新規作成フロー（mode: update）",
-            "",
-            "```bash",
-            `gh issue create --title "<title>" --body-file ${ctx.sessionDir}/issue-body.md --label "kind/plan"`,
-            "```",
-            "",
-            "#### 3c. 分解モード（mode: decompose）",
-            "",
-            "親 Issue を作成（または from-Issue の場合は更新）した後、各子計画について Issue を作成する（親子すべて `kind/plan` label。旧文言の draft 要素は意図的に廃止し `kind/plan` のみ付与する仕様）:",
-            "",
-            "```bash",
-            `gh issue create --title "<子タイトル>" --body-file ${ctx.sessionDir}/issue-body-<n>.md --label "kind/plan"`,
-            "```",
-            "",
-            "GitHub REST API で親子関係を設定する:",
-            "",
-            "```bash",
-            "gh api --method POST repos/<owner>/<repo>/issues/<parent-number>/sub_issues \\",
-            "  -f sub_issue_id=<child-issue-id>",
-            "```",
-            "",
-            "### 4. Project への追加と refined 化",
-            "",
-            "Issue（分解モードの場合は親子すべて）を GitHub Project に追加する:",
-            "",
-            "```bash",
-            "gh project item-add <project-number> --owner <owner> --url <issue-url>",
-            "```",
-            "",
-            "続けて refined に遷移する（Status 更新 + `## 🐢 履歴` へ遷移エントリ追記）。`<number>` には §3 の番号検証を通過した `issue-number.txt` と `issue-number-<n>.txt` の全件の値のみ使う（未検証の番号を渡さない）:",
-            "",
-            "```bash",
-            `bun run ${join(import.meta.dir, "..", "_shared", "mt-plan-transition-plan.ts")} <number> refined`,
-            "```",
-            "",
-            "分解モードの場合は子 Issue すべてと親 Issue について実行し、親子すべてを refined にする。",
-            "",
-            "### 5. Issue 番号の記録",
-            "",
-            "§3 で Issue を1件作成するごとに直ちに `issue-number.txt`（子は `issue-number-<n>.txt`）へ記録し、§4 に進む前に全件の記録を完了する（作成と記録の間隔を空けず、再実行時の重複作成を防ぐ）。",
-            "",
-            "## 成果物",
-            "",
-            "report 時の `artifacts` に以下を含める:",
-            "```json",
-            `{"key": "issue-number.txt", "path": "${ctx.sessionDir}/issue-number.txt"}`,
-            "```",
-            "",
-            "## セッション情報",
-            "",
-            `- セッションディレクトリ: ${ctx.sessionDir}`,
-          ].join("\n");
+          return buildStepPrompt({
+            purpose: [
+              "review_gate で承認された Issue body を使って Refined Issue を直接作成（または更新）する。",
+              "コンテンツ生成は行わず、effort コメント確定と GitHub 操作のみに専念する。",
+              "承認前の作成はしない（本ステップは review_gate 通過後のみ実行される）。",
+            ],
+            criteria: [
+              "承認済み body で Refined Issue の作成（または更新）が完了し、番号が `issue-number.txt`（子は `issue-number-<n>.txt`）に記録されている",
+              "Project への追加と refined 遷移が完了している",
+            ],
+            approach: [
+              {
+                title: "1. 入力情報の読み込み",
+                content: [
+                  "分解モードで子 body（`issue-body-<n>.md`）が存在するのに `review-body.md` に子への言及（`issue-body-<n>.md` の記載）がない場合は子未レビューのため GitHub 操作へ進むな。escalate し、失敗報告のみ行うこと。",
+                  `セッションディレクトリの \`${ISSUE_BODY_KEY}\` と \`${PREPARE_DECISION_KEY}\` と \`${REVIEW_BODY_KEY}\` を読み込む。`,
+                  "分解モードの場合は `issue-body-<n>.md` も `ls issue-body-*.md` で全件検出して読み込む。",
+                  "prepare-decision.json から mode / fromIssue / issueNumber / repo を確認する。",
+                  "review-body.md の 🚨 must 有無を確認する。must が残るまま本ステップに到達した場合は判断漏れのため GitHub 操作へ進まず escalate する（create_refined の check が must 残存で fail し onFail escalate となる。tado 上で review_gate の request_changes を選び grill に戻って再生成すること）。ただし review-cycle-exhausted.json の valid マーカーがある枯渇経由（review_exhausted の approve）の場合は警告として記録し作成へ進む（check が警告付きで後続へ進む）。body の再生成はしない（修正は request_changes→grill 経由の再生成に一本化）。",
+                ],
+              },
+              {
+                title: "2. effort コメントの確定",
+                content: [
+                  "各ファイル末尾の `<!-- effort: width=... depth=... -->` コメント（draft_body が書き出した初期値を決定値とする）を維持し、形式検証のみ行う。各ファイルで既存 `<!-- effort:.*?-->` を `/<!-- effort:.*?-->/` で置換せず、そのまま残す。コメントが欠落している場合のみ末尾に追記する（冪等）。分解モードでは `ls issue-body-*.md 2>/dev/null` で全件検出し各ファイルで同様に確認する。新規作成フローでは Issue 作成前のため `gh issue edit` は不要だが、from-Issue フロー・リトライ更新パスでは後段 §3 の `gh issue edit` で effort 反映済み body を更新すること。",
+                  'このコメントは mt-plan-run の parseEffortFromIssueBody が読み取るため形式は厳守する。更新後は `grep -E "<!-- effort: width=(low|medium|high|xhigh|max) depth=(low|medium|high|xhigh|max) -->" issue-body.md`（分解モードでは `issue-body-*.md` の各件も対象にして）で検証する。不一致・欠落があればコメントを修正して再検証するループを繰り返し、それでも一致しなければ escalate して GitHub 作成へ進まない（失敗報告し、作成コマンドを実行しない）。',
+                ],
+              },
+              {
+                title: "3. Refined Issue の作成または更新",
+                content: [
+                  `セッションディレクトリに issue-number.txt が存在する場合（リトライ時）は、既存 Issue を \`gh issue edit\` で更新し、新規作成はしない（冪等ガード）。`,
+                  "存在しない場合は新規作成する。",
+                  "分解モードで子 Issue の作成まで進んで失敗した場合は、作成済みの子は再作成せず既存番号を使い、未作成の子のみ作成する。部分失敗時の再実行は issue-number.txt を起点に本ステップから再開する（finalize から再開しない）。",
+                  "",
+                  '**番号検証（必須）:** `gh issue edit` / `mt-plan-transition-plan.ts` に渡す番号は、必ずセッションディレクトリ内の `issue-number.txt` と `issue-number-<n>.txt` の全件から読み取った値のみ使う。LLM が記憶・推測した番号を直接埋め込まない。使う前に全件の数字形式を検証し（例: `for f in ${ctx.sessionDir}/issue-number.txt ${ctx.sessionDir}/issue-number-*.txt; do [ -f "$f" ] || continue; grep -Eq \'^[0-9]+$\' "$f" || echo "NG: $f"; done`）、1件でも不一致・空・欠落があれば GitHub 操作へ進まず escalate する。シェルに渡すパスはセッションディレクトリ配下の絶対パスで指定し、クォートする。',
+                  "",
+                  {
+                    title: "3a. from-Issue フロー（既存 Issue を更新）",
+                    content: [
+                      "```bash",
+                      `gh issue edit <number> --body-file ${ctx.sessionDir}/issue-body.md`,
+                      "```",
+                      "",
+                      "**重要:** 新規作成せず、必ず既存 Issue を更新すること。",
+                      "",
+                    ],
+                  },
+                  {
+                    title: "3b. 新規作成フロー（mode: update）",
+                    content: [
+                      "```bash",
+                      `gh issue create --title "<title>" --body-file ${ctx.sessionDir}/issue-body.md --label "kind/plan"`,
+                      "```",
+                      "",
+                    ],
+                  },
+                  {
+                    title: "3c. 分解モード（mode: decompose）",
+                    content: [
+                      "親 Issue を作成（または from-Issue の場合は更新）した後、各子計画について Issue を作成する（親子すべて `kind/plan` label。旧文言の draft 要素は意図的に廃止し `kind/plan` のみ付与する仕様）:",
+                      "",
+                      "```bash",
+                      `gh issue create --title "<子タイトル>" --body-file ${ctx.sessionDir}/issue-body-<n>.md --label "kind/plan"`,
+                      "```",
+                      "",
+                      "GitHub REST API で親子関係を設定する:",
+                      "",
+                      "```bash",
+                      "gh api --method POST repos/<owner>/<repo>/issues/<parent-number>/sub_issues \\",
+                      "  -f sub_issue_id=<child-issue-id>",
+                      "```",
+                    ],
+                  },
+                ],
+              },
+              {
+                title: "4. Project への追加と refined 化",
+                content: [
+                  "Issue（分解モードの場合は親子すべて）を GitHub Project に追加する:",
+                  "",
+                  "```bash",
+                  "gh project item-add <project-number> --owner <owner> --url <issue-url>",
+                  "```",
+                  "",
+                  "続けて refined に遷移する（Status 更新 + `## 🐢 履歴` へ遷移エントリ追記）。`<number>` には §3 の番号検証を通過した `issue-number.txt` と `issue-number-<n>.txt` の全件の値のみ使う（未検証の番号を渡さない）:",
+                  "",
+                  "```bash",
+                  `bun run ${join(import.meta.dir, "..", "_shared", "mt-plan-transition-plan.ts")} <number> refined`,
+                  "```",
+                  "",
+                  "分解モードの場合は子 Issue すべてと親 Issue について実行し、親子すべてを refined にする。",
+                ],
+              },
+              {
+                title: "5. Issue 番号の記録",
+                content: [
+                  "§3 で Issue を1件作成するごとに直ちに `issue-number.txt`（子は `issue-number-<n>.txt`）へ記録し、§4 に進む前に全件の記録を完了する（作成と記録の間隔を空けず、再実行時の重複作成を防ぐ）。",
+                ],
+              },
+            ],
+            output: [
+              "report 時の `artifacts` に以下を含める:",
+              "```json",
+              `{"key": "issue-number.txt", "path": "${ctx.sessionDir}/issue-number.txt"}`,
+              "```",
+            ],
+            policy: [
+              "未レビュー子の refined 化を禁止する。分解モードで子 body が存在するのに review-body.md に子への言及（`issue-body-<n>.md` の記載）がない場合は子未レビューのため GitHub 操作を行うな。escalate し、失敗報告のみ行うこと",
+            ],
+            input: [`セッションディレクトリ: ${ctx.sessionDir}`],
+          });
         },
       },
       check: (ctx: CheckCtx): CheckResult => {
@@ -1228,31 +1296,36 @@ const def: WorkflowDef = {
       task: {
         action: "orchestrate",
         buildPrompt: (ctx: PromptCtx) => {
-          return [
-            "## 目的",
-            "",
-            "作成した Refined Issue の内容を報告する。GitHub への変更は行わない（作成・refined 化は create_refined が完了済み）。",
-            "create_refined が Project 追加・refined 遷移で部分失敗した場合は本ステップから再開せず、issue-number.txt を起点に create_refined を再実行してから報告する。",
-            "",
-            "## 手順",
-            "",
-            "### 1. Issue 番号の確認",
-            "",
-            `セッションディレクトリの issue-number.txt から Issue 番号を読み取る。読み取る前に \`grep -Eq '^[0-9]+$'\` で検証し、不正なら GitHub操作へ進まず escalate する（失敗報告のみ）。`,
-            "",
-            "### 2. 作成内容の報告",
-            "",
-            "以下を報告する:",
-            "- Issue URL・番号",
-            "- 対象 repo",
-            "- Project・Status（refined であること）",
-            "- label",
-            "- `mt-plan-run` で実行可能であることを案内",
-            "",
-            "## セッション情報",
-            "",
-            `- セッションディレクトリ: ${ctx.sessionDir}`,
-          ].join("\n");
+          return buildStepPrompt({
+            purpose: [
+              "作成した Refined Issue の内容を報告する。GitHub への変更は行わない（作成・refined 化は create_refined が完了済み）。",
+              "create_refined が Project 追加・refined 遷移で部分失敗した場合は本ステップから再開せず、issue-number.txt を起点に create_refined を再実行してから報告する。",
+            ],
+            criteria: [
+              "Issue URL・番号・対象 repo・Project・Status（refined）・label と `mt-plan-run` 実行可能案内が報告されている",
+            ],
+            approach: [
+              {
+                title: "1. Issue 番号の確認",
+                content: [
+                  `セッションディレクトリの issue-number.txt から Issue 番号を読み取る。読み取る前に \`grep -Eq '^[0-9]+$'\` で検証し、不正なら GitHub操作へ進まず escalate する（失敗報告のみ）。`,
+                ],
+              },
+              {
+                title: "2. 作成内容の報告",
+                content: [
+                  "以下を報告する:",
+                  "- Issue URL・番号",
+                  "- 対象 repo",
+                  "- Project・Status（refined であること）",
+                  "- label",
+                  "- `mt-plan-run` で実行可能であることを案内",
+                ],
+              },
+            ],
+            output: [],
+            input: [`セッションディレクトリ: ${ctx.sessionDir}`],
+          });
         },
       },
       check: (ctx: CheckCtx): CheckResult => {

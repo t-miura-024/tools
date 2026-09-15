@@ -8,7 +8,7 @@ import type {
   ConditionCtx,
   GateAnswers,
 } from "tado";
-import { buildStepPrompt } from "tado/prompt";
+import { buildStepPrompt } from "../_shared/mt-prompt";
 import { Database } from "bun:sqlite";
 import { existsSync, readFileSync, writeFileSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
