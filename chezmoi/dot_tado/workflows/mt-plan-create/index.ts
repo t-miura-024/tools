@@ -680,6 +680,7 @@ const def: WorkflowDef = {
                     title: "最終本文の確定",
                     content: [
                       `plan-format.md（${join(import.meta.dir, "..", "_shared", "mt-plan-plan-format.md")}）に従い、Issue body の最終本文を確定する。`,
+                      "単一ミッションの場合も `## 🧩 ミッション` を省略せず、`### 実行順`（`- Wave 1: M1`）と `### M1: <名前>`（スコープ・完了条件付き）を最小形として必ず生成する。単一M1は `## ✅ 完了条件` の全番号をすべて担い、欠番・対象外を残さない（和集合カバー）。",
                       `確定した本文をセッションディレクトリに \`${ISSUE_BODY_KEY}\` として書き出す。`,
                       "Issue body の末尾には検証強度の推奨を `<!-- effort: width=<low|medium|high|xhigh|max> depth=<low|medium|high|xhigh|max> -->` 形式の HTML コメントとして必ず追記する（例: `<!-- effort: width=medium depth=medium -->`）。値は計画の複雑さ・影響範囲から推奨を選び、このコメントを検証強度の決定値の初期値とする（review_gate に width/depth 質問は置かない。変更はファイル直接編集で行う）。既存 Issue（本変更以前に作成されたものでコメントが無いもの）では mt-plan-run の parseEffortFromIssueBody がコメント未検出時に width=medium depth=medium へフォールバックする（既存 Issue 対応）。",
                       '生成直後に `grep -E "<!-- effort: width=(low|medium|high|xhigh|max) depth=(low|medium|high|xhigh|max) -->" issue-body.md` で検証し、不一致・欠落があればコメントを追記/修正して再生成する。値は /^[a-z]+$/ の enum のみを許容し、不正値があれば medium に正規化する。',
