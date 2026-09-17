@@ -28,7 +28,8 @@ import {
   normalizeFindingsStep,
   startDifitReviewStep,
   awaitHumanReviewStep,
-  collectVerdictStep,
+  collectAutonomousVerdictStep,
+  completeHumanReviewStep,
 } from "../mt-review-diff/index.ts";
 import {
   findArtifactText,
@@ -39,10 +40,8 @@ import {
   parseJson,
   isRecord,
   isolateDifitFeedback,
-  cleanupDifitSession,
   describeDifitSelectionDrift,
   requireDifitSelectionDrift,
-  isRoundLimitReached,
   validateEffort,
   DIFIT_CHECK_KEY,
   FINDINGS_KEY as REVIEW_FINDINGS_KEY,
@@ -54,7 +53,7 @@ import {
 } from "../_shared/mt-review-helpers.ts";
 import type { FindingsJson, VerdictJson } from "../_shared/mt-review-helpers.ts";
 import { requireStepArtifacts } from "../_shared/artifact-check";
-import { verifyIssueClosed, verifyIssueOpen } from "../_shared/gh-issue-verify";
+import { verifyIssueClosed } from "../_shared/gh-issue-verify";
 
 /**
  * executor 向けの difit フィードバック文面。
@@ -181,15 +180,9 @@ function formatDifitFeedback(ctx: PromptCtx): string | undefined {
 /// 修正指示として読む。契約: `{ "items": [{ "source": "<findings|verdict|difit|gate:<stepKey>>", "body": "<原文>" }] }`。
 /// 初回など修正ソースが無い実行では items: [] とする。source 語彙は
 /// findings|verdict|difit|gate:<stepKey> のみ（check が allowlist 検証する）。
-/// loop 外ゲート（identify_plan / round_limit_gate 群）の request_changes は巻き戻し不可のため
+/// loop 外ゲート（identify_plan）の request_changes は巻き戻し不可のため
 /// 統合対象外とし、gateAnswers に現れたら check が fail する。
 const FEEDBACK_KEY = "feedback.json";
-
-/// round limit 受容で must が残存したまま done へ進む場合に、別計画 Issue の
-/// 起票証明として要求するセッションファイル（req-1）。契約: プレーンテキストの
-/// Issue 番号（`^[0-9]+$`）。finalize_done の check が実在・OPEN・計画自身との
-/// 相違を gh で検証する。loop 外からの継続は設けない（再計画は完了後の別 Issue で行う）。
-const REPLAN_KEY = "replan-plan-number.txt";
 
 interface FeedbackItem {
   source: string;
@@ -213,12 +206,6 @@ function gateAnswerValue(answer: unknown): string | undefined {
   return undefined;
 }
 
-/// NOTE(arch-1): 以下の loop/decision ヘルパー群（gateDecisionValue /
-/// collectGateReworkRequests / judgeGateRework / isHumanReviewPhase / roundStallDetected /
-/// effectiveReviewRound）は汎用語彙だが、plan-run 固有の round 写像（自律 loop の反復 →
-/// effort.json の round 前進、人間 loop では据え置き）と結合しているため _shared へ移動せず
-/// plan-run 所有とする。将来 2 件目の loop 消費者が現れたら、純粋な回答読み
-/// （gateDecisionValue / gateDecisionInput）のみ _shared へ切り出す。
 /// loop 内 human_gate の decision 回答値を読む（純粋関数）。
 /// choice_with_input 回答は `{ value, input? }`、single_choice 回答は文字列。
 /// 未回答（ゲート skip 時など）は undefined。
@@ -284,11 +271,7 @@ function gateOutcomeQuestionKey(stepKey: string): string | undefined {
 /// loop 外で check が continue を返すとエンジンが fail-fast するため、loop 外ゲートに
 /// request_changes を持たせない。gateAnswers に loop 外ゲートの request_changes が現れたら
 /// （旧定義の残留・直 craft）、無音で捨てず apply_feedback の check が fail する。
-const LOOP_OUTSIDE_GATE_KEYS = [
-  "identify_plan",
-  "round_limit_gate",
-  "round_limit_passed_gate",
-] as const;
+const LOOP_OUTSIDE_GATE_KEYS = ["identify_plan"] as const;
 
 /// gateAnswers 世代管理の skip 判定 registry（collectGateReworkRequests の唯一の参照先）。
 /// loop 内 human_gate のうち condition を持つものは、step の condition と同一関数を
@@ -300,7 +283,6 @@ const GATE_SKIP_CONDITIONS: Record<
   string,
   (ctx: { sessionDir: string; artifacts: ArtifactRecord[] }) => boolean
 > = {
-  round_stall_gate: (ctx) => roundStallDetected(ctx),
   await_human_review: (ctx) => isHumanReviewPhase(ctx),
 };
 
@@ -317,7 +299,7 @@ const FEEDBACK_SOURCE_PATTERN = /^(findings|verdict|difit|gate:[A-Za-z0-9_]+)$/;
 /// NOTE(logic-1): skip されたゲートの stale 回答を残留させない。gateAnswers は loop 反復を
 /// またいで最新回答を保持するため、前反復の request_changes が残っていても、当該反復で
 /// ゲートが skip（condition false）なら差し戻し対象外とする。skip 判定は各ゲートの
-/// condition と同一写像（round_stall_gate → roundStallDetected、await_human_review →
+/// condition と同一写像（await_human_review →
 /// isHumanReviewPhase）で行い、写像ドリフトを作らない。ctx 省略時は旧来どおり全件収集
 /// （呼び出し側は ctx を渡すこと。apply_feedback / execute_work / judge は渡す）。
 function collectGateReworkRequests(
@@ -365,14 +347,6 @@ function collectGateReworkRequests(
   return out;
 }
 
-/// verdict.json の round と findings.json の round の大きい方を「実効ラウンド」として扱う。
-/// collect_verdict / サブエージェントが verdict に古い round を書いても、findings.json は
-/// effort.json の前進（advanceReviewRound）を継承するため、上限判定は実効ラウンドで行い、
-/// verdict.round の不追従による終端不能（round_limit_gate へ到達しない反復）を防ぐ。
-function effectiveReviewRound(verdict: VerdictJson, findings: FindingsJson | undefined): number {
-  return findings ? Math.max(verdict.round, findings.round) : verdict.round;
-}
-
 /// findings.json を artifacts → セッションファイルの順で解決し、検証済みの値だけ返す。
 function resolveReviewFindings(ctx: {
   sessionDir: string;
@@ -395,199 +369,6 @@ function resolveReviewVerdict(ctx: {
     readSessionFile(ctx.sessionDir, REVIEW_VERDICT_KEY);
   const verdict = validateVerdictJson(verdictRaw);
   return verdict.valid ? verdict.parsed : undefined;
-}
-
-/// round_limit_gate / release_difit_session の condition。
-///
-/// 1. verdict が解決できる場合: 実効ラウンド（verdict / findings の大きい方）が上限到達か。
-/// 2. verdict を解決できない場合: collect_verdict の error が連続し、effort.json の round
-///    だけがループカウンタとして前進している経路。effort.json の round が上限に達して
-///    いれば true とし、condition が attemptResult を持たなくても人間ゲートへ到達できる
-///    ようにする（error が決定論的に再発しても execute_work を無制限に反復しない）。
-function roundLimitReached(ctx: { sessionDir: string; artifacts: ArtifactRecord[] }): boolean {
-  const verdict = resolveReviewVerdict(ctx);
-  if (verdict) {
-    const findings = resolveReviewFindings(ctx);
-    return isRoundLimitReached({
-      ...verdict,
-      round: effectiveReviewRound(verdict, findings),
-    });
-  }
-  const effortRaw =
-    findArtifactText(ctx.artifacts, REVIEW_EFFORT_KEY, ctx.sessionDir) ??
-    readSessionFile(ctx.sessionDir, REVIEW_EFFORT_KEY);
-  const effort = validateEffort(parseJson(effortRaw), { allowRoundOverflow: true });
-  return effort.status === "pass" && effort.round >= REVIEW_ROUND_LIMIT;
-}
-
-/// 実効ラウンドが上限に達した「通過済み」レビューか（round_limit_passed_gate の condition）。
-/// human_gate の文言は静的なため、passed による文言分岐は condition で提示ゲートを
-/// 分離して行う（通過済みは「上限到達・通過済み。後始末へ」、未通過は従来の文言）。
-function roundLimitPassed(ctx: { sessionDir: string; artifacts: ArtifactRecord[] }): boolean {
-  const verdict = resolveReviewVerdict(ctx);
-  if (!verdict) return false;
-  const round = effectiveReviewRound(verdict, resolveReviewFindings(ctx));
-  return verdict.passed && round > REVIEW_ROUND_LIMIT;
-}
-
-/// 実効ラウンドが上限に達した「未通過」レビューか（round_limit_gate の condition）。
-/// verdict を解決できない連続 error のエスカレーションもこちらへ倒す。
-function roundLimitUnpassed(ctx: { sessionDir: string; artifacts: ArtifactRecord[] }): boolean {
-  return roundLimitReached(ctx) && !roundLimitPassed(ctx);
-}
-
-/// collect_verdict の check（origCheck）と同じ解決チェーンで verdict を解決する。
-/// artifact（report 申告）→ セッションファイル → report の subagentOutput の順。
-/// ファイル経路しか見ないと、orchestrator が verdict を subagentOutput にだけ載せた
-/// 場合に round limit の検出（origCheck は fail）と復旧判定（roundLimitReached は false）
-/// が食い違い、上限到達済みでも execute_work へ差し戻される。
-function resolveReviewVerdictRaw(ctx: CheckCtx): string | undefined {
-  return (
-    findArtifactText(ctx.artifacts, REVIEW_VERDICT_KEY, ctx.sessionDir) ??
-    readSessionFile(ctx.sessionDir, REVIEW_VERDICT_KEY) ??
-    ctx.attemptResult.subagentOutput
-  );
-}
-
-/// round limit 到達時の daemon 突合不一致の判定。
-/// mt-review-diff の collectVerdictStep.check は検証パイプライン verifyDifitDryRun の
-/// 結果を理由文に載せるのみで、kind / matched 等の構造化信号を返さない（CheckResult は
-/// {status, reasons} のみ。他ファイル編集禁止の M2 では検証パイプラインに触れない）。
-/// そのため不一致の検出は理由文の固定マーカーに頼らざるを得ない（通常経路の
-/// "does not match" / 上限経路の "ゲート状態と不一致"。いずれも dry-run 出力との
-/// 突合文言）。文言変更で無音に外れる危険があるため、workflow.test.ts の連動テスト
-/// （実 origCheck の理由文にマーカーが残ることの固定）で検出する。
-/// 行単位で dry-run 言及＋不一致マーカーの両方を要求し、他理由（round 不一致等の
-/// 「不一致」単独言及）との cross-reason 誤検出を作らない。
-function isDaemonMismatchReasons(reasons: string[]): boolean {
-  return reasons.some(
-    (reason) =>
-      reason.includes("mt difit check --dry-run") &&
-      (/ゲート状態と不一致/.test(reason) || /does not match/.test(reason)),
-  );
-}
-
-/// findings の round が前回 verdict から前進していない（= レビュー済みラウンドへの
-/// 再入で round 前進の写像が欠落している）状態か。agent_verdict の停滞検出と
-/// round_stall_gate の condition が同じ写像を使う（写像ドリフト防止）。
-function roundStalled(findings: FindingsJson, verdict: VerdictJson | undefined): boolean {
-  if (findings.counts.must <= 0) return false;
-  if (!verdict) return false;
-  return findings.round <= verdict.round;
-}
-
-/// round_stall_gate の condition。findings / verdict をファイル経路から読み、
-/// roundStalled を評価する（condition は attemptResult を持たない）。
-function roundStallDetected(ctx: { sessionDir: string; artifacts: ArtifactRecord[] }): boolean {
-  const findingsRaw =
-    findArtifactText(ctx.artifacts, REVIEW_FINDINGS_KEY, ctx.sessionDir) ??
-    readSessionFile(ctx.sessionDir, REVIEW_FINDINGS_KEY);
-  const findings = validateFindingsJson(findingsRaw);
-  if (!findings.valid || !findings.parsed) return false;
-  const verdictRaw =
-    findArtifactText(ctx.artifacts, REVIEW_VERDICT_KEY, ctx.sessionDir) ??
-    readSessionFile(ctx.sessionDir, REVIEW_VERDICT_KEY);
-  const verdict = validateVerdictJson(verdictRaw);
-  return roundStalled(findings.parsed, verdict.valid ? verdict.parsed : undefined);
-}
-
-/// 次ラウンドのレビュー番号（effort.json の round）を決定論的に 1 進める。
-///
-/// normalize_findings は effort.json の round を findings.json へ継承し、collect_verdict は
-/// findings.json の round を verdict.json へ継承する。execute_work へのループバック時に
-/// ここで effort.json の round を進めないと round が 1 のまま固定され、round_limit_gate
-/// （round 上限の人間判断）へ到達しない。呼び出し元（agent_verdict / collect_verdict）は
-/// この失敗を error として報告し、無音の no-op を作らない（round が進まないまま
-/// 高コストな SubAgent 実行を反復する無限ループを防ぐ）。
-///
-/// 書き込みは一時ファイル + rename でアトミック化し、truncate→write 中の
-/// プロセス終了や並行実行で effort.json が破損する窓を作らない。
-/// 更新後は読み直して round が実際に進んだことまで検証する。
-///
-/// NOTE(arch-1): check の純粋性と二重呼びの安全のため CAS で冪等化する。check は判定と
-/// 同時に round を進める副作用を持つ（計画 Issue 97「round は自律 loop 反復に写像」を
-/// 維持するため、前進の主体は自律 loop の継続判定 = agent_verdict / collect_verdict /
-/// judge_autonomous の check に限る。人間 loop の継続では進めない）。同一入力での二重呼び
-/// （check 再評価・report リトライ）が silent double-advance にならないよう、呼び出し元は
-/// expectedRound（当該反復の論理時計 = findings.round 等）を必ず渡す。effort.round が既に
-/// expected を超えていれば前進済みとして書き込まず現在の値を返す。二重呼び回帰テストで固定。
-/// effort.round が expected を下回る（effort.json が findings より巻き戻っている）場合は
-/// round 写像の破損として error にし、無音の追従をしない。
-/// expectedRound は必須である。両時計（findings / verdict）不在のまま無条件 +1 すると
-/// 無審査で round を消費して round limit へ早送りする（logic-1/logic-3）。時計不在の
-/// 呼び出し元は前進せず error で止める（collect_verdict 復旧経路・judge_autonomous）。
-function advanceReviewRound(
-  sessionDir: string,
-  expectedRound: number,
-): { round: number; advanced: boolean } {
-  const effortPath = join(sessionDir, "effort.json");
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(fs.readFileSync(effortPath, "utf-8"));
-  } catch (error) {
-    throw new Error(`effort.json を読めません (${effortPath}): ${String(error)}`);
-  }
-  // round の契約検証は validateEffort（SoT）に委譲する。round=0 / 小数 / 欠落は
-  // ここでも throw し、サイトごとに合否が割れる手書き検証を置かない。
-  const validation = validateEffort(parsed, { allowRoundOverflow: true });
-  if (validation.status !== "pass") {
-    throw new Error(
-      `effort.json の契約が不正です (${effortPath}): ${validation.reasons.join(" / ")}`,
-    );
-  }
-  const effort = parsed as Record<string, unknown>;
-  const round = validation.round;
-
-  // CAS 冪等化: 既に前進済みなら書き込まない（二重呼びの silent double-advance を防ぐ）。
-  if (round > expectedRound) return { round, advanced: false };
-  if (round < expectedRound) {
-    throw new Error(
-      `effort.json の round=${round} が当該反復の round=${expectedRound} を下回っています。round 写像が破損しています（effort.json が巻き戻された可能性）。effort.json を確認・修正するか、セッションを中断してください`,
-    );
-  }
-
-  effort.round = round + 1;
-  const tmpPath = `${effortPath}.tmp-${process.pid}`;
-  try {
-    fs.writeFileSync(tmpPath, `${JSON.stringify(effort, null, 2)}\n`, "utf-8");
-    fs.renameSync(tmpPath, effortPath);
-  } catch (error) {
-    try {
-      fs.rmSync(tmpPath, { force: true });
-    } catch {}
-    throw new Error(`effort.json の round 更新に失敗しました (${effortPath}): ${String(error)}`);
-  }
-
-  // rename 後も round が進んだことを読み直して検証する（無音の no-op を作らない）。
-  const updated = JSON.parse(fs.readFileSync(effortPath, "utf-8")) as Record<string, unknown>;
-  if (updated.round !== round + 1) {
-    throw new Error(
-      `effort.json の round 更新を検証できませんでした (expected ${round + 1}, got ${String(updated.round)})`,
-    );
-  }
-  return { round: round + 1, advanced: true };
-}
-
-/// セッションファイルへ JSON テキストをアトミックに書き込む（tmp + rename + 再読検証）。
-/// collect_verdict の round-limit エスカレーション等、SoT 化する永続化はこの経路に一本化し、
-/// writeFileSync 直書き（非 atomic・破損時全下流誤判定）を作らない。内容の一致まで検証する。
-function writeSessionFileAtomic(sessionDir: string, key: string, content: string): void {
-  const filePath = join(sessionDir, key);
-  const normalized = content.endsWith("\n") ? content : `${content}\n`;
-  const tmpPath = `${filePath}.tmp-${process.pid}`;
-  try {
-    fs.writeFileSync(tmpPath, normalized, "utf-8");
-    fs.renameSync(tmpPath, filePath);
-  } catch (error) {
-    try {
-      fs.rmSync(tmpPath, { force: true });
-    } catch {}
-    throw new Error(`${key} の永続化に失敗しました (${filePath}): ${String(error)}`);
-  }
-  const reread = fs.readFileSync(filePath, "utf-8");
-  if (reread !== normalized) {
-    throw new Error(`${key} の永続化を検証できませんでした (再読内容が不一致)`);
-  }
 }
 
 /// difit-check.json の blocking テキスト（body＋人間 reply）を解決する。
@@ -813,31 +594,19 @@ function buildFeedbackCoverageExpected(
   };
 }
 
-/// await_human_review の condition が使う人相判定（純粋関数）。
-/// findings.json の must 件数で自律段階（must>0）か人相段階（must==0）かを振り分ける。
-/// findings を機械的に確認できない場合（欠落・不正）は false を返してゲートを提示しない。
-/// 提示→回答→破棄の無駄な往復を作らず、judge_human の check が findings を再検証して
-/// error へ一本化する（req-2。自律段階の異常を人間レビューにすり替えない）。
-/// condition と check の写像ドリフト防止のため、人相判定本体はこの関数のみ使う。
-/// judge_human の check はこの関数を呼ぶ前に findings を再検証して不正時は error で
-/// 返すため、不正時にここが false を返しても error 経路は保たれる（分岐の分離。
-/// condition は boolean しか返せないため理由は check 側に載せる）。
+/// must=0 または自律上限で通常の人間レビューへ渡す。
 function isHumanReviewPhase(ctx: { sessionDir: string; artifacts: ArtifactRecord[] }): boolean {
   const findingsRaw =
     findArtifactText(ctx.artifacts, REVIEW_FINDINGS_KEY, ctx.sessionDir) ??
     readSessionFile(ctx.sessionDir, REVIEW_FINDINGS_KEY);
   const findingsResult = validateFindingsJson(findingsRaw);
   if (!findingsResult.valid || !findingsResult.parsed) return false;
-  return findingsResult.parsed.counts.must === 0;
+  return (
+    findingsResult.parsed.counts.must === 0 || findingsResult.parsed.round >= REVIEW_ROUND_LIMIT
+  );
 }
 
-/// gate 回答値の純粋判定（arch-1）。round 前進などの副作用を持たない。
-/// judgeGateRework の分岐本体であり、判定と永続化（advanceReviewRound）の分離点。
-///   - missing（未回答）→ error（ゲートは実行されたのに回答が無い異常）
-///   - pass（approve）→ loop 脱出
-///   - continue（request_changes）→ loop 先頭へ巻き戻り（前進は呼び出し元が決める）
-///   - abort → error（中断意図の記録。未知値 fail とは分離）
-///   - unknown → fail（値語彙の想定外。旧 revise 値もここで検出）
+/// 人間ゲート回答を loop の判定へ写像する。
 function decideGateRework(
   value: string | undefined,
 ): "pass" | "continue" | "abort" | "unknown" | "missing" {
@@ -848,25 +617,9 @@ function decideGateRework(
   return "unknown";
 }
 
-/// loop 内 human_gate の request_changes 差し戻しを判定 `continue` へ変換する。
-///
-/// 4分岐＋abort 明示（pass フォールバックなし）:
-///   - 未回答（undefined）→ error（ゲートは実行されたのに回答が無い異常）
-///   - approve → pass（loop を脱出して後続へ）
-///   - request_changes → continue（loop 先頭へ巻き戻り。report の nextAction は repeat）
-///   - abort → error（中断意図の記録。未知値 fail とは分離する。CheckResult に abort
-///     語彙は無いため error で中断意図を残し、round 前進・巻き戻しは行わない。
-///     round_stall_gate / await_human_review は abort を正規選択肢に持つ）
-///   - 未知値 → fail（値語彙の想定外。無言で pass へ丸めない）
-/// 旧 revise 値は受理しない（計画 Issue 97「後方互換は作らない」。in-flight に残る旧値は
-/// fail で検出し、理由に移行先（request_changes）を案内する。互換シムなし）。
-/// round 前進の有無は呼び出し元が決める。自律 loop の反復は effort.json の round へ写像
-/// するため前進させ、人間 loop では進めない。前進の失敗は error として報告し、無音の
-/// no-op を作らない（round が進まないまま高コストな SubAgent 実行を反復する無限ループを防ぐ）。
 function judgeGateRework(
   value: string | undefined,
   opts: { gateKey: string; loopKey: string; headKey: string },
-  round: { advance: boolean; sessionDir: string; expectedRound?: number },
 ): CheckResult {
   const decision = decideGateRework(value);
   if (decision === "missing") {
@@ -898,36 +651,6 @@ function judgeGateRework(
         `${opts.gateKey} の回答値が想定外です: ${value}（approve / request_changes のいずれか。旧 revise 値は新エンジン契約で撤去済みのため request_changes を使ってください。互換受理はしない）`,
       ],
     };
-  }
-  if (round.advance) {
-    // round の論理時計が無いまま前進させると、無審査で round を消費して
-    // round limit へ早送りする（logic-1/logic-3）。時計不在は error で止める。
-    if (round.expectedRound === undefined) {
-      return {
-        status: "error",
-        reasons: [
-          `failed to prepare next review round: ${opts.gateKey} の継続判定に round の論理時計がありません（findings.json を解決できません）。round を前進できないため loop は round limit へ到達できません。findings.json を確認・修正するか、セッションを中断してください`,
-        ],
-      };
-    }
-    try {
-      const advanced = advanceReviewRound(round.sessionDir, round.expectedRound);
-      return {
-        status: "continue",
-        reasons: [
-          advanced.advanced
-            ? `${opts.gateKey} request_changes — rewind ${opts.loopKey} to ${opts.headKey} (round を ${advanced.round} へ前進)`
-            : `${opts.gateKey} request_changes — rewind ${opts.loopKey} to ${opts.headKey} (round は前進済み ${advanced.round}。二重呼びのため書き込まない)`,
-        ],
-      };
-    } catch (error) {
-      return {
-        status: "error",
-        reasons: [
-          `failed to prepare next review round: ${String(error)}。round を前進できないため loop は round limit へ到達できません。effort.json を確認・修正するか、セッションを中断してください`,
-        ],
-      };
-    }
   }
   return {
     status: "continue",
@@ -1220,35 +943,22 @@ const def: WorkflowDef = {
     },
 
     // -------------------------------------------------------------------
-    // ネスト loop: 実行・検証・修正サイクル（巻き戻しは loop の continue に一本化）
-    //   外側 human_review_cycle（人間サイクル）/ 内側 autonomous_review_cycle（自律サイクル）。
-    //   maxIterations は両 loop とも 3（REVIEW_ROUND_LIMIT 踏襲）。
-    //   onExhausted は escalate で round_limit_gate 群の人間判断へ渡る（自律上限は
-    //   collect_verdict の round limit 検出経由、人間上限は直接）。
-    //   round（effort.json / findings.json）は自律 loop の反復に写像し、人間 loop では進めない。
-    //   内側 loop の continue は本体先頭 = apply_feedback へ巻き戻り、外側 loop の continue は
-    //   外側本体先頭（= 内側 loop）へ巻き戻って範囲内の内側 loop の反復状態を初期化する
-    //   （範囲外の祖先は温存。エンジン仕様）。
-    //   loop 外で check が continue を返すとエンジンが fail-fast する。
-    //   対応エンジン: tado#24（type: "loop" / 判定 continue / onExhausted / gateAnswers 注入）以降、
-    //   内外 loop の状態扱いは tado#25 確定（範囲内のみ初期化・範囲外温存）を正とする
-    //   （bun.lock の tado リビジョンを正とする。旧エンジンでは loop 未知→定義無視/起動失敗、
-    //   loop 外 continue→fail-fast、gateAnswers 空→全 judge が error になる fail-closed。
-    //   旧契約へのフォールバックは計画 Issue 97 の撤去方針に反するため設けない）。
-    //   loop 外ステップの check が continue を返さないことは workflow.test.ts の構造テストで固定する。
-    // -------------------------------------------------------------------
+    // 内外とも最大5回。自律上限は通常通過で人間レビューへ渡す。
+    // 人間側が全回差し戻した場合だけ onExhausted によりエンジンが paused にする。
+    // effort.round は normalize 前に ctx.loop.iteration から設定するため、
+    // 外側巻き戻しによる内側 iteration=1 への初期化が予算再付与になる。
     {
       key: "human_review_cycle",
       phase: "人間サイクル",
       type: "loop",
-      maxIterations: 3,
+      maxIterations: REVIEW_ROUND_LIMIT,
       onExhausted: "escalate",
       body: [
         {
           key: "autonomous_review_cycle",
           phase: "自律サイクル",
           type: "loop",
-          maxIterations: 3,
+          maxIterations: REVIEW_ROUND_LIMIT,
           onExhausted: "escalate",
           body: [
             // -------------------------------------------------------------------
@@ -1595,9 +1305,6 @@ const def: WorkflowDef = {
                 }
                 // 統一最低ライン: executor 返却 JSON の集約物を成果物として強制。
                 // 内容の妥当性検証は下流の reviewer/verdict（daemon 突合）に委譲する。
-                // 反復は loop の continue に一本化されているため、ここで round を進めない
-                // （round 前進の主体は自律 loop 内の継続判定 = agent_verdict / collect_verdict /
-                // judge_autonomous のみ。人間 loop の継続では進めない）。
                 // apply_feedback との接続: gate 差し戻しがあるのに feedback.json の items が
                 // 空・不在なら、差し戻しが握り潰されるため fail（LLM の申告だけに頼らない最小限の接続）。
                 // skip ゲートの stale 回答は同一写像で除外する（世代管理）。
@@ -1708,29 +1415,7 @@ const def: WorkflowDef = {
                   findArtifactText(ctx.artifacts, REVIEW_EFFORT_KEY, ctx.sessionDir) ??
                   readSessionFile(ctx.sessionDir, REVIEW_EFFORT_KEY);
                 if (existingRaw) {
-                  const result = origCheck(ctx);
-                  if (result.status !== "fail") return result;
-                  // 自律 loop の継続で round が上限を超えた後の再入では、execute_work ではなく
-                  // agent_verdict / collect_verdict / judge_autonomous の check が round を +1 した
-                  // 後（round > REVIEW_ROUND_LIMIT）に resolve_effort が再実行される。
-                  // mt-review-diff の check は上限超過を fail で返すが、plan-run の resolve_effort は
-                  // onFail: abort のため、そのまま返すと人間ゲート（collect_verdict → round_limit_gate）
-                  // へ到達できずセッションが終了する。round の超過のみを人間が選んだ継続再入として
-                  // 許容し、上限の再判定は collect_verdict → round_limit_gate に委ねる。
-                  // width/depth/base/target の契約は mt-review-diff と共有の純粋関数 validateEffort で
-                  // 判定する（手書きの再実装を置かず、差は allowRoundOverflow だけにする）。
-                  const validation = validateEffort(parseJson(existingRaw), {
-                    allowRoundOverflow: true,
-                  });
-                  if (validation.status === "pass" && validation.overflow) {
-                    return {
-                      status: "pass",
-                      reasons: [
-                        `round limit continuation: round=${validation.round} > ${REVIEW_ROUND_LIMIT}。execute_work 再入時に前進した round を継続し、上限の再判定は collect_verdict → round_limit_gate が行います`,
-                      ],
-                    };
-                  }
-                  return result;
+                  return origCheck(ctx);
                 }
                 // effort.json がない場合、Issue body の HTML コメントのみで判定する
                 const issueBody = (() => {
@@ -1815,10 +1500,7 @@ const def: WorkflowDef = {
               check: (ctx: CheckCtx): CheckResult => {
                 const base = collectContextStep.check(ctx);
                 if (base.status !== "pass") return base;
-                // effort.json（width/depth/round を含む）の契約を機械検証する。round が無い/不正の
-                // まま agent_verdict のループバックへ進むと、round を前進できず round limit の
-                // 人間ゲートへ到達しない無限ループになる。round の契約（1 以上の整数・必須）は
-                // validateEffort（SoT）に一本化し、resolve_effort / normalize と同じ判定にする。
+                // effort の契約を単独レビューと同じ規則で検証する。
                 const effortRaw =
                   findArtifactText(ctx.artifacts, REVIEW_EFFORT_KEY, ctx.sessionDir) ??
                   readSessionFile(ctx.sessionDir, REVIEW_EFFORT_KEY);
@@ -1831,9 +1513,8 @@ const def: WorkflowDef = {
                     ],
                   };
                 }
-                // collect_context はループバック（round > LIMIT の継続再入）でも実行されるため、
-                // round の上限超過は許容して契約違反（欠落・0・小数）だけを fail にする。
-                const validation = validateEffort(effort, { allowRoundOverflow: true });
+                // effort の契約は単独レビューと共有する。
+                const validation = validateEffort(effort);
                 if (validation.status !== "pass") {
                   return {
                     status: "fail",
@@ -1863,13 +1544,20 @@ const def: WorkflowDef = {
             {
               ...normalizeFindingsStep,
               phase: "findings 正規化",
+              beforeStep: async (ctx) => {
+                const effortPath = join(ctx.sessionDir, REVIEW_EFFORT_KEY);
+                const effort = JSON.parse(fs.readFileSync(effortPath, "utf-8"));
+                effort.round = ctx.loop!.iteration;
+                fs.writeFileSync(effortPath, `${JSON.stringify(effort, null, 2)}\n`, "utf-8");
+                return [];
+              },
             },
 
             // -------------------------------------------------------------------
             // Step 5.5: 自律判定（plan-run 所有 — must>0 なら自律 loop の continue で反復）
             //         反復は loop 本体の check が返す判定 `continue` で行い、本体先頭の
             //         apply_feedback へ巻き戻る（report の nextAction は repeat）。
-            //         round は自律 loop の反復に写像するため、継続時に effort.json を +1 する。
+            //         round は normalize_findings 前にエンジンの反復番号から設定する。
             // -------------------------------------------------------------------
             {
               key: "agent_verdict",
@@ -1887,10 +1575,9 @@ const def: WorkflowDef = {
                     criteria: [],
                     approach: [
                       "1. セッションディレクトリの findings.json を読み、counts.must / counts.should と round を確認する",
-                      "2. round が上限（3）未満で must>0 の場合は修正が必要な旨を報告する（check が自律ループの継続 `continue` を判定し、apply_feedback 先頭へ巻き戻る）",
-                      "3. round が上限（3）に達して must>0 の場合は、round を進めず collect_verdict の round limit 判定から round_limit_gate（人間判断）へエスカレーションする旨を報告する",
-                      "4. round が前回 verdict から進んでいない場合は、round_stall_gate（人間判断）へエスカレーションする旨を報告する",
-                      "5. must==0 の場合は人相へ進める旨を報告する",
+                      `2. round < ${REVIEW_ROUND_LIMIT} で must>0 なら自律ループを継続し、apply_feedback へ戻る。`,
+                      `3. round が上限 ${REVIEW_ROUND_LIMIT} に達したら、残 must / should / want を既存 difit 登録経路で提示し、追加確認なしで await_human_review へ渡す。`,
+                      "4. must==0 の場合も difit 登録後に人間レビューへ進む。",
                     ],
                     output: [],
                     input: [`セッションディレクトリ: ${ctx.sessionDir}`],
@@ -1912,62 +1599,20 @@ const def: WorkflowDef = {
                 const { must, should } = findingsResult.parsed.counts;
                 const round = findingsResult.parsed.round;
                 if (must > 0) {
-                  if (round >= REVIEW_ROUND_LIMIT) {
-                    // 自動ループ上限。ここで continue を返すと round が進まないまま反復し、
-                    // round_limit_gate（人間判断）へ到達できない。また round を LIMIT+1 に
-                    // 前進させると、再入した resolve_effort の上限判定でセッションが終了し、
-                    // エスカレーション経路へ到達しない。round を進めず pass で後段へ進め、
-                    // collect_verdict の round limit 判定から round_limit_gate へエスカレーションする
-                    // （await_human_review は must>0 のため skip される）。
-                    return {
-                      status: "pass",
-                      reasons: [
-                        `autonomous round limit reached: round=${round} >= ${REVIEW_ROUND_LIMIT} (must=${must}). apply_feedback へは戻さず、collect_verdict の round limit 判定で round_limit_gate へエスカレーションします`,
-                      ],
-                    };
-                  }
-
-                  // 前回の verdict より findings の round が実際に進んだことを検証する。
-                  // effort.json の round 前進（advanceReviewRound）が反映されていない
-                  // （= レビュー済みラウンドへの再入）場合、ここで error を返して continue
-                  // すると同条件で決定論的に再発し、人間の介入まで自律ループを反復する。
-                  // round の前進主体が働かない異常として、round_stall_gate（human gate）へ
-                  // エスカレーションする。
-                  const previousVerdictRaw =
-                    findArtifactText(ctx.artifacts, REVIEW_VERDICT_KEY, ctx.sessionDir) ??
-                    readSessionFile(ctx.sessionDir, REVIEW_VERDICT_KEY);
-                  const previousVerdict = validateVerdictJson(previousVerdictRaw);
-                  if (roundStalled(findingsResult.parsed, previousVerdict.parsed)) {
-                    return {
-                      status: "pass",
-                      reasons: [
-                        `round が前回 verdict から進んでいません (findings round=${round} <= verdict round=${previousVerdict.parsed!.round})。apply_feedback へは戻さず、round_stall_gate で人間が round 前進の欠落を判断します`,
-                        "effort.json の round を確認・修正するか、ゲートで request_changes（judge_autonomous が apply_feedback 先頭へ巻き戻し）を選択してください",
-                      ],
-                    };
-                  }
-
-                  try {
-                    // 自律ループの継続 = 次ラウンド。round を進めて findings.json に継承させる。
-                    // round は自律 loop の反復に写像する（人間 loop の継続では進めない）。
-                    // CAS の論理時計は findings.round（二重呼びは前進済みとして no-op）。
-                    const next = advanceReviewRound(ctx.sessionDir, findingsResult.parsed.round);
+                  if (round < REVIEW_ROUND_LIMIT) {
                     return {
                       status: "continue",
                       reasons: [
-                        next.advanced
-                          ? `agent verdict blocked: must=${must} should=${should} -> continue autonomous_review_cycle (rewind to apply_feedback, round を ${next.round} へ前進)`
-                          : `agent verdict blocked: must=${must} should=${should} -> continue autonomous_review_cycle (rewind to apply_feedback, round は前進済み ${next.round}。二重呼びのため書き込まない)`,
-                      ],
-                    };
-                  } catch (error) {
-                    return {
-                      status: "error",
-                      reasons: [
-                        `failed to prepare next review round: ${String(error)}。round を前進できないため自律ループは round limit へ到達できません。effort.json を確認・修正するか、セッションを中断してください`,
+                        `must=${must} should=${should} — continue autonomous_review_cycle (${round}/${REVIEW_ROUND_LIMIT})`,
                       ],
                     };
                   }
+                  return {
+                    status: "pass",
+                    reasons: [
+                      `自律上限 ${round}/${REVIEW_ROUND_LIMIT}。残指摘を既存の start_difit_review で登録し await_human_review へ渡します`,
+                    ],
+                  };
                 }
                 return {
                   status: "pass",
@@ -1975,64 +1620,6 @@ const def: WorkflowDef = {
                     `agent verdict passed: round=${round} must=0 -> proceed to human phase`,
                   ],
                 };
-              },
-            },
-
-            // -------------------------------------------------------------------
-            // Step 5.55: round 前進異常の人間判断（plan-run 所有・自律 loop 内）
-            //         agent_verdict が「findings の round が前回 verdict から進んでいない」
-            //         （= レビュー済みラウンドへの再入で round 前進の写像が欠落）を検出した
-            //         ときだけ condition が true になり、人間が復旧方法を選ぶ。
-            //         human_gate は確認と回答保存のみを行い、巻き戻しは行わない。
-            //         差し戻しは judge_autonomous が gateAnswers を読んで判定 `continue` で行い、
-            //         自律 loop 先頭の apply_feedback へ巻き戻る。
-            //         condition は agent_verdict の検出と同じ roundStalled 写像を使う。
-            // -------------------------------------------------------------------
-            {
-              key: "round_stall_gate",
-              phase: "round 前進異常の判断",
-              type: "human_gate",
-              maxRetries: 1,
-              onFail: { action: "abort" },
-              condition: roundStallDetected,
-              // StepDef 型を満たすための no-op。現行 engine は human_gate の check を実行しない
-              // （回答は confirm が記録する）。次ステップへの通過判定は condition が担う。
-              check: (_ctx: CheckCtx): CheckResult => ({ status: "pass", reasons: [] }),
-              humanGate: {
-                presentArtifacts: [REVIEW_FINDINGS_KEY, REVIEW_VERDICT_KEY, REVIEW_EFFORT_KEY],
-                outcomeQuestionKey: "decision",
-                questions: [
-                  {
-                    key: "decision",
-                    title: "判定",
-                    description:
-                      "findings の round が前回 verdict から前進していません（レビュー済みラウンドへの再入で round 前進の写像が欠落しています）。このまま放置すると、同じ round のレビューを繰り返して round 上限（3）へ到達できません。effort.json の round を確認・修正し、指摘を反映してやり直すを選ぶと、judge_autonomous が gateAnswers を読んで自律ループ先頭（apply_feedback）へ巻き戻し、round を次ラウンドへ前進させてレビューサイクルをやり直します。このまま次のレビューサイクルへ進む（approve）こともできますが、collect_verdict の非通過復旧が round を前進させるため、修正内容によっては再度このゲートが提示されます。中断（abort）する場合は difit セッションの後始末を `mt difit done`（冪等・exit 0）で手動実行してください",
-                    type: "choice_with_input",
-                    choices: [
-                      {
-                        value: "approve",
-                        label: "このまま次のレビューサイクルへ進む",
-                        desc: "round の前進を collect_verdict の非通過復旧（+1）に委ねて続行する。復旧が成立しない場合は再度このゲートが提示される",
-                        input: { required: false, maxLength: 500 },
-                      },
-                      {
-                        value: "request_changes",
-                        label: "指摘を反映してやり直す",
-                        desc: "judge_autonomous が gateAnswers を読んで自律ループ先頭（apply_feedback）へ巻き戻し、入力した修正理由を修正指示に含めてレビューサイクルをやり直す。difit セッション（サーバ・state）は保持され、次ラウンドの start_difit_review が再利用する",
-                        input: {
-                          required: true,
-                          placeholder: "対処内容（effort.json の round 修正など）を入力",
-                          maxLength: 500,
-                        },
-                      },
-                      {
-                        value: "abort",
-                        label: "中断",
-                        desc: "中断する。エンジンが終了するため difit セッションの後始末は実行されない。中断前に `mt difit done`（冪等・exit 0）を手動実行すること",
-                      },
-                    ],
-                  },
-                ],
               },
             },
 
@@ -2049,316 +1636,19 @@ const def: WorkflowDef = {
             // 自律ループ完走後に人間がレビューし、judge_human が gateAnswers を読んで分岐する。
 
             // -------------------------------------------------------------------
-            // Step 7: verdict 収集 & ゲート判定（mt-review-diff から import — difit ゲート）
-            //         自律 loop 内に置く。反復は loop 本体の check が返す判定 `continue` で行い、
-            //         本体先頭の apply_feedback へ巻き戻る（report の nextAction は repeat）。
-            //         round は自律 loop の反復に写像するため、継続時に effort.json を +1 する。
-            // -------------------------------------------------------------------
+            // verdict は非破壊で突合する。異常は tado の onFail に委ねる。
             {
-              ...collectVerdictStep,
-              key: "collect_verdict",
+              ...collectAutonomousVerdictStep,
               phase: "verdict 収集",
               maxRetries: 0,
               onFail: { action: "escalate" },
-              check: (ctx: CheckCtx): CheckResult => {
-                // mt-review-diff の検証 (schema, round 上限, daemon 突合) をまず実行
-                const origCheck = collectVerdictStep.check;
-                const origResult = origCheck(ctx);
-
-                // mt-review-diff の check は「`mt difit check --dry-run`（非破壊）と verdict の突合を
-                // 通過・ブロック両経路で行い、一致した場合のみ pass」する契約。pass 以外（round limit /
-                // セッション不在 / 不一致 / schema error）は plan-run が loop 判定で上書きせず、
-                // 理由に応じて復旧経路へ振り分ける。
-                if (origResult.status !== "pass") {
-                  // fail / error のどちらでも、origCheck と同じ解決チェーン
-                  // （artifacts → セッションファイル → subagentOutput）で verdict を取得して
-                  // round limit を再評価する。error を上限判定から外すと、決定論的に再発する
-                  // error（report 未完・schema 不正・永続化失敗等）が round を前進させながら
-                  // 自律ループを人間の介入まで無制限に反復する。
-                  const verdictRaw = resolveReviewVerdictRaw(ctx);
-                  const verdictResult = validateVerdictJson(verdictRaw);
-                  if (verdictResult.valid && verdictResult.parsed) {
-                    // 上限判定は実効ラウンド（verdict.round と findings.round の大きい方）で行う。
-                    // verdict.round が findings.round に追従しない場合でも、findings.round は
-                    // 自律ループの継続ごとに前進するため、上限到達を素通りさせない。
-                    const findings = resolveReviewFindings(ctx);
-                    const effectiveRound = effectiveReviewRound(verdictResult.parsed, findings);
-                    const effective = { ...verdictResult.parsed, round: effectiveRound };
-                    if (isRoundLimitReached(effective)) {
-                      // ラウンド上限はレビューサイクルを再実行しても解消しない（round は自動で
-                      // 減らない）ため、自律ループへ戻さず人間判定へエスカレーションする。
-                      // collect_verdict 自体は pass として通過させ、次ステップの
-                      // round_limit_gate / round_limit_passed_gate の condition が human gate を
-                      // 提示する。condition は attemptResult を持たないため、subagentOutput 経由で
-                      // 解決した verdict でもファイルから読めるよう永続化し、判定経路を揃える。
-                      //
-                      // NOTE(logic-2): daemon 突合不一致の verdict は永続化しない。不一致 verdict
-                      // （schema は valid だが `mt difit check --dry-run` と食い違う改変・偽装）を
-                      // verdict.json へ上書きすると汚染 verdict が SoT 化し、全下流が誤判定する。
-                      // 不一致のまま pass で抜けず、error に残して verdict 再生成を求める。
-                      // 永続化は tmp+rename+再読の atomic 経路（writeSessionFileAtomic）に一本化する。
-                      // 不一致の検出は isDaemonMismatchReasons（理由文マーカー＋連動テスト）に集約する。
-                      const daemonMismatch = isDaemonMismatchReasons(origResult.reasons);
-                      if (daemonMismatch) {
-                        return {
-                          status: "error",
-                          reasons: [
-                            `round limit 到達時の verdict が \`mt difit check --dry-run\` と不一致です。不一致 verdict を verdict.json へ永続化せず、エスカレーションも行いません（汚染 verdict の SoT 化を防ぐ）。\`mt difit threads --json\` の blocking_threads から verdict を再生成してください`,
-                            ...origResult.reasons,
-                          ],
-                        };
-                      }
-                      try {
-                        writeSessionFileAtomic(ctx.sessionDir, REVIEW_VERDICT_KEY, verdictRaw!);
-                      } catch (error) {
-                        return {
-                          status: "error",
-                          reasons: [
-                            `failed to persist verdict for round limit escalation: ${String(error)}`,
-                          ],
-                        };
-                      }
-                      return {
-                        status: "pass",
-                        reasons: [
-                          effectiveRound !== verdictResult.parsed.round
-                            ? `round limit reached: verdict.round=${verdictResult.parsed.round} が findings.round=${findings?.round} に追従していないため、実効ラウンド ${effectiveRound} を上限到達として扱います`
-                            : `round limit reached (${REVIEW_ROUND_LIMIT}/${REVIEW_ROUND_LIMIT}) — verdict: passed=${effective.passed}`,
-                          ...(origResult.status === "error"
-                            ? [
-                                "collect_verdict は error（report 未完・schema 不正・永続化失敗等）を返しましたが、round 上限に達しているため自律ループへの反復を止め、human gate へエスカレーションします",
-                              ]
-                            : []),
-                          "自動ループを止め、round_limit_gate / round_limit_passed_gate で人間が継続・受容・中断を判断します",
-                          ...origResult.reasons,
-                        ],
-                      };
-                    }
-                  }
-                  if (
-                    origResult.status === "fail" &&
-                    (!verdictResult.valid || !verdictResult.parsed)
-                  ) {
-                    // 上限判定不能を復旧経路へ倒すと、round 上限到達済みでも自律ループを無音で回し続ける。
-                    return {
-                      status: "error",
-                      reasons: [
-                        `上限判定不能: round limit を判定できません。verdict を artifacts / セッションファイル / subagentOutput のどの経路からも解決できませんでした (${verdictResult.error ?? "invalid verdict"})`,
-                        ...origResult.reasons,
-                      ],
-                    };
-                  }
-                  if (
-                    origResult.status === "error" &&
-                    (!verdictResult.valid || !verdictResult.parsed)
-                  ) {
-                    // verdict を解決できない error は round 判定に載らない。effort.json の round を
-                    // ループカウンタとして連続 error を打ち切り、上限に達していれば人間ゲートへ
-                    // エスカレーションする（決定論的に再発する error の無制限反復を止める）。
-                    // round_limit_gate の condition も同じ写像（verdict 不在時は effort.json の
-                    // round を上限判定）を使う。
-                    const effortRaw =
-                      findArtifactText(ctx.artifacts, REVIEW_EFFORT_KEY, ctx.sessionDir) ??
-                      readSessionFile(ctx.sessionDir, REVIEW_EFFORT_KEY);
-                    const effortValidation = validateEffort(parseJson(effortRaw), {
-                      allowRoundOverflow: true,
-                    });
-                    if (
-                      effortValidation.status === "pass" &&
-                      effortValidation.round >= REVIEW_ROUND_LIMIT
-                    ) {
-                      return {
-                        status: "pass",
-                        reasons: [
-                          `collect_verdict が verdict を解決できない error を反復しています（effort.json round=${effortValidation.round} >= ${REVIEW_ROUND_LIMIT}）。自律ループへの反復を止め、round_limit_gate で人間が復旧・中断を判断します`,
-                          ...origResult.reasons,
-                        ],
-                      };
-                    }
-                  }
-                  // セッション不在（dry-run がゲート出力を返さない）・done 実行によるセッション終了・
-                  // 突合不一致・round limit 未到達の fail / error は、自律ループの継続 `continue` で
-                  // 本体先頭（apply_feedback）へ巻き戻り、修正 → 再検証 → start_difit_review
-                  // （セッション復旧）へ載せる（巻き戻しは loop の repeat 遷移に一本化）。
-                  // この経路も「次ラウンド」なので、effort.json の round を前進させる（据え置きは
-                  // 次ラウンドの agent_verdict に round 停滞として検出され、自律ループの反復を招く）。
-                  // round は自律 loop の反復に写像する（人間 loop の継続では進めない）。
-                  // CAS の論理時計は findings.round（無ければ verdict.round）。両時計が無いまま
-                  // 無条件 +1 すると無審査で round を消費して round limit へ早送りするため、
-                  // 前進せず error で止める（logic-1/logic-3 の空転防止）。
-                  const findingsForAdvance = resolveReviewFindings(ctx);
-                  const recoveryRound = findingsForAdvance?.round ?? verdictResult.parsed?.round;
-                  if (recoveryRound === undefined) {
-                    return {
-                      status: "error",
-                      reasons: [
-                        `復旧の継続判定に round の論理時計がありません（findings.json / verdict.json をどちらも解決できません）。round を前進させず停止します。findings.json・verdict.json を確認・修正するか、セッションを中断してください`,
-                        ...origResult.reasons,
-                      ],
-                    };
-                  }
-                  try {
-                    const next = advanceReviewRound(ctx.sessionDir, recoveryRound);
-                    return {
-                      status: "continue",
-                      reasons: [
-                        next.advanced
-                          ? `collect_verdict recovery — continue autonomous_review_cycle (rewind to apply_feedback, round を ${next.round} へ前進)`
-                          : `collect_verdict recovery — continue autonomous_review_cycle (rewind to apply_feedback, round は前進済み ${next.round}。二重呼びのため書き込まない)`,
-                        ...origResult.reasons,
-                      ],
-                    };
-                  } catch (error) {
-                    return {
-                      status: "error",
-                      reasons: [`failed to prepare next review round: ${String(error)}`],
-                    };
-                  }
-                }
-
-                // origCheck が pass を返した時点で verdict.json は検証済み。daemon 突合済みの
-                // passed / blocking_threads だけを使って自律ループの継続を判定する。
-                const verdictRaw = resolveReviewVerdictRaw(ctx);
-                const verdictResult = validateVerdictJson(verdictRaw);
-                if (!verdictResult.valid || !verdictResult.parsed) {
-                  return {
-                    status: "error",
-                    reasons: [
-                      `verdict re-read failed after origCheck pass: ${verdictResult.error ?? "invalid verdict"}`,
-                    ],
-                  };
-                }
-                const verdict = verdictResult.parsed;
-                if (verdict.passed) {
-                  return {
-                    status: "pass",
-                    reasons: [
-                      `verdict passed: round=${verdict.round} blocking=${verdict.blocking_threads.length}`,
-                    ],
-                  };
-                }
-
-                // blocked -> 自律ループの継続 `continue` で本体先頭（apply_feedback）へ巻き戻る。
-                // 継続は次ラウンドの実行なので、effort.json の round を進めて
-                // normalize_findings → findings.json → verdict.json の順に継承させる
-                // （round を 1 にリセットすると round limit が無音で無効化され、gate に到達しない）。
-                // CAS の論理時計は findings.round（無ければ verdict.round。二重呼びは no-op）。
-                try {
-                  const findingsForAdvance = resolveReviewFindings(ctx);
-                  const next = advanceReviewRound(
-                    ctx.sessionDir,
-                    findingsForAdvance?.round ?? verdict.round,
-                  );
-                  const blocking = verdict.blocking_threads.map(
-                    (t: { taxonomy?: string; file?: string; body: string }) =>
-                      `${t.taxonomy ?? "blocking"} ${t.file ?? "(file-level)"}: ${t.body}`,
-                  );
-                  return {
-                    status: "continue",
-                    reasons: [
-                      next.advanced
-                        ? `verdict blocked — continue autonomous_review_cycle (rewind to apply_feedback, round を ${next.round} へ前進)`
-                        : `verdict blocked — continue autonomous_review_cycle (rewind to apply_feedback, round は前進済み ${next.round}。二重呼びのため書き込まない)`,
-                      ...(blocking.length > 0 ? blocking : []),
-                    ],
-                  };
-                } catch (error) {
-                  return {
-                    status: "error",
-                    reasons: [`failed to prepare next review round: ${String(error)}`],
-                  };
-                }
-              },
-            },
-
-            // -------------------------------------------------------------------
-            // Step 7.1: 自律差し戻し判定（plan-run 所有・自律 loop 末尾）
-            //         round_stall_gate の gateAnswers を読んで分岐する loop の check。
-            //         request_changes → 判定 `continue` で自律 loop 先頭（apply_feedback）へ
-            //         巻き戻る（round を次ラウンドへ前進させる）。ゲート skip 時は pass。
-            //         4分岐＋abort 明示（judgeGateRework）に pass フォールバックは設けない。
-            //         NOTE(ai-2): このステップは read-only ではない。agent への指示は
-            //         report のみだが、check が自律 loop の継続時に effort.json の round を
-            //         決定論的に前進させる（CAS 冪等）。readonly:true の宣言は実態と
-            //         合わないため外す。judge_human（round 前進なし）は readonly のまま。
-            // -------------------------------------------------------------------
-            {
-              key: "judge_autonomous",
-              phase: "自律差し戻し判定",
-              type: "task",
-              maxRetries: 0,
-              onFail: { action: "abort" },
-              task: {
-                action: "orchestrate",
-                readonly: false,
-                buildPrompt: (ctx: PromptCtx) =>
-                  buildStepPrompt({
-                    purpose: [
-                      "round_stall_gate の人間判断（gateAnswers）を分岐判定の材料として報告する。分岐自体はこのステップの check が行う。",
-                    ],
-                    criteria: [],
-                    approach: [
-                      "- agent は report のみ行い、ファイルの作成・編集、`mt difit` コマンドの実行をしない（agent の作業は read-only）",
-                      "- 分岐判定と round 前進は check が決定論的に行う（request_changes の継続時は effort.json の round を次ラウンドへ前進させる）。分岐判定が check に委ねられていることを報告する",
-                    ],
-                    output: [],
-                    input: [`セッションディレクトリ: ${ctx.sessionDir}`],
-                  }),
-              },
-              check: (ctx: CheckCtx): CheckResult => {
-                // stall ゲートが skip された反復では差し戻し対象が無いため pass（回答の有無を問わない）。
-                if (!roundStallDetected(ctx)) {
-                  return {
-                    status: "pass",
-                    reasons: ["round_stall_gate skipped (no stall) — no rework requested"],
-                  };
-                }
-                // CAS の論理時計は findings.round（stall 検出済みのため解決できるはず）。
-                // 解決できない場合は時計不在として前進せず error で止める（logic-1/logic-3）。
-                const findingsForJudge = resolveReviewFindings(ctx);
-                if (findingsForJudge === undefined) {
-                  return {
-                    status: "error",
-                    reasons: [
-                      "round stall を検出しましたが findings.json を再読できません。round の論理時計が無いため前進せず停止します。findings.json を確認・修正するか、セッションを中断してください",
-                    ],
-                  };
-                }
-                // NOTE(ai-2): この judge は round_stall_gate（自律 loop 内の人相ゲート）を
-                // 固定読みする。collect（collectGateReworkRequests）は動的走査のため、新規
-                // loop 内ゲート追加時はこの judge の走査対象へ追加すること。追加漏れは
-                // workflow.test.ts の構造テスト（loop 内ゲートの judge 言及の強制）が検出する。
-                return judgeGateRework(
-                  gateDecisionValue(ctx.gateAnswers, "round_stall_gate"),
-                  {
-                    gateKey: "round_stall_gate",
-                    loopKey: "autonomous_review_cycle",
-                    headKey: "apply_feedback",
-                  },
-                  {
-                    advance: true,
-                    sessionDir: ctx.sessionDir,
-                    expectedRound: findingsForJudge.round,
-                  },
-                );
-              },
             },
           ], // autonomous_review_cycle body
         },
 
         // -------------------------------------------------------------------
-        // Step 8: 人間レビュー待機（mt-review-diff から import — 旧 await_review 置換）
-        //         人間サイクル（外側 loop 本体）に置く。自律ループが完走した後に人間が
-        //         difit 上でレビューする。2段階ループ: 自律段階（findings must>0）は人へ
-        //         渡さず human gate を skip し、must=0 の人相段階でのみ人レビューを行う。
-        //         skip はループ所有者である plan-run 専用の意味論（mt-review-diff 単独では
-        //         must>0 でも必ず人間に提示する）ため、import 元の step に condition が
-        //         無いことを前提にここで condition を override する。condition の判定本体は
-        //         isHumanReviewPhase（judge_human と共有する純粋関数）に置く。
-        //         human_gate は確認と回答保存のみを行い、巻き戻しは行わない。差し戻しは
-        //         judge_human が gateAnswers を読んで判定 `continue` で行い、人間 loop 先頭
-        //         （= 自律ループ）へ巻き戻る。
-        // -------------------------------------------------------------------
+        // 自律上限または must=0 で既存 difit セッションを人間に提示する。
+        // 差し戻しは judge_human が外側 loop の continue に変換する。
         {
           ...awaitHumanReviewStep,
           phase: "人間レビュー待機",
@@ -2373,6 +1663,7 @@ const def: WorkflowDef = {
               if (question.key !== "decision") return question;
               return {
                 ...question,
+                description: `自律レビューは must=0 または上限 ${REVIEW_ROUND_LIMIT} 回で終了します。findings.json の round が ${REVIEW_ROUND_LIMIT} なら自律上限到達です。残 must / should / want は重要度を変えず difit に登録済みです。difit-start.json の URL を開き、修正結果を確認してください。承認には difit 上の未解決 must=0 が必須です。未修正受容や別Issue引き継ぎでは完了できません。差し戻すと自律レビュー最大 ${REVIEW_ROUND_LIMIT} 回の予算を再付与します。`,
                 choices: question.choices?.map((choice) =>
                   choice.value === "request_changes"
                     ? {
@@ -2392,7 +1683,7 @@ const def: WorkflowDef = {
         //         request_changes → 判定 `continue` で人間 loop 先頭（= 自律ループ）へ
         //         巻き戻る（範囲内の自律ループの反復状態は初期化される）。
         //         round は人間 loop の反復に写像しないため前進させない。
-        //         ゲート skip 時は pass。4分岐＋abort 明示（judgeGateRework）に pass フォールバックは設けない。
+        //         approve のときだけ最新 difit 検証・後始末へ進む。
         // -------------------------------------------------------------------
         {
           key: "judge_human",
@@ -2402,7 +1693,7 @@ const def: WorkflowDef = {
           onFail: { action: "abort" },
           task: {
             action: "orchestrate",
-            readonly: true,
+            readonly: false,
             buildPrompt: (ctx: PromptCtx) =>
               buildStepPrompt({
                 purpose: [
@@ -2411,7 +1702,7 @@ const def: WorkflowDef = {
                 criteria: [],
                 approach: [
                   "- 状態を変更しない（read-only）。ファイルの作成・編集、`mt difit` コマンドの実行をしない",
-                  "- report のみ行い、分岐判定が check に委ねられていることを報告する",
+                  "- report のみ行う。check が承認時の最新未解決 must=0 を確認し、その後に difit を後始末する。差し戻し時はセッションを保持する。",
                 ],
                 output: [],
                 input: [`セッションディレクトリ: ${ctx.sessionDir}`],
@@ -2433,176 +1724,25 @@ const def: WorkflowDef = {
                 ],
               };
             }
-            // 人相段階でなければゲートは skip されており、差し戻し対象が無いため pass。
+            // 人間レビュー前の状態を完了扱いにしない。
             if (!isHumanReviewPhase(ctx)) {
               return {
-                status: "pass",
-                reasons: ["await_human_review skipped (autonomous phase) — no rework requested"],
+                status: "error",
+                reasons: ["人間レビューへの引き渡し条件を満たしていません"],
               };
             }
-            return judgeGateRework(
+            const decision = judgeGateRework(
               gateDecisionValue(ctx.gateAnswers, "await_human_review"),
               {
                 gateKey: "await_human_review",
                 loopKey: "human_review_cycle",
                 headKey: "autonomous_review_cycle",
               },
-              { advance: false, sessionDir: ctx.sessionDir },
             );
+            return decision.status === "pass" ? completeHumanReviewStep.check(ctx) : decision;
           },
         },
       ], // human_review_cycle body
-    },
-
-    // -------------------------------------------------------------------
-    // Step 7.5: ラウンド上限エスカレーション（plan-run 所有・loop 外）
-    //         collect_verdict が round limit（未通過 / verdict を解決できない error の反復）
-    //         を検出した場合のみ condition が true になり、人間が受容して完了 / 中断を選ぶ。
-    //         human_gate は確認と回答保存のみを行い、巻き戻しは行わない。
-    //         loop 外のゲートのため選択肢は approve/abort のみとし、request_changes は
-    //         持たせない（巻き戻しが起きず記録上通過するだけの未配線選択肢になるため）。
-    //         差し戻しが必要な場合は自律・人間 loop 内の request_changes
-    //         （judge が apply_feedback へ巻き戻す）を使う。condition は passed の有無で
-    //         round_limit_passed_gate と排他にする
-    //         （tado の GateQuestion.description は文字列固定のため、通過済みの文言分岐は
-    //         ゲートの分離で行う）。
-    //         上限未達（通過 verdict）では skipped となり、後続の release_difit_session も
-    //         skipped のまま finalize_done へ進む。
-    //         上限到達後の継続手段は設けない（M2 の設計判断。onExhausted escalate＋loop 外
-    //         continue fail-fast を前提とし、「もう1巡」は撤去済み。追加対応は受容→完了後の
-    //         再計画で行う）。
-    // -------------------------------------------------------------------
-    {
-      key: "round_limit_gate",
-      phase: "ラウンド上限判断",
-      type: "human_gate",
-      maxRetries: 1,
-      onFail: { action: "abort" },
-      condition: roundLimitUnpassed,
-      // StepDef 型を満たすための no-op。現行 engine は human_gate の check を実行しない
-      // （回答は confirm が記録する）。次ステップへの通過判定は condition が担う。
-      check: (_ctx: CheckCtx): CheckResult => ({ status: "pass", reasons: [] }),
-      humanGate: {
-        presentArtifacts: [REVIEW_VERDICT_KEY, REVIEW_FINDINGS_KEY, DIFIT_CHECK_KEY],
-        outcomeQuestionKey: "decision",
-        questions: [
-          {
-            key: "decision",
-            title: "判定",
-            description:
-              "レビューがラウンド上限（3）に達しても未通過です（collect_verdict が verdict を解決できない error を反復している場合もこのゲートに達します。その場合は collect_verdict の理由に error の内容が記録されています）。自律・人間ループは既に終了しているため、このゲートでレビューサイクルへ戻ることはできません（loop 外の continue はエンジンが fail-fast します）。指摘を受容して完了処理へ進むか、中断するかを選択してください。上限到達後に残 must へ追加対応する場合は、受容して完了したうえで別計画 Issue（`mt-plan-create`）で再計画してください。受容すると次のステップ（release_difit_session）が `mt difit done` で difit セッション（サーバ・state）を後始末します。このゲートの前提として、collect_verdict が `mt difit check --dry-run` で verdict（passes / blocking_threads / selection_drift）を difit サーバ実体と突合し、その結果を理由と difit-check.json に反映しています。突合を取得できなかった場合は理由に「検証できていない」と明記されるため、受容の前に difit-check.json と collect_verdict の理由を確認してください。中断（abort）はエンジンが終了するため後始末が実行されません。中断する場合は、先に `mt difit done`（冪等・exit 0）を手動実行してから選択してください",
-            type: "choice_with_input",
-            choices: [
-              {
-                value: "approve",
-                label: "受容して完了処理へ",
-                desc: "未 resolve の指摘を残したまま最終確認（finalize_done）へ進む。difit セッションは次のステップ（release_difit_session）が `mt difit done` で後始末する",
-                input: { required: false, maxLength: 500 },
-              },
-              {
-                value: "abort",
-                label: "中断",
-                desc: "中断する。エンジンが終了するため difit セッションの後始末は実行されない。中断前に `mt difit done`（冪等・exit 0）を手動実行すること",
-              },
-            ],
-          },
-        ],
-      },
-    },
-
-    // -------------------------------------------------------------------
-    // Step 7.55: ラウンド上限到達・通過済みの人間判断（plan-run 所有）
-    //         round_limit_gate の description は verdict.passed を静的に反映できない
-    //         （tado の GateQuestion.description は文字列固定）ため、passed の有無で
-    //         提示ゲートを分離する。通過済みでは「上限到達・通過済み。後始末へ」を提示し、
-    //         未通過ゲートの文言（未 resolve を残したまま等）を出さない。
-    // -------------------------------------------------------------------
-    {
-      key: "round_limit_passed_gate",
-      phase: "ラウンド上限判断（通過済み）",
-      type: "human_gate",
-      maxRetries: 1,
-      onFail: { action: "abort" },
-      condition: roundLimitPassed,
-      // StepDef 型を満たすための no-op。現行 engine は human_gate の check を実行しない
-      // （回答は confirm が記録する）。次ステップへの通過判定は condition が担う。
-      check: (_ctx: CheckCtx): CheckResult => ({ status: "pass", reasons: [] }),
-      humanGate: {
-        presentArtifacts: [REVIEW_VERDICT_KEY, REVIEW_FINDINGS_KEY, DIFIT_CHECK_KEY],
-        outcomeQuestionKey: "decision",
-        questions: [
-          {
-            key: "decision",
-            title: "判定",
-            description:
-              "レビューはラウンド上限（3）に達したうえで通過済み（verdict passed=true）です。追加の修正サイクルは不要なので、後始末へ進むか中断するかを選択してください。「受容して後始末へ」を選ぶと次のステップ（release_difit_session）が `mt difit done` で difit セッション（サーバ・state）を後始末し、最終確認（finalize_done）へ進みます。このゲートの前提として、collect_verdict が `mt difit check --dry-run` で verdict（passes / blocking_threads / selection_drift）を difit サーバ実体と突合し、その結果を理由と difit-check.json に反映しています。中断（abort）はエンジンが終了するため後始末が実行されません。中断する場合は、先に `mt difit done`（冪等・exit 0）を手動実行してから選択してください",
-            type: "choice_with_input",
-            choices: [
-              {
-                value: "approve",
-                label: "上限到達・通過済み。後始末へ",
-                desc: "通過済みの verdict を受容し、次のステップ（release_difit_session）の `mt difit done` で difit セッションを後始末して最終確認（finalize_done）へ進む",
-                input: { required: false, maxLength: 500 },
-              },
-              {
-                value: "abort",
-                label: "中断",
-                desc: "中断する。エンジンが終了するため difit セッションの後始末は実行されない。中断前に `mt difit done`（冪等・exit 0）を手動実行すること",
-              },
-            ],
-          },
-        ],
-      },
-    },
-
-    // -------------------------------------------------------------------
-    // Step 7.6: ラウンド上限受容時の difit 後始末（plan-run 所有）
-    //         round_limit_gate / round_limit_passed_gate で「受容」を選んだときだけ
-    //         到達する（condition は両ゲートと同じ roundLimitReached。通常通過では skip）。
-    //         受容 = レビュー終了なので、collect_verdict の round limit early return が
-    //         残した difit セッション（サーバ・state）を `mt difit done`
-    //         （冪等・exit 0）で後始末する。abort はエンジン終了のため到達しない
-    //         （gate description で手動 done を案内）。上限到達後の継続手段は設けない
-    //         （M2 の設計判断。追加対応は受容→完了後の再計画で行う）。
-    // -------------------------------------------------------------------
-    {
-      key: "release_difit_session",
-      phase: "difit 後始末",
-      type: "task",
-      maxRetries: 1,
-      onFail: { action: "escalate" },
-      condition: roundLimitReached,
-      task: {
-        action: "orchestrate",
-        readonly: true,
-        buildPrompt: (ctx: PromptCtx) =>
-          buildStepPrompt({
-            purpose: [
-              "round_limit_gate で「受容して完了処理へ」が選ばれた。difit セッションの後始末（`mt difit done` の実行・state 消失・pid 終了の検証）はこのステップの check が決定論的に実行する。",
-            ],
-            criteria: [],
-            approach: [
-              "- 状態を変更しない（read-only）。`mt difit done` / `mt difit check` / `mt difit start` / コメント resolve を実行しない",
-              "- report のみ行い、後始末が check に委ねられていることを報告する",
-            ],
-            output: [],
-            input: [`セッションディレクトリ: ${ctx.sessionDir}`],
-          }),
-      },
-      check: (_ctx: CheckCtx): CheckResult => {
-        // 受容経路の後始末は task の実行漏れに依存しないよう check 側で決定論的に実行する
-        // （done は冪等・exit 0 の契約なので二重実行しても副作用はない）。collect_verdict の
-        // 通過時後始末と同一の _shared/cleanupDifitSession を使い、done 実行・state 消失・
-        // done 前 pid の終了まで検証する（受容経路だけ検証が弱い非対称を作らない）。
-        const cleanup = cleanupDifitSession();
-        if (cleanup.status === "error") {
-          return { status: "error", reasons: cleanup.reasons };
-        }
-        return {
-          status: "pass",
-          reasons: [`difit session released (state removed)`, ...cleanup.stderr],
-        };
-      },
     },
 
     // -------------------------------------------------------------------
@@ -2640,7 +1780,6 @@ const def: WorkflowDef = {
               "   - 完了した作業",
               "   - 残っている未決事項（あれば）",
               "",
-              "4. round limit 受容で findings の must が残存している場合は、このまま done にしない。残 must の追加対応を別計画 Issue（`mt-plan-create`）で起票し、番号をセッションディレクトリの `replan-plan-number.txt` に保存して report の `artifacts` に申告し、finalize_done を再実行する（loop 外からの継続は設けない）",
             ],
             output: [
               "report 時の `artifacts` に以下を含める（申告漏れは check で fail になる）:",
@@ -2653,13 +1792,6 @@ const def: WorkflowDef = {
         },
       },
       // 統一最低ライン+ 副作用実照合: done 遷移の実態（Issue が CLOSED）を gh で確認。
-      // NOTE(req-1): round_limit_gate の受容で must が残存したまま done にしない。
-      // round_limit_gate 群は human_gate（確認と回答保存のみ）で check が実行されず、
-      // loop 外からの継続はエンジンが fail-fast するため、「もう1巡」の復活はしない。
-      // 代わりに再計画 Issue の起票を artifact（replan-plan-number.txt）で要求する。
-      // must 残存＋round limit 到達で再計画 artifact が無ければ fail し、起票後に番号を
-      // 保存して再実行すれば pass する。受容判断自体は round_limit_gate の人間が行い、
-      // 追加対応は別計画 Issue（mt-plan-create）で行う。
       check: (ctx: CheckCtx): CheckResult => {
         const result = requireStepArtifacts(ctx, [
           { key: "plan-number.txt", form: "text", pattern: /^[0-9]+$/ },
@@ -2670,45 +1802,6 @@ const def: WorkflowDef = {
         const ghReasons = verifyIssueClosed(number);
         if (ghReasons.length > 0) return { status: "fail", reasons: ghReasons };
         const reasons = [`issue #${number} is closed on GitHub`];
-        const findingsAtDone = resolveReviewFindings(ctx);
-        const mustAtDone = findingsAtDone?.counts.must ?? 0;
-        if (mustAtDone > 0 && roundLimitReached(ctx)) {
-          // round limit 受容のまま must 残存で done にしない。再計画 Issue の起票を
-          // artifact で要求してから pass する（loop 外継続の復活はしない）。
-          const replanRaw =
-            findArtifactText(ctx.artifacts, REPLAN_KEY, ctx.sessionDir) ??
-            readSessionFile(ctx.sessionDir, REPLAN_KEY);
-          const replanNumber = (replanRaw ?? "").trim();
-          if (!/^[0-9]+$/.test(replanNumber)) {
-            return {
-              status: "fail",
-              reasons: [
-                `round limit 到達時に findings must=${mustAtDone} が残存しています（round=${findingsAtDone?.round}）。このまま done にせず、残 must の追加対応を別計画 Issue（\`mt-plan-create\`）で起票してください。起票後に番号を ${REPLAN_KEY} へ保存し、report の artifacts へ申告して finalize_done を再実行してください（round_limit_gate の受容判断を記録。loop 外からの継続は設けない）`,
-              ],
-            };
-          }
-          if (replanNumber === number) {
-            return {
-              status: "fail",
-              reasons: [
-                `${REPLAN_KEY} が計画自身 (#${number}) を指しています。残 must の追加対応は別計画 Issue（\`mt-plan-create\`）で起票し、その番号を保存してください`,
-              ],
-            };
-          }
-          const openReasons = verifyIssueOpen(replanNumber);
-          if (openReasons.length > 0) {
-            return {
-              status: "fail",
-              reasons: [
-                `再計画 Issue #${replanNumber} を確認できません。別計画 Issue（\`mt-plan-create\`）の起票後に finalize_done を再実行してください`,
-                ...openReasons,
-              ],
-            };
-          }
-          reasons.push(
-            `round limit 受容のまま done へ進みます: findings must=${mustAtDone} が残存しています（round=${findingsAtDone?.round}）。追加対応は別計画 Issue #${replanNumber} で再計画します（round_limit_gate の受容判断を記録。loop 外からの継続は設けない）`,
-          );
-        }
         return { status: "pass", reasons };
       },
     },

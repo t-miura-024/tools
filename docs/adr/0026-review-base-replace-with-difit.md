@@ -58,11 +58,14 @@ mt-review-diff の `collect_context` が生成する diff.txt（normalize_findin
 - `mt difit threads --json` の stdout は未 resolve スレッド全件の本文と replies を含むため、ワークフロー側の読み取りは maxBuffer 16 MiB を明示し、超過を「出力サイズ超過」として fail にする（切り詰められた stdout をパース失敗として扱わない）。
 - 分類（taxonomy / want の人間 reply 昇格 / author 判定）の権威は Rust の `mt difit check` / `mt difit threads --json`（実装は `src/difit/gate.rs`）にあり、task プロンプトは機械出力をそのまま verdict 化し、規則の写経・再分類をしない。規則の写像が残る箇所（mt-review-diff のプロンプト、agents 3 面、workflow.test.ts）は規則変更時に同時修正する。写像がドリフトすると突合不一致として fail で検出される（Rust 側の判定を読み替えない）。
 
-### human gate と round limit のエスカレーション
+### 人間レビューへの引き渡しと上限（2026-09-17 改訂）
 
-mt-review-diff の `await_human_review` は condition を持たず必ず人間に提示し、ゲート通過の検証は collect_verdict の `mt difit check --dry-run` 突合に一本化する（human_gate の check は現行 tado 0.1.0 では実行されないため、到達不能な check を置かない）。2段階ループの must>0 スキップはループ所有者である mt-plan-run だけが condition を override して行い、findings を機械的に読めない場合は skip しない（fail-closed で人間に提示する）。mt-review-diff 単独では must>0 でも必ず人間ゲートを提示する。
-
-mt-plan-run は collect_verdict の check が pass 以外（セッション不在・dry-run 突合の不一致・done 非通過・schema error）を返した場合、loop 内の judge が `continue` を返して loop 先頭へ巻き戻り、次ラウンド（execute_work → 再検証 → start_difit_review でのセッション復旧）で復旧させる（`resetReviewCycle` による workflow.db 直操作の巻き戻しは撤去済み）。round limit（round > 3、または round = 3 かつ未通過）は再実行では解消しないため loop へ戻さず、mt-plan-run が新設した human gate `round_limit_gate`（受容して完了 / 中断）・`round_limit_passed_gate`（通過済み・後始末へ / 中断）へエスカレーションする。loop 外ゲートは approve / abort のみを持ち、「もう1巡」は存在しない（上限到達後の追加対応は受容→完了後の再計画で行う）。mt-review-diff 単独では round limit は fail で終端し、エスカレーション手段は消費者が用意する（契約は workflow.test.ts で固定する）。（本節は新エンジン追随・plan 97 で改訂。旧運用の `resetReviewCycle` 巻き戻しと「もう1巡」選択は撤去済み）
+- `mt-plan-run` の自律・人間 loop はともに最大5回（共有値 `REVIEW_ROUND_LIMIT`）。自律レビューは must=0 または上限到達で通常通過し、正規化済みの残 must / should / want を既存の `start_difit_review` で登録して `await_human_review` へ渡す。位置なし・old側の除外や近接マージの規則は変更しない。上限専用ゲートや二重注入は設けない。
+- `effort.round` は `normalize_findings.beforeStep` でエンジンの内側 `loop.iteration` を代入する。人間の `request_changes` は外側 loop の `continue` へ変換され、エンジンが内側 iteration を1へ戻すことで、自律5ラウンドの予算を再付与する。累積カウンターやワークフロー独自の巻き戻しは持たない。
+- plan-run の `collect_verdict` は単独版とスキーマ・選択整合・非破壊突合を共有するが、通過時も上限時もセッションを保持する。`judge_human` の approve 時に、選択固定の `mt difit threads --json` で最新の未解決 must（taxonomy=issue）が0件であることを検証し、`mt difit done` で後始末してから `finalize_done` へ進む。人間が修正結果を確認し、difit 上ですべて解決することが承認条件であり、追加自動レビューは要求しない。
+- 未修正mustの受容・別Issue引き継ぎによる完了経路は廃止する。`round_limit_gate` / `round_limit_passed_gate` / `release_difit_session` と `replan-plan-number.txt` は使用しない。
+- 人間 loop の5回すべてで差し戻した場合は `onExhausted=escalate` によりエンジンが paused にする。登録失敗・破損データ等も通常通過へ変換せず、tado の異常処理に委ねる。
+- `mt-review-diff` 単独では必ず人間レビューを提示する既存フローを維持する。共有の round 上限は5となり、未通過で上限到達または上限超過なら fail で停止する。通常通過時の後始末は `collect_verdict` が行う。
 
 ### コメント選択のピン留め
 
