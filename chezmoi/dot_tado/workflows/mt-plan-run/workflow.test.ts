@@ -2,10 +2,12 @@ import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { fileURLToPath } from "node:url";
 import def from "./index.ts";
-import { awaitHumanReviewStep, collectVerdictStep } from "../mt-review-diff/index.ts";
+import { awaitHumanReviewStep } from "../mt-review-diff/index.ts";
 import {
   buildDifitComments,
+  REVIEW_ROUND_LIMIT,
   formatReviewComment as formatComment,
 } from "../_shared/mt-review-helpers.ts";
 import type { CheckCtx, ConditionCtx, PromptCtx, ArtifactRecord, GateAnswers } from "tado";
@@ -188,6 +190,7 @@ exit 1`,
     options: {
       checkJson?: string;
       checkExit?: number;
+      threads?: Record<string, unknown>[];
       checkStderr?: string;
       doneJson?: string;
       doneStderr?: string;
@@ -206,7 +209,14 @@ exit 1`,
         return options.checkJson;
       }
     })();
-    const lines = [`[ "$1" = "difit" ] || exit 64`, `if [ "$2" = "check" ]; then`];
+    const lines = [`[ "$1" = "difit" ] || exit 64`];
+    lines.push(`if [ "$2" = "threads" ]; then`, `  [ "$3" = "--json" ] || exit 65`);
+    lines.push(
+      `  printf '%s\\n' '${JSON.stringify({ passes: (options.threads ?? []).length === 0, blocking_threads: [], threads: options.threads ?? [], selection_drift: { detection: "none" } })}'`,
+      `  exit 0`,
+      `fi`,
+    );
+    lines.push(`if [ "$2" = "check" ]; then`);
     lines.push(`  [ "$3" = "--dry-run" ] || exit 65`);
     if (checkJson !== undefined) {
       lines.push(`  printf '%s\\n' '${checkJson}'`);
@@ -370,14 +380,14 @@ exit 0`,
     it("外側=人間サイクル / 内側=自律サイクルのネスト loop で、内側先頭が apply_feedback である", () => {
       const outer = loopStep("human_review_cycle");
       expect(outer.phase).toBe("人間サイクル");
-      expect(outer.maxIterations).toBe(3);
+      expect(outer.maxIterations).toBe(REVIEW_ROUND_LIMIT);
       expect(outer.onExhausted).toBe("escalate");
       const innerKey = outer.body.find((s) => s.key === "autonomous_review_cycle");
       if (!innerKey || innerKey.type !== "loop") {
         throw new Error("autonomous_review_cycle loop not found in human_review_cycle body");
       }
       expect(innerKey.phase).toBe("自律サイクル");
-      expect(innerKey.maxIterations).toBe(3);
+      expect(innerKey.maxIterations).toBe(REVIEW_ROUND_LIMIT);
       expect(innerKey.onExhausted).toBe("escalate");
       // 内側先頭は新設 apply_feedback（指摘統合＋修正指示組み立て）
       const head = innerKey.body[0];
@@ -387,16 +397,15 @@ exit 0`,
 
     it("judge は各 loop 本体の末尾に置かれる（分岐点の一元化）", () => {
       const inner = loopStep("autonomous_review_cycle");
-      expect(inner.body[inner.body.length - 1].key).toBe("judge_autonomous");
+      expect(inner.body[inner.body.length - 1].key).toBe("collect_verdict");
       const outer = loopStep("human_review_cycle");
       expect(outer.body[outer.body.length - 1].key).toBe("judge_human");
     });
 
-    it("round_limit_gate 群は loop 外（外側 loop の後段）に置かれる", () => {
+    it("上限受容ゲートと旧後始末は存在しない", () => {
       const keys = def.steps.map((s) => s.key);
       for (const key of ["round_limit_gate", "round_limit_passed_gate", "release_difit_session"]) {
-        expect(keys.indexOf(key)).toBeGreaterThan(keys.indexOf("human_review_cycle"));
-        expect(keys.indexOf(key)).toBeLessThan(keys.indexOf("finalize_done"));
+        expect(keys).not.toContain(key);
       }
     });
 
@@ -441,12 +450,12 @@ exit 0`,
         expect(stepCheck(key).toString()).not.toContain('"continue"');
       }
       // 対照: loop 内の継続判定（agent_verdict / collect_verdict）は continue を返す
-      for (const key of ["agent_verdict", "collect_verdict"]) {
+      for (const key of ["agent_verdict"]) {
         expect(inside.has(key)).toBe(true);
         expect(stepCheck(key).toString()).toContain('"continue"');
       }
       // judge 系は 4 分岐（judgeGateRework）に委譲し、loop 内に置かれる
-      for (const key of ["judge_autonomous", "judge_human"]) {
+      for (const key of ["judge_human"]) {
         expect(inside.has(key)).toBe(true);
         expect(stepCheck(key).toString()).toContain("judgeGateRework");
       }
@@ -486,7 +495,7 @@ exit 0`,
         if (step.condition !== undefined) conditionalInnerGates.push(step.key);
       }
       conditionalInnerGates.sort();
-      expect(conditionalInnerGates).toEqual(["await_human_review", "round_stall_gate"]);
+      expect(conditionalInnerGates).toEqual(["await_human_review"]);
     });
 
     it("loop 内 human_gate はいずれかの judge の走査対象にする（収集と作動の統合）", () => {
@@ -512,10 +521,7 @@ exit 0`,
         innerGates.push(step.key);
       }
       expect(innerGates.length).toBeGreaterThan(0);
-      const judgeSources = [
-        stepCheck("judge_autonomous").toString(),
-        stepCheck("judge_human").toString(),
-      ];
+      const judgeSources = [stepCheck("judge_human").toString()];
       for (const gateKey of innerGates) {
         expect(judgeSources.some((src) => src.includes(gateKey))).toBe(true);
       }
@@ -765,45 +771,6 @@ exit 0`,
       expect(result.status).toBe("pass");
     });
 
-    it("skip ゲートの stale 差し戻しは残留させない（世代管理）", () => {
-      // iter1: stall 検出（must=1・findings.round <= verdict.round）で request_changes。
-      // iter2: stall 解消（must=0）でゲート skip。gateAnswers に旧回答が残っていても
-      // 幽霊差し戻しとして強制せず、items=[] で pass する。
-      const staleAnswers = decisionAnswers("round_stall_gate", "request_changes", "直す理由");
-      writeFindings({ must: 0, should: 0, want: 0 });
-      const filePath = writeFeedback([]);
-      const result = stepCheck("apply_feedback")(
-        makeCtx({
-          artifacts: [artifactRecord("feedback.json", filePath)],
-          gateAnswers: staleAnswers,
-        }),
-      );
-      expect(result.status).toBe("pass");
-      expect(result.reasons.join("\n")).toContain("指摘なし");
-    });
-
-    it("skip ゲートの stale 差し戻しは execute_work にも波及させない", () => {
-      // stall 解消後の反復では judge も apply_feedback 接続も stale を問わない。
-      writeEffort();
-      writeFindings({ must: 0, should: 0, want: 0 });
-      const staleAnswers = decisionAnswers("round_stall_gate", "request_changes", "直す理由");
-      expect(stepCheck("judge_autonomous")(makeCtx({ gateAnswers: staleAnswers })).status).toBe(
-        "pass",
-      );
-      const resultPath = path.join(sessionDir, "execution-result.json");
-      fs.writeFileSync(
-        resultPath,
-        JSON.stringify({ changedFiles: [], checks: [], unresolvedIssues: [] }),
-      );
-      const result = stepCheck("execute_work")(
-        makeCtx({
-          artifacts: [artifactRecord("execution-result.json", resultPath)],
-          gateAnswers: staleAnswers,
-        }),
-      );
-      expect(result.status).toBe("pass");
-    });
-
     it("items 非空でも findings must の欠落は fail する（ダミー混入の検出）", () => {
       // findings must=1 に対して無関係 body のみでは、件数が非空でも素通りさせない。
       writeFindings({ must: 1, should: 0, want: 0 });
@@ -960,152 +927,13 @@ exit 0`,
     });
   });
 
-  describe("judge_autonomous (inner loop check)", () => {
-    it("stall ゲート skip 時は gateAnswers を問わず pass する", () => {
-      writeEffort();
-      writeFindings({ must: 0, should: 0, want: 0 });
-
-      const result = stepCheck("judge_autonomous")(makeCtx());
-
-      expect(result.status).toBe("pass");
-      expect(result.reasons.join("\n")).toContain("skipped");
-    });
-
-    it("stall 検出時に未回答なら error（pass フォールバックなし）", () => {
-      writeEffort();
-      writeFindings({ must: 1, should: 0, want: 0 });
-      writeVerdict({ round: 1 });
-
-      const result = stepCheck("judge_autonomous")(makeCtx());
-
-      expect(result.status).toBe("error");
-      expect(result.reasons.join("\n")).toContain("回答がありません");
-    });
-
-    it("approve なら pass する", () => {
-      writeEffort();
-      writeFindings({ must: 1, should: 0, want: 0 });
-      writeVerdict({ round: 1 });
-
-      const result = stepCheck("judge_autonomous")(
-        makeCtx({ gateAnswers: decisionAnswers("round_stall_gate", "approve") }),
-      );
-
-      expect(result.status).toBe("pass");
-    });
-
-    it("request_changes なら round を前進させて continue する（自律 loop の写像）", () => {
-      writeEffort({ round: 1 });
-      writeFindings({ must: 1, should: 0, want: 0 });
-      writeVerdict({ round: 1 });
-
-      const result = stepCheck("judge_autonomous")(
-        makeCtx({ gateAnswers: decisionAnswers("round_stall_gate", "request_changes", "直す") }),
-      );
-
-      expect(result.status).toBe("continue");
-      expect(result.reasons.join("\n")).toContain("autonomous_review_cycle");
-      expect(result.reasons.join("\n")).toContain("apply_feedback");
-      expect(readEffortRound()).toBe(2);
-    });
-
-    it("round を前進できなければ error（無音の no-op にしない）", () => {
-      // effort.json なしでは advanceReviewRound が throw する
-      writeFindings({ must: 1, should: 0, want: 0 });
-      writeVerdict({ round: 1 });
-
-      const result = stepCheck("judge_autonomous")(
-        makeCtx({ gateAnswers: decisionAnswers("round_stall_gate", "request_changes", "直す") }),
-      );
-
-      expect(result.status).toBe("error");
-      expect(result.reasons.join("\n")).toContain("failed to prepare next review round");
-    });
-
-    it("未知値は fail する（pass へ丸めない）", () => {
-      writeEffort();
-      writeFindings({ must: 1, should: 0, want: 0 });
-      writeVerdict({ round: 1 });
-
-      const result = stepCheck("judge_autonomous")(
-        makeCtx({ gateAnswers: decisionAnswers("round_stall_gate", "hold") }),
-      );
-
-      expect(result.status).toBe("fail");
-      expect(result.reasons.join("\n")).toContain("想定外");
-    });
-
-    it("旧 revise 値は fail し、移行先を案内する（互換受理なし）", () => {
-      writeEffort();
-      writeFindings({ must: 1, should: 0, want: 0 });
-      writeVerdict({ round: 1 });
-
-      const result = stepCheck("judge_autonomous")(
-        makeCtx({ gateAnswers: decisionAnswers("round_stall_gate", "revise") }),
-      );
-
-      expect(result.status).toBe("fail");
-      expect(result.reasons.join("\n")).toContain("revise");
-      expect(result.reasons.join("\n")).toContain("request_changes");
-    });
-
-    it("abort は未知値 fail と分離して error になる（中断意図の記録）", () => {
-      // round_stall_gate は abort を正規選択肢に持つ。未知値 fail に混ぜると
-      // 中断意図が語彙エラーにすり替わるため、専用の error で分離する。
-      writeEffort();
-      writeFindings({ must: 1, should: 0, want: 0 });
-      writeVerdict({ round: 1 });
-
-      const result = stepCheck("judge_autonomous")(
-        makeCtx({ gateAnswers: decisionAnswers("round_stall_gate", "abort") }),
-      );
-
-      expect(result.status).toBe("error");
-      expect(result.reasons.join("\n")).toContain("abort");
-      expect(result.reasons.join("\n")).not.toContain("想定外");
-      // 中断では round を前進させない
-      expect(readEffortRound()).toBe(1);
-    });
-
-    it("二重呼びでも round は二重に進まない（CAS 冪等化の回帰）", () => {
-      writeEffort({ round: 1 });
-      writeFindings({ must: 1, should: 0, want: 0 });
-      writeVerdict({ round: 1 });
-      const gateAnswers = decisionAnswers("round_stall_gate", "request_changes", "直す");
-
-      const first = stepCheck("judge_autonomous")(makeCtx({ gateAnswers }));
-      expect(first.status).toBe("continue");
-      expect(readEffortRound()).toBe(2);
-
-      // 同一入力の二重呼びは前進済みとして no-op（silent double-advance しない）
-      const second = stepCheck("judge_autonomous")(makeCtx({ gateAnswers }));
-      expect(second.status).toBe("continue");
-      expect(readEffortRound()).toBe(2);
-    });
-
-    it("judge は read-only 宣言を外し、agent 報告と check 前進を文言分離する（readonly 実態の契約）", () => {
-      // ステップ全体は read-only ではない。readonly:true の宣言は虚偽になるため外す。
-      // agent への指示は report のみに留め、前進は check の決定論的処理として文言分離する。
-      const step = taskStep("judge_autonomous");
-      expect(step.task.readonly).toBe(false);
-      expect(step.onFail).toEqual({ action: "abort" });
-      expect(step.maxRetries).toBe(0);
-      const prompt = step.task.buildPrompt(makePromptCtx());
-      expect(prompt).toContain("report のみ");
-      expect(prompt).toContain("round");
-      // 旧文言（ステップ全体の read-only 宣言）は残さない
-      expect(prompt).not.toContain("状態を変更しない");
-    });
-  });
-
   describe("judge_human (outer loop check)", () => {
-    it("自律段階（must>0）ではゲート skip のため pass する", () => {
+    it("自律段階では完了へ進めない", () => {
       writeFindings({ must: 1, should: 0, want: 0 });
 
       const result = stepCheck("judge_human")(makeCtx());
 
-      expect(result.status).toBe("pass");
-      expect(result.reasons.join("\n")).toContain("skipped");
+      expect(result.status).toBe("error");
     });
 
     it("人相段階で未回答なら error（pass フォールバックなし）", () => {
@@ -1130,16 +958,6 @@ exit 0`,
 
       expect(result.status).toBe("error");
       expect(result.reasons.join("\n")).toContain("すり替え");
-    });
-
-    it("approve なら pass する", () => {
-      writeFindings({ must: 0, should: 1, want: 0 });
-
-      const result = stepCheck("judge_human")(
-        makeCtx({ gateAnswers: decisionAnswers("await_human_review", "approve") }),
-      );
-
-      expect(result.status).toBe("pass");
     });
 
     it("request_changes なら round を進めず continue する（人間 loop では進めない）", () => {
@@ -1205,28 +1023,6 @@ exit 0`,
       expect(result.reasons.join("\n")).not.toContain("想定外");
     });
 
-    it("非 decision キーの回答も検出する（decision 固定にしない）", () => {
-      // 将来の非 decision キーゲートの回答を decision 固定で読み落とすと、
-      // judge は undefined→error に誤診する。全キー走査で検出する。
-      writeFindings({ must: 0, should: 1, want: 0 });
-
-      const approved = stepCheck("judge_human")(
-        makeCtx({ gateAnswers: { await_human_review: { verdict: { value: "approve" } } } }),
-      );
-      expect(approved.status).toBe("pass");
-
-      writeEffort({ round: 1 });
-      const rework = stepCheck("judge_human")(
-        makeCtx({
-          gateAnswers: {
-            await_human_review: { verdict: { value: "request_changes", input: "直す" } },
-          },
-        }),
-      );
-      expect(rework.status).toBe("continue");
-      expect(readEffortRound()).toBe(1);
-    });
-
     it("型不正の回答値は TypeError にせず error になる（無検証 .value アクセスの防止）", () => {
       // GateAnswers 契約外の形状（null・value 非文字列）。旧実装は .value 直アクセスで
       // TypeError になり構造化 error を迂回した。不正形は未回答（undefined）として扱い、
@@ -1241,16 +1037,6 @@ exit 0`,
         expect(result.status).toBe("error");
         expect(result.reasons.join("\n")).toContain("回答がありません");
       }
-    });
-
-    it("judge は readonly の report のみで、onFail は abort である", () => {
-      const step = taskStep("judge_human");
-      expect(step.task.readonly).toBe(true);
-      expect(step.onFail).toEqual({ action: "abort" });
-      // judge_autonomous（check が round を前進させるため readonly を外した）との対照。
-      // judge_human の check は round を進めないため read-only 宣言を維持する。
-      expect(taskStep("judge_autonomous").task.readonly).toBe(false);
-      expect(step.task.buildPrompt(makePromptCtx())).toContain("状態を変更しない");
     });
   });
 
@@ -1398,154 +1184,6 @@ exit 0`,
     });
   });
 
-  describe("agent_verdict（自律ループの継続判定）", () => {
-    it("must>0 なら round を +1 して continue し、自律 loop 先頭へ巻き戻る", () => {
-      writeEffort();
-      writeFindings({ must: 2, should: 1, want: 0 });
-
-      const result = stepCheck("agent_verdict")(makeCtx());
-
-      expect(result.status).toBe("continue");
-      expect(result.reasons.join("\n")).toContain("autonomous_review_cycle");
-      expect(result.reasons.join("\n")).toContain("apply_feedback");
-      expect(readEffortRound()).toBe(2);
-    });
-
-    it("同一入力の二重呼びでも round は二重に進まない（CAS 冪等化の回帰）", () => {
-      writeEffort();
-      writeFindings({ must: 2, should: 1, want: 0 });
-
-      const first = stepCheck("agent_verdict")(makeCtx());
-      expect(first.status).toBe("continue");
-      expect(readEffortRound()).toBe(2);
-
-      // check 再評価・report リトライで同一入力が再判定されても silent double-advance しない
-      const second = stepCheck("agent_verdict")(makeCtx());
-      expect(second.status).toBe("continue");
-      expect(readEffortRound()).toBe(2);
-    });
-
-    it("effort.json が findings より巻き戻っていたら error（round 写像の破損）", () => {
-      // findings.round=2 に対して effort.round=1 は写像破損。無音で追従せず error にする。
-      writeEffort({ round: 1 });
-      writeFindings({ must: 1, should: 0, want: 0 }, 2);
-
-      const result = stepCheck("agent_verdict")(makeCtx());
-
-      expect(result.status).toBe("error");
-      expect(result.reasons.join("\n")).toContain("failed to prepare next review round");
-      expect(readEffortRound()).toBe(1);
-    });
-
-    it("effort.json が無ければ error（round を前進できない fail-closed。無言 no-op にしない）", () => {
-      writeFindings({ must: 2, should: 1, want: 0 });
-
-      const result = stepCheck("agent_verdict")(makeCtx());
-
-      expect(result.status).toBe("error");
-      expect(result.reasons.join("\n")).toContain("failed to prepare next review round");
-      expect(result.reasons.join("\n")).toContain("effort.json");
-    });
-
-    it("effort.json の round が不正なら error（破損 effort.json の無言 no-op を防ぐ）", () => {
-      fs.writeFileSync(
-        path.join(sessionDir, "effort.json"),
-        JSON.stringify({ width: "medium", depth: "medium", round: "one" }),
-      );
-      writeFindings({ must: 1, should: 0, want: 0 });
-
-      const result = stepCheck("agent_verdict")(makeCtx());
-
-      expect(result.status).toBe("error");
-      expect(result.reasons.join("\n")).toContain("invalid round");
-      // round は進まない（破損 effort.json を書き換えない）
-      const effort = JSON.parse(fs.readFileSync(path.join(sessionDir, "effort.json"), "utf-8")) as {
-        round: unknown;
-      };
-      expect(effort.round).toBe("one");
-    });
-
-    it("findings の round が前回 verdict から進んでいなければ pass で round_stall_gate（人間）へエスカレーションする", () => {
-      writeEffort();
-      writeFindings({ must: 1, should: 0, want: 0 });
-      // 前ラウンドの verdict が同じ round（前回のループバックで round が進まなかった）
-      writeVerdict({ round: 1 });
-
-      const result = stepCheck("agent_verdict")(makeCtx());
-
-      // error + continue の決定論的反復にしない（人間ゲートへ到達させる）
-      expect(result.status).toBe("pass");
-      expect(result.reasons.join("\n")).toContain("進んでいません");
-      expect(result.reasons.join("\n")).toContain("round_stall_gate");
-      // 停滞検出では round を進めない（前進の主体は継続判定の check）
-      expect(readEffortRound()).toBe(1);
-
-      // round_stall_gate の condition が同じ写像で true になる（人間エスカレーションの配線）
-      const gate = gateStep("round_stall_gate");
-      expect(gate.type).toBe("human_gate");
-      expect(gate.condition!(makeConditionCtx())).toBe(true);
-      // reviseTargetStep は撤去済み（human_gate は確認と回答保存のみ）
-      expect("reviseTargetStep" in gate.humanGate).toBe(false);
-    });
-
-    it("must==0 なら pass し人相へ進む", () => {
-      writeFindings({ must: 0, should: 1, want: 0 });
-
-      const result = stepCheck("agent_verdict")(makeCtx());
-
-      expect(result.status).toBe("pass");
-      expect(result.reasons.join("\n")).toContain("human phase");
-    });
-
-    it("findings.json が不正なら error", () => {
-      fs.writeFileSync(path.join(sessionDir, "findings.json"), "not json");
-
-      const result = stepCheck("agent_verdict")(makeCtx());
-
-      expect(result.status).toBe("error");
-    });
-
-    it("round 4 かつ must>0 は自動ループを止め collect_verdict の round limit へエスカレーションする（continue すると gate へ到達しない）", () => {
-      writeEffort({ round: 4 });
-      writeFindings({ must: 1, should: 0, want: 0 }, 4);
-
-      const result = stepCheck("agent_verdict")(makeCtx());
-
-      // continue だと round が進まないまま永久に反復し、round_limit_gate へ到達できない。
-      // pass で collect_verdict へ進める。
-      expect(result.status).toBe("pass");
-      expect(result.reasons.join("\n")).toContain("autonomous round limit reached");
-      expect(result.reasons.join("\n")).toContain("collect_verdict");
-      expect(result.reasons.join("\n")).toContain("round_limit_gate");
-      // round は 4 のまま（LIMIT+1 へ前進させると resolve_effort の上限判定で abort する）
-      expect(readEffortRound()).toBe(4);
-    });
-
-    it("round 3 かつ must>0 は round を 4 に進めず pass で collect_verdict の round limit 判定へ渡す", () => {
-      writeEffort({ round: 3 });
-      writeFindings({ must: 1, should: 0, want: 0 }, 3);
-
-      const result = stepCheck("agent_verdict")(makeCtx());
-
-      // round 3 >= LIMIT 到達で pass。エスカレーションは collect_verdict →
-      // round_limit_gate が行う（round を 4 に進めると resolve_effort の
-      // onFail: abort でセッションが終了し、release にも到達しない）。
-      expect(result.status).toBe("pass");
-      expect(result.reasons.join("\n")).toContain("autonomous round limit reached: round=3 >= 3");
-      expect(result.reasons.join("\n")).toContain("round_limit_gate");
-      expect(readEffortRound()).toBe(3);
-    });
-
-    it("onFail は escalate であり、goto/target/requeueSource を持たない", () => {
-      const step = taskStep("agent_verdict");
-      expect(step.onFail).toEqual({ action: "escalate" });
-    });
-  });
-
-  // 旧レビューサイクル（別ワークフロー由来の start / inject / check）は Step import により
-  // resolve_effort / collect_context / run_reviewers / normalize_findings / start_difit_review /
-  // await_human_review / collect_verdict に置換されたため削除
-  // 新ワークフローの品質規律は mt-review-diff 側で純粋関数テストとして担保する
   describe("resolve_effort (human_gate 廃止 — Issue body コメント or medium/medium)", () => {
     it("human_gate を持たず task 型である", () => {
       const step = taskStep("resolve_effort");
@@ -1613,20 +1251,6 @@ exit 0`,
       );
       const result = stepCheck("resolve_effort")(makeCtx());
       expect(result.status).toBe("pass");
-    });
-
-    it("round が上限を超えた effort.json（自律 loop 継続の再入）は abort させず pass する", () => {
-      // 自律 loop の継続判定が round を 3→4 に前進させた後の再入。mt-review-diff の
-      // check は上限超過を fail で返すが、onFail: abort の plan-run では人間ゲート
-      // （collect_verdict → round_limit_gate）へ到達できなくなるため継続再入を許容する。
-      fs.writeFileSync(
-        path.join(sessionDir, "effort.json"),
-        JSON.stringify({ width: "high", depth: "low", base: "main", round: 4 }),
-      );
-      const result = stepCheck("resolve_effort")(makeCtx());
-      expect(result.status).toBe("pass");
-      expect(result.reasons.join("\n")).toContain("round limit continuation");
-      expect(result.reasons.join("\n")).toContain("round_limit_gate");
     });
 
     it("round が上限を超えても width が不正なら fail のまま（round 以外の契約は維持する）", () => {
@@ -2043,1153 +1667,285 @@ exit 0`,
     });
   });
 
-  describe("round_stall_gate (revise 撤去)", () => {
-    it("reviseTargetStep を持たず、request_changes（必須入力）を持つ", () => {
-      const gate = gateStep("round_stall_gate");
-      expect("reviseTargetStep" in gate.humanGate).toBe(false);
-      const question = gate.humanGate.questions.find((q) => q.key === "decision")!;
-      const values = (question.choices ?? []).map((c) => c.value).sort();
-      expect(values).toEqual(["abort", "approve", "request_changes"]);
-      expect(question.choices!.find((c) => c.value === "request_changes")!.input?.required).toBe(
-        true,
-      );
-    });
-
-    it("自律ループ内に置かれる", () => {
-      const inner = loopStep("autonomous_review_cycle");
-      expect(inner.body.some((s) => s.key === "round_stall_gate")).toBe(true);
-    });
-  });
-
-  describe("collect_verdict (Step import, round上限3)", () => {
-    it("verdict が check --dry-run と一致し passed=true なら done 後始末して pass", () => {
+  describe("自律上限から人間レビューへの引き渡し", () => {
+    const humanAnswers = (value: string) =>
+      decisionAnswers("await_human_review", value, "修正してください");
+    function prepare(round: number, must = 0, should = 0) {
       fakeGit();
-      writeEffort();
-      const findings = {
-        round: 1,
-        width: "medium",
-        depth: "medium",
-        findings: [],
-        counts: { must: 0, should: 0, want: 0 },
-      };
-      const verdict = {
-        round: 1,
-        width: "medium",
-        depth: "medium",
-        passed: true,
-        blocking_threads: [],
-      };
-      fs.writeFileSync(path.join(sessionDir, "findings.json"), JSON.stringify(findings));
-      fs.writeFileSync(path.join(sessionDir, "verdict.json"), JSON.stringify(verdict));
-      // 後始末後の pid 終了確認を通すため、生存しない pid を使う
-      writeDifitState({ pid: 2147483647 });
-      fakeMtDifitGate({
-        checkJson: JSON.stringify({ passes: true, blocking_threads: [] }),
-        checkExit: 0,
+      writeDifitState({ pid: 99999999 });
+      writeEffort({ round });
+      writeFindings({ must, should, want: 1 }, round);
+    }
+    async function normalizeClock(iteration: number) {
+      await taskStep("normalize_findings").beforeStep!({
+        ...makePromptCtx(),
+        stepKey: "normalize_findings",
+        attemptNumber: 1,
+        loop: { key: "autonomous_review_cycle", iteration, maxIterations: REVIEW_ROUND_LIMIT },
       });
-      const result = stepCheck("collect_verdict")(
-        makeCtx({
-          attemptResult: { status: "completed", subagentOutput: JSON.stringify(verdict) },
-        }),
-      );
-      expect(result.status).toBe("pass");
-      expect(doneCalled()).toBe(true);
-    });
-
-    it("round 4 の通過済みは round_limit_passed_gate へエスカレーションし、dry-run 突合を理由に載せる", () => {
-      fakeGit();
-      const findings = {
-        round: 4,
-        width: "medium",
-        depth: "medium",
-        findings: [],
-        counts: { must: 0, should: 0, want: 0 },
-      };
-      const verdict = {
-        round: 4,
-        width: "medium",
-        depth: "medium",
-        passed: true,
-        blocking_threads: [],
-      };
-      fs.writeFileSync(path.join(sessionDir, "findings.json"), JSON.stringify(findings));
-      fs.writeFileSync(path.join(sessionDir, "verdict.json"), JSON.stringify(verdict));
-      writeEffort({ round: 4 });
-      writeDifitState();
-      // 上限エスカレーションでも daemon 突合を実行する（無検証のまま終端させない）
-      fakeMtDifitGate({ checkJson: JSON.stringify({ passes: true, blocking_threads: [] }) });
-      const result = stepCheck("collect_verdict")(
-        makeCtx({
-          attemptResult: { status: "completed", subagentOutput: JSON.stringify(verdict) },
-        }),
-      );
-      expect(result.status).toBe("pass");
-      expect(result.reasons.join("\n")).toContain("round_limit_passed_gate");
-      expect(result.reasons.join("\n")).toContain("round limit");
-      expect(result.reasons.join("\n")).toContain("daemon 突合 ok");
-
-      const gateCtx = makeConditionCtx();
-      // 未通過ゲートは passed=true では提示しない（文言の事実誤認を避ける）
-      expect(gateStep("round_limit_gate").condition!(gateCtx)).toBe(false);
-      const passedGate = gateStep("round_limit_passed_gate");
-      expect(passedGate.type).toBe("human_gate");
-      expect(passedGate.condition!(gateCtx)).toBe(true);
-      const question = passedGate.humanGate.questions.find((q) => q.key === "decision")!;
-      expect(question.description).toContain("通過済み");
-      expect(question.description).not.toContain("未通過");
-      const approve = question.choices!.find((c) => c.value === "approve")!;
-      expect(approve.label).toContain("通過済み");
-      expect(approve.label).toContain("後始末");
-      // 通過済みに request_changes（差し戻し）は提示しない
-      expect(question.choices!.find((c) => c.value === "request_changes")).toBeUndefined();
-      // 後始末ステップは両ゲートの受容経路で実行される
-      expect(taskStep("release_difit_session").condition!(gateCtx)).toBe(true);
-    });
-
-    it("実パイプライン: 自律 loop の継続ごとに round が前進し、collect_verdict → round_limit_gate（request_changes なし）まで到達する", () => {
-      // 実パイプラインでは effort.json の round を自律 loop の継続時に進め、findings.json →
-      // verdict.json の順に継承する。テストでも verdict の round を直接 4 に書かず、
-      // 各継続判定（agent_verdict / collect_verdict / judge）の写像を通して到達させる。
-      fakeGit();
-      const writeEffortAt = (round: number) => {
-        fs.writeFileSync(
-          path.join(sessionDir, "effort.json"),
-          JSON.stringify({ width: "medium", depth: "medium", round }),
-        );
-      };
-      const writeFindingsAtRound = (round: number, must: number) => {
-        fs.writeFileSync(
-          path.join(sessionDir, "findings.json"),
-          JSON.stringify({
-            round,
-            width: "medium",
-            depth: "medium",
-            findings:
-              must > 0
-                ? [
-                    {
-                      axis: "req-1",
-                      severity: "must",
-                      detail: "must detail",
-                      filePath: "src/a.ts",
-                      position: { side: "new", line: 1 },
-                    },
-                  ]
-                : [],
-            counts: { must, should: 0, want: 0 },
-          }),
-        );
-      };
-      const writeExecutionResult = () => {
-        const resultPath = path.join(sessionDir, "execution-result.json");
-        fs.writeFileSync(
-          resultPath,
-          JSON.stringify({ changedFiles: [], checks: [], unresolvedIssues: [] }),
-        );
-        return stepCheck("execute_work")(
-          makeCtx({ artifacts: [artifactRecord("execution-result.json", resultPath)] }),
-        );
-      };
-      // apply_feedback が担う統合を模す: 現時点の findings 詳細・verdict blocking を
-      // 原文のまま feedback.json へ載せる（execute_work は must/blocking 時に
-      // 非空＋対応 source を要求するため、loop 先頭の統合なしでは進めない）。
-      const writeCoveringFeedback = () => {
-        const items: { source: string; body: string }[] = [];
-        const findingsPath = path.join(sessionDir, "findings.json");
-        if (fs.existsSync(findingsPath)) {
-          const f = JSON.parse(fs.readFileSync(findingsPath, "utf-8")) as {
-            findings: { detail: string }[];
-          };
-          for (const d of f.findings) items.push({ source: "findings", body: d.detail });
-        }
-        const verdictPath = path.join(sessionDir, "verdict.json");
-        if (fs.existsSync(verdictPath)) {
-          const v = JSON.parse(fs.readFileSync(verdictPath, "utf-8")) as {
-            blocking_threads: { body: string; replies?: string[] }[];
-          };
-          for (const t of v.blocking_threads) {
-            items.push({ source: "verdict", body: `${t.body}${(t.replies ?? []).join("\n")}` });
-          }
-        }
-        fs.writeFileSync(path.join(sessionDir, "feedback.json"), JSON.stringify({ items }));
-      };
-      const blockedThread = {
+    }
+    function thread(taxonomy: string) {
+      return {
         id: "t1",
-        taxonomy: "question",
-        body: "⚠️ should body",
+        taxonomy,
+        blocking: true,
+        filePath: "src/a.ts",
+        body: "remaining",
         replies: [],
       };
-      const writeBlockedVerdict = (round: number) => {
-        const verdict = {
-          round,
-          width: "medium",
-          depth: "medium",
-          passed: false,
-          blocking_threads: [blockedThread],
-        };
-        fs.writeFileSync(path.join(sessionDir, "verdict.json"), JSON.stringify(verdict));
-        return verdict;
-      };
-      const gateCtx = makeConditionCtx();
+    }
 
-      // round 1: must>0 → agent_verdict の継続判定で round 2 へ（continue で apply_feedback へ）
-      writeEffortAt(1);
-      expect(writeExecutionResult().status).toBe("pass");
-      expect(stepCheck("resolve_effort")(makeCtx()).status).toBe("pass");
-      fs.writeFileSync(path.join(sessionDir, "diff.txt"), "");
-      expect(stepCheck("collect_context")(makeCtx()).status).toBe("pass");
-      writeFindingsAtRound(1, 1);
-      expect(stepCheck("agent_verdict")(makeCtx()).status).toBe("continue");
-      expect(readEffortRound()).toBe(2);
-
-      // round 2: 同様に round 3 へ（前反復の findings を apply_feedback が統合した想定）
-      writeCoveringFeedback();
-      expect(writeExecutionResult().status).toBe("pass");
-      expect(stepCheck("resolve_effort")(makeCtx()).status).toBe("pass");
-      writeFindingsAtRound(2, 1);
-      expect(stepCheck("agent_verdict")(makeCtx()).status).toBe("continue");
-      expect(readEffortRound()).toBe(3);
-
-      // round 3: must>0 でも round を 4 に進めず pass で collect_verdict へ渡す。
-      // collect_verdict が上限を検出して pass（エスカレーション）へ変換し、
-      // round_limit_gate / release_difit_session の condition が true になる。
-      writeCoveringFeedback();
-      expect(writeExecutionResult().status).toBe("pass");
-      expect(stepCheck("resolve_effort")(makeCtx()).status).toBe("pass");
-      writeFindingsAtRound(3, 1);
-      expect(stepCheck("agent_verdict")(makeCtx()).status).toBe("pass");
-      expect(readEffortRound()).toBe(3);
-      const blocked3 = writeBlockedVerdict(3);
-      writeDifitState();
-      fakeMtDifitGate({
-        checkJson: JSON.stringify({ passes: false, blocking_threads: [blockedThread] }),
-        checkExit: 1,
-      });
-      const escalated3 = stepCheck("collect_verdict")(
-        makeCtx({
-          attemptResult: { status: "completed", subagentOutput: JSON.stringify(blocked3) },
-        }),
-      );
-      expect(escalated3.status).toBe("pass");
-      expect(escalated3.reasons.join("\n")).toContain("round_limit_gate");
-      expect(gateStep("round_limit_gate").condition!(gateCtx)).toBe(true);
-      expect(taskStep("release_difit_session").condition!(gateCtx)).toBe(true);
-
-      // 受容経路: release_difit_session が mt difit done で後始末まで到達する
-      writeDifitState({ pid: 2147483647 });
-      const released = stepCheck("release_difit_session")(makeCtx());
-      expect(released.status).toBe("pass");
-      expect(doneCalled()).toBe(true);
-    });
-
-    it("人間 loop の継続では round が進まない（自律写像との対照）", () => {
-      // 自律継続は +1、人間継続は据え置き。round は自律 loop の反復に写像する。
-      writeEffort({ round: 1 });
-      writeFindings({ must: 1, should: 0, want: 0 });
-      expect(stepCheck("agent_verdict")(makeCtx()).status).toBe("continue");
-      expect(readEffortRound()).toBe(2);
-
-      writeFindings({ must: 0, should: 1, want: 0 });
-      const human = stepCheck("judge_human")(
-        makeCtx({ gateAnswers: decisionAnswers("await_human_review", "request_changes", "直す") }),
-      );
-      expect(human.status).toBe("continue");
-      expect(readEffortRound()).toBe(2);
-    });
-
-    it("verdict が subagentOutput にだけ存在しても round limit を検出し、condition が読めるようファイルへ永続化する", () => {
-      // origCheck と同じ解決チェーン（artifacts → セッションファイル → subagentOutput）で
-      // verdict を解決する。ファイル経路しか見ないと上限到達を復旧経路へ落としてしまう。
-      const verdict = {
-        round: 3,
-        width: "medium",
-        depth: "medium",
-        passed: false,
-        blocking_threads: [],
-      };
-      fakeGit();
-      writeEffort({ round: 3 });
-      writeDifitState();
-      fakeMtDifitGate({});
-      const result = stepCheck("collect_verdict")(
-        makeCtx({
-          attemptResult: { status: "completed", subagentOutput: JSON.stringify(verdict) },
-        }),
-      );
-
-      expect(result.status).toBe("pass");
-      expect(result.reasons.join("\n")).toContain("round_limit_gate");
-      // round_limit_gate / release_difit_session の condition は attemptResult を持たない
-      // ため、subagentOutput 経由の verdict をファイルへ永続化して判定経路を揃える。
-      const persisted = JSON.parse(
-        fs.readFileSync(path.join(sessionDir, "verdict.json"), "utf-8"),
-      ) as { round: number };
-      expect(persisted.round).toBe(3);
-      const gateCtx = makeConditionCtx();
-      expect(gateStep("round_limit_gate").condition!(gateCtx)).toBe(true);
-      expect(taskStep("release_difit_session").condition!(gateCtx)).toBe(true);
-    });
-
-    it("round limit エスカレーション時は verdict を atomic に永続化し tmp を残さない", () => {
-      const verdict = {
-        round: 3,
-        width: "medium",
-        depth: "medium",
-        passed: false,
-        blocking_threads: [],
-      };
-      fakeGit();
-      writeEffort({ round: 3 });
-      writeDifitState();
-      fakeMtDifitGate({});
-      const result = stepCheck("collect_verdict")(
-        makeCtx({
-          attemptResult: { status: "completed", subagentOutput: JSON.stringify(verdict) },
-        }),
-      );
-
-      expect(result.status).toBe("pass");
-      // tmp+rename+再読の atomic 永続化: 内容が一致し、tmp が残らない
-      const persisted = JSON.parse(fs.readFileSync(path.join(sessionDir, "verdict.json"), "utf-8"));
-      expect(persisted).toEqual(verdict);
-      expect(fs.readdirSync(sessionDir).filter((f) => f.includes(".tmp-"))).toEqual([]);
-    });
-
-    it("round limit 到達時の daemon 不一致 verdict は永続化せず error にする（SoT 汚染の防止）", () => {
-      // verdict は schema valid だが daemon と食い違う改変。round limit 到達でも
-      // そのまま上書き永続化して pass で抜けると、汚染 verdict が SoT 化する。
-      fakeGit();
-      writeEffort({ round: 3 });
-      writeDifitState();
-      writeFindings({ must: 0, should: 0, want: 0 }, 3);
-      const mismatched = {
-        round: 3,
-        width: "medium",
-        depth: "medium",
-        passed: false,
-        blocking_threads: [],
-      };
-      fs.writeFileSync(path.join(sessionDir, "verdict.json"), JSON.stringify(mismatched));
-      const before = fs.readFileSync(path.join(sessionDir, "verdict.json"), "utf-8");
-      fakeMtDifitGate({
-        checkJson: JSON.stringify({
-          passes: false,
-          blocking_threads: [{ id: "n1", taxonomy: "issue", body: "real", replies: [] }],
-        }),
-        checkExit: 1,
-      });
-
-      const result = stepCheck("collect_verdict")(
-        makeCtx({
-          attemptResult: { status: "completed", subagentOutput: JSON.stringify(mismatched) },
-        }),
-      );
-
-      expect(result.status).toBe("error");
-      expect(result.reasons.join("\n")).toContain("不一致");
-      expect(result.reasons.join("\n")).toContain("永続化せず");
-      // 汚染 verdict で上書きしない
-      expect(fs.readFileSync(path.join(sessionDir, "verdict.json"), "utf-8")).toBe(before);
-    });
-
-    it("daemon 突合不一致の検出マーカーは mt-review-diff の実 check 出力と連動する", () => {
-      // plan-run の collect_verdict は汚染 verdict の SoT 化を防ぐため、round limit 到達時の
-      // daemon 不一致を理由文マーカー（上限経路 "ゲート状態と不一致" / 通常経路 "does not match"）
-      // で検出する（isDaemonMismatchReasons）。CheckResult に構造化信号が無い間の措置であり、
-      // mt-review-diff 側の文言変更でマーカーが消えると無音で素通りする。実 origCheck の
-      // 出力にマーカーが残ることを固定し、文言変更を loud な失敗にする。
-      fakeGit();
-      writeEffort({ round: 3 });
-      writeDifitState();
-      writeFindings({ must: 0, should: 0, want: 0 }, 3);
-      const mismatched = {
-        round: 3,
-        width: "medium",
-        depth: "medium",
-        passed: false,
-        blocking_threads: [],
-      };
-      fs.writeFileSync(path.join(sessionDir, "verdict.json"), JSON.stringify(mismatched));
-      fakeMtDifitGate({
-        checkJson: JSON.stringify({
-          passes: false,
-          blocking_threads: [{ id: "n1", taxonomy: "issue", body: "real", replies: [] }],
-        }),
-        checkExit: 1,
-      });
-      const limitOrig = collectVerdictStep.check(
-        makeCtx({
-          attemptResult: { status: "completed", subagentOutput: JSON.stringify(mismatched) },
-        }),
-      );
-      expect(limitOrig.status).toBe("fail");
-      expect(limitOrig.reasons.join("\n")).toContain("ゲート状態と不一致");
-      expect(limitOrig.reasons.join("\n")).toContain("mt difit check --dry-run");
-
-      // 通常経路（上限未到達）の不一致文言も固定する
-      writeEffort({ round: 1 });
-      writeFindings({ must: 0, should: 0, want: 0 }, 1);
-      const tampered = { ...mismatched, round: 1 };
-      fs.writeFileSync(path.join(sessionDir, "verdict.json"), JSON.stringify(tampered));
-      const normalOrig = collectVerdictStep.check(
-        makeCtx({
-          attemptResult: { status: "completed", subagentOutput: JSON.stringify(tampered) },
-        }),
-      );
-      expect(normalOrig.status).toBe("fail");
-      expect(normalOrig.reasons.join("\n")).toContain("does not match");
-      expect(normalOrig.reasons.join("\n")).toContain("mt difit check --dry-run");
-    });
-
-    it("task 失敗（error）でも verdict が round limit なら pass で human gate へエスカレーションする（決定論的反復の停止）", () => {
-      // verdict.json は round limit に達しているが collect_verdict task 自体が失敗しており、
-      // origCheck は error（attemptResult 未完了）を返す。error を上限判定から外すと、
-      // 決定論的に再発する error が round を前進させながら自律ループを無制限に反復する。
-      writeEffort({ round: 4 });
-      const findings = {
-        round: 4,
-        width: "medium",
-        depth: "medium",
-        findings: [],
-        counts: { must: 0, should: 0, want: 0 },
-      };
-      const verdict = {
-        round: 4,
-        width: "medium",
-        depth: "medium",
-        passed: false,
-        blocking_threads: [],
-      };
-      fs.writeFileSync(path.join(sessionDir, "findings.json"), JSON.stringify(findings));
-      fs.writeFileSync(path.join(sessionDir, "verdict.json"), JSON.stringify(verdict));
-      // round_limit_gate の condition 自体は true（verdict が上限到達）であることを確認
-      const gateCtx = makeConditionCtx();
-      expect(gateStep("round_limit_gate").condition!(gateCtx)).toBe(true);
-
-      const result = stepCheck("collect_verdict")(
-        makeCtx({ attemptResult: { status: "failed", errors: "task failed" } }),
-      );
-
-      expect(result.status).toBe("pass");
-      expect(result.reasons.join("\n")).toContain("error");
-      expect(result.reasons.join("\n")).toContain("round_limit_gate");
-      expect(result.reasons.join("\n")).toContain("task failed");
-    });
-
-    it("verdict を解決できない error が連続上限（effort.json round >= 3）に達したら pass でエスカレーションする", () => {
-      // verdict が無い/不正の error は round 判定に載らないため、effort.json の round を
-      // ループカウンタとして連続 error を打ち切る（無制限反復の停止）。
-      fakeGit();
-      writeEffort({ round: 3 });
-      const result = stepCheck("collect_verdict")(
-        makeCtx({ attemptResult: { status: "failed", errors: "report 未完" } }),
-      );
-
-      expect(result.status).toBe("pass");
-      expect(result.reasons.join("\n")).toContain("verdict を解決できない error");
-      expect(result.reasons.join("\n")).toContain("round=3");
-      // condition（attemptResult を持たない）は effort.json の round で上限判定する
-      const gateCtx = makeConditionCtx();
-      expect(gateStep("round_limit_gate").condition!(gateCtx)).toBe(true);
-    });
-
-    it("verdict を解決できない error でも effort.json round < 3 なら自律ループの継続へ載せる", () => {
-      // findings の round を論理時計にして round を前進させる（時計ありの復旧は継続）。
-      fakeGit();
-      writeEffort({ round: 1 });
-      writeFindings({ must: 0, should: 0, want: 0 });
-      const result = stepCheck("collect_verdict")(
-        makeCtx({ attemptResult: { status: "failed", errors: "report 未完" } }),
-      );
-
-      expect(result.status).toBe("continue");
-      // 次ラウンドとして round を前進させ、反復回数を上限判定へ写像する
-      expect(readEffortRound()).toBe(2);
-      const gateCtx = makeConditionCtx();
-      expect(gateStep("round_limit_gate").condition!(gateCtx)).toBe(false);
-    });
-
-    it("findings も verdict も解決できない復旧は round を前進させず error（両時計不在の空転防止）", () => {
-      // 両時計不在のまま無条件 +1 すると無審査で round を消費して round limit へ
-      // 早送りする。時計不在時は前進せず error で止める（logic-1/logic-3）。
-      fakeGit();
-      writeEffort({ round: 1 });
-      const result = stepCheck("collect_verdict")(
-        makeCtx({ attemptResult: { status: "failed", errors: "report 未完" } }),
-      );
-
-      expect(result.status).toBe("error");
-      expect(result.reasons.join("\n")).toContain("論理時計");
-      expect(readEffortRound()).toBe(1);
-    });
-
-    it("verdict.round が findings.round に追従しなくても実効ラウンドで上限到達を検出しエスカレーションする", () => {
-      // verdict.round=1 のまま findings.round が 4 に前進したケース。verdict だけを見ると
-      // 上限未到達 → 自律ループ反復になる（終端しない）。実効ラウンド max で判定する。
-      fakeGit();
-      writeEffort({ round: 4 });
-      const findings = {
-        round: 4,
-        width: "medium",
-        depth: "medium",
-        findings: [],
-        counts: { must: 0, should: 0, want: 0 },
-      };
-      const staleVerdict = {
-        round: 1,
-        width: "medium",
-        depth: "medium",
-        passed: false,
-        blocking_threads: [],
-      };
-      fs.writeFileSync(path.join(sessionDir, "findings.json"), JSON.stringify(findings));
-      fs.writeFileSync(path.join(sessionDir, "verdict.json"), JSON.stringify(staleVerdict));
-
-      const result = stepCheck("collect_verdict")(
-        makeCtx({
-          attemptResult: { status: "completed", subagentOutput: JSON.stringify(staleVerdict) },
-        }),
-      );
-
-      expect(result.status).toBe("pass");
-      expect(result.reasons.join("\n")).toContain("実効ラウンド 4");
-      const gateCtx = makeConditionCtx();
-      expect(gateStep("round_limit_gate").condition!(gateCtx)).toBe(true);
-    });
-
-    it("round_limit_gate / round_limit_passed_gate は collect_verdict の後段にのみ置かれ、通常通過では condition が false", () => {
-      const keys = def.steps.map((s) => s.key);
-      for (const key of ["round_limit_gate", "round_limit_passed_gate"]) {
-        expect(keys.indexOf(key)).toBeGreaterThan(keys.indexOf("human_review_cycle"));
-        expect(keys.indexOf(key)).toBeLessThan(keys.indexOf("finalize_done"));
+    it("自律5ラウンドを消費すると既存登録・verdict検証後に人間ゲートへ進む", async () => {
+      prepare(1, 1, 1);
+      for (let round = 1; round <= REVIEW_ROUND_LIMIT; round++) {
+        await normalizeClock(round);
+        expect(readEffortRound()).toBe(round);
+        writeFindings({ must: 1, should: 1, want: 1 }, round);
+        expect(stepCheck("agent_verdict")(makeCtx()).status).toBe(
+          round < REVIEW_ROUND_LIMIT ? "continue" : "pass",
+        );
       }
-
-      const passedVerdict = {
-        round: 1,
-        width: "medium",
-        depth: "medium",
-        passed: true,
-        blocking_threads: [],
-      };
-      fs.writeFileSync(path.join(sessionDir, "verdict.json"), JSON.stringify(passedVerdict));
-      const gateCtx = makeConditionCtx();
-      expect(gateStep("round_limit_gate").condition!(gateCtx)).toBe(false);
-      expect(gateStep("round_limit_passed_gate").condition!(gateCtx)).toBe(false);
-    });
-
-    it("daemon が block なのに verdict が pass 偽装なら自律ループの継続へ載せる (daemon 偽装検出)", () => {
-      fakeGit();
-      writeEffort();
-      writeDifitState();
-      const findings = {
-        round: 1,
-        width: "medium",
-        depth: "medium",
-        findings: [],
-        counts: { must: 0, should: 0, want: 0 },
-      };
-      // daemon 出力（`mt difit check --dry-run` の stdout）と verdict を突合する契約。
-      // validateVerdictJson は passed を読み、突合は passes / blocking_threads の
-      // canonicalize 一致で行う（verdict 側に passes フィールドは存在しない）。
-      const verdict = {
-        round: 1,
-        width: "medium",
-        depth: "medium",
-        passed: true,
-        blocking_threads: [],
-      };
-      fs.writeFileSync(path.join(sessionDir, "findings.json"), JSON.stringify(findings));
-      fs.writeFileSync(path.join(sessionDir, "verdict.json"), JSON.stringify(verdict));
-      const daemonGate = {
-        passes: false,
-        blocking_threads: [{ id: "n1", taxonomy: "issue", body: "🐛 issue real", replies: [] }],
-      };
-      fakeMtDifitGate({
-        checkJson: JSON.stringify(daemonGate),
-        checkExit: 1,
-      });
-      const result = stepCheck("collect_verdict")(
-        makeCtx({
-          attemptResult: { status: "completed", subagentOutput: JSON.stringify(verdict) },
-        }),
-      );
-      expect(result.status).toBe("continue");
-      expect(result.reasons.join("\n")).toContain("does not match");
-      expect(doneCalled()).toBe(false);
-      // 復旧は次ラウンドとして round が前進する（決定論的な偽装の反復は round limit で打ち切る）
-      expect(readEffortRound()).toBe(2);
-    });
-
-    it("blocking_threads を改変した verdict は不一致で自律ループの継続へ載せる (daemon 偽装検出)", () => {
-      fakeGit();
-      writeEffort();
-      writeDifitState();
-      const findings = {
-        round: 1,
-        width: "medium",
-        depth: "medium",
-        findings: [],
-        counts: { must: 0, should: 0, want: 0 },
-      };
-      fs.writeFileSync(path.join(sessionDir, "findings.json"), JSON.stringify(findings));
-      const daemonGate = {
-        passes: false,
-        blocking_threads: [{ id: "n1", taxonomy: "issue", body: "🐛 issue real", replies: [] }],
-      };
-      fakeMtDifitGate({
-        checkJson: JSON.stringify(daemonGate),
-        checkExit: 1,
-      });
-      const tampered = {
-        round: 1,
-        width: "medium",
-        depth: "medium",
-        passed: false,
-        blocking_threads: [
-          { id: "n1", taxonomy: "issue", body: "🐛 issue rewritten", replies: [] },
-        ],
-      };
-      fs.writeFileSync(path.join(sessionDir, "verdict.json"), JSON.stringify(tampered));
-      const result = stepCheck("collect_verdict")(
-        makeCtx({
-          attemptResult: { status: "completed", subagentOutput: JSON.stringify(tampered) },
-        }),
-      );
-      expect(result.status).toBe("continue");
-      expect(result.reasons.join("\n")).toContain("does not match");
-      expect(doneCalled()).toBe(false);
-      expect(readEffortRound()).toBe(2);
-    });
-
-    it("verdict が無い/不正な場合は findings から合成せず error（削除した到達不能分岐の回帰検出）", () => {
-      // verdict.json も subagentOutput も無い。旧実装は findings must=0 から
-      // pass を合成していたが、origCheck の契約（pass = verdict 検証込み）に一本化した
-      const findings = {
-        round: 1,
-        width: "medium",
-        depth: "medium",
-        findings: [],
-        counts: { must: 0, should: 0, want: 0 },
-      };
-      fs.writeFileSync(path.join(sessionDir, "findings.json"), JSON.stringify(findings));
-
-      const result = stepCheck("collect_verdict")(makeCtx());
-
-      expect(result.status).toBe("error");
-      expect(result.status).not.toBe("pass");
-    });
-
-    it("daemon と突合済みの blocked verdict は continue し自律ループ先頭へ巻き戻る", () => {
-      fakeGit();
-      writeEffort();
-      writeDifitState();
-      writeFindings({ must: 0, should: 0, want: 0 });
-      const blockedVerdict = {
-        round: 1,
-        width: "medium",
-        depth: "medium",
-        passed: false,
-        blocking_threads: [
-          { id: "t1", taxonomy: "question", body: "⚠️ should real body", replies: [] },
-        ],
-      };
-      const daemonGate = {
-        passes: false,
-        blocking_threads: [
-          { id: "t1", taxonomy: "question", body: "⚠️ should real body", replies: [] },
-        ],
-      };
-      fs.writeFileSync(path.join(sessionDir, "verdict.json"), JSON.stringify(blockedVerdict));
-      fakeMtDifitGate({ checkJson: JSON.stringify(daemonGate), checkExit: 1 });
-
-      const result = stepCheck("collect_verdict")(
-        makeCtx({
-          attemptResult: { status: "completed", subagentOutput: JSON.stringify(blockedVerdict) },
-        }),
-      );
-
-      expect(result.status).toBe("continue");
-      expect(result.reasons.join("\n")).toContain("⚠️ should real body");
-      expect(result.reasons.join("\n")).toContain("autonomous_review_cycle");
-      expect(doneCalled()).toBe(false);
-      expect(taskStep("collect_verdict").onFail).toEqual({ action: "escalate" });
-      // 継続は次ラウンドとして round が前進する
-      expect(readEffortRound()).toBe(2);
-    });
-
-    it("非通過復旧（突合不一致）は次ラウンドとして round を前進させ、round 停滞の検出を招かない", () => {
-      fakeGit();
-      writeEffort({ round: 2 });
-      writeFindings({ must: 1, should: 0, want: 0 }, 2);
-      writeDifitState();
-      const verdict = {
-        round: 2,
-        width: "medium",
-        depth: "medium",
-        passed: false,
-        blocking_threads: [
-          { id: "t1", taxonomy: "question", body: "⚠️ should real body", replies: [] },
-        ],
-      };
-      fs.writeFileSync(path.join(sessionDir, "verdict.json"), JSON.stringify(verdict));
-      // daemon 側の blocking_threads を改変して突合不一致（非通過復旧）を作る
+      writeVerdict({ round: REVIEW_ROUND_LIMIT, passed: false, blocking: true });
       fakeMtDifitGate({
         checkJson: JSON.stringify({
           passes: false,
           blocking_threads: [
-            { id: "t1", taxonomy: "question", body: "⚠️ should rewritten", replies: [] },
+            { id: "t1", taxonomy: "question", body: "⚠️ should body", replies: [] },
           ],
         }),
-        checkExit: 1,
       });
-
-      const result = stepCheck("collect_verdict")(
-        makeCtx({
-          attemptResult: { status: "completed", subagentOutput: JSON.stringify(verdict) },
-        }),
-      );
-
-      expect(result.status).toBe("continue");
-      expect(result.reasons.join("\n")).toContain("does not match");
-      // 復旧分岐でも blocked 経路と同じ写像で round を進める。
-      expect(readEffortRound()).toBe(3);
-    });
-
-    it("daemon の selection_drift.detection=detected なら done せず自律ループの継続へ載せ、リビジョンセレクタ復旧手順を返す", () => {
-      fakeGit();
-      writeEffort();
-      writeDifitState();
-      writeFindings({ must: 0, should: 0, want: 0 });
-      const passedVerdict = {
-        round: 1,
-        width: "medium",
-        depth: "medium",
-        passed: true,
-        blocking_threads: [],
-      };
-      fs.writeFileSync(path.join(sessionDir, "verdict.json"), JSON.stringify(passedVerdict));
-      fakeMtDifitGate({
-        checkJson: JSON.stringify({
-          passes: true,
-          blocking_threads: [],
-          selection_drift: {
-            detection: "detected",
-            expected: { base: "1111111", target: "2222222", baseMode: "merge-base" },
-            current: { base: "3333333", target: "4444444" },
-          },
-        }),
-      });
-
-      const result = stepCheck("collect_verdict")(
-        makeCtx({
-          attemptResult: { status: "completed", subagentOutput: JSON.stringify(passedVerdict) },
-        }),
-      );
-
-      expect(result.status).toBe("continue");
-      expect(result.reasons.join("\n")).toContain("リビジョンセレクタ");
-      expect(result.reasons.join("\n")).toContain("起動時の選択");
-      expect(result.reasons.join("\n")).toContain("resolve / reply");
+      expect(stepCheck("collect_verdict")(makeCtx()).status).toBe("pass");
       expect(doneCalled()).toBe(false);
-      expect(readEffortRound()).toBe(2);
+      expect(gateStep("await_human_review").condition!(makeConditionCtx())).toBe(true);
+      const keys = loopStep("autonomous_review_cycle").body.map((step) => step.key);
+      expect(keys.slice(keys.indexOf("agent_verdict"))).toEqual([
+        "agent_verdict",
+        "start_difit_review",
+        "collect_verdict",
+      ]);
     });
 
-    it("daemon の selection_drift.detection=unavailable（probe 失敗）は fail-closed で自律ループの継続へ載せる", () => {
-      fakeGit();
-      writeEffort();
-      writeDifitState();
-      writeFindings({ must: 0, should: 0, want: 0 });
-      const passedVerdict = {
-        round: 1,
-        width: "medium",
-        depth: "medium",
-        passed: true,
-        blocking_threads: [],
-      };
-      fs.writeFileSync(path.join(sessionDir, "verdict.json"), JSON.stringify(passedVerdict));
-      fakeMtDifitGate({
-        checkJson: JSON.stringify({
-          passes: true,
-          blocking_threads: [],
-          selection_drift: {
-            detection: "unavailable",
-            expected: { base: "1111111", target: "2222222" },
-            current: null,
-          },
-        }),
-      });
-
-      const result = stepCheck("collect_verdict")(
-        makeCtx({
-          attemptResult: { status: "completed", subagentOutput: JSON.stringify(passedVerdict) },
-        }),
-      );
-
-      expect(result.status).toBe("continue");
-      expect(result.reasons.join("\n")).toContain("検知不能");
-      expect(result.reasons.join("\n")).toContain("probe 失敗");
-      expect(result.reasons.join("\n")).toContain("mt difit start");
-      expect(doneCalled()).toBe(false);
-      expect(readEffortRound()).toBe(2);
-    });
-
-    it("check --dry-run の stderr（同一性照合エラー等）を継続理由に伝搬する", () => {
-      fakeGit();
-      writeEffort();
-      writeDifitState();
-      writeFindings({ must: 0, should: 0, want: 0 });
-      const passedVerdict = {
-        round: 1,
-        width: "medium",
-        depth: "medium",
-        passed: true,
-        blocking_threads: [],
-      };
-      fs.writeFileSync(path.join(sessionDir, "verdict.json"), JSON.stringify(passedVerdict));
+    it("must=0・should/want残存でも自律反復せず人間へ渡しセッションを保持する", () => {
+      prepare(1, 0, 1);
+      writeVerdict({ round: 1, passed: false, blocking: true });
       fakeMtDifitGate({
         checkJson: JSON.stringify({
           passes: false,
-          blocking_threads: [{ id: "n1", taxonomy: "issue", body: "real", replies: [] }],
+          blocking_threads: [
+            { id: "t1", taxonomy: "question", body: "⚠️ should body", replies: [] },
+          ],
         }),
-        checkExit: 1,
-        checkStderr: "mt difit: 記録された pid が記録 port を LISTEN していません",
       });
-
-      const result = stepCheck("collect_verdict")(
-        makeCtx({
-          attemptResult: { status: "completed", subagentOutput: JSON.stringify(passedVerdict) },
-        }),
-      );
-
-      expect(result.status).toBe("continue");
-      expect(result.reasons.join("\n")).toContain("mt difit stderr:");
-      expect(result.reasons.join("\n")).toContain("LISTEN していません");
+      expect(stepCheck("agent_verdict")(makeCtx()).status).toBe("pass");
+      expect(stepCheck("collect_verdict")(makeCtx()).status).toBe("pass");
       expect(doneCalled()).toBe(false);
-      expect(readEffortRound()).toBe(2);
+      expect(gateStep("await_human_review").condition!(makeConditionCtx())).toBe(true);
     });
 
-    it("check --dry-run がゲート出力を返さない（セッション不在）fail は自律ループの継続へ載せて round を前進させる", () => {
-      fakeGit();
-      writeEffort({ round: 1 });
-      writeDifitState();
-      writeFindings({ must: 0, should: 0, want: 0 });
-      const passedVerdict = {
-        round: 1,
-        width: "medium",
-        depth: "medium",
-        passed: true,
-        blocking_threads: [],
-      };
-      fs.writeFileSync(path.join(sessionDir, "verdict.json"), JSON.stringify(passedVerdict));
-      // checkJson 未指定 → check --dry-run が exit 1（ゲート出力なし）
-      fakeMtDifitGate({});
+    it("通過済みverdictでも人間承認前にcleanupしない", () => {
+      prepare(2);
+      writeVerdict({ round: 2, passed: true, blocking: false });
+      fakeMtDifitGate({ checkJson: '{"passes":true,"blocking_threads":[]}' });
+      expect(stepCheck("collect_verdict")(makeCtx()).status).toBe("pass");
+      expect(doneCalled()).toBe(false);
+    });
 
-      const result = stepCheck("collect_verdict")(
-        makeCtx({
-          attemptResult: { status: "completed", subagentOutput: JSON.stringify(passedVerdict) },
-        }),
+    it("人間差し戻し1〜4回後の自律予算は1から5で、round更新は冪等", async () => {
+      prepare(5, 1);
+      fakeMtDifitGate();
+      // 人間1〜4回目の差し戻し。外側 loop の continue が内側 iteration を1へ戻すため、
+      // 自律ラウンドは毎回 1 から数え直される（同じフック再実行でも加算しない）。
+      for (let human = 1; human < REVIEW_ROUND_LIMIT; human++) {
+        writeFindings({ must: 1, should: 0, want: 0 }, 5);
+        expect(
+          stepCheck("judge_human")(makeCtx({ gateAnswers: humanAnswers("request_changes") }))
+            .status,
+        ).toBe("continue");
+        expect(doneCalled()).toBe(false);
+        for (let round = 1; round <= REVIEW_ROUND_LIMIT; round++) {
+          await normalizeClock(round);
+          await normalizeClock(round);
+          expect(readEffortRound()).toBe(round);
+          writeFindings({ must: 1, should: 0, want: 0 }, round);
+          expect(stepCheck("agent_verdict")(makeCtx()).status).toBe(
+            round === REVIEW_ROUND_LIMIT ? "pass" : "continue",
+          );
+        }
+      }
+    });
+
+    it("実tado next/reportで自律5回×人間5回を進め、最後の差し戻しだけpausedになる", () => {
+      const engineHome = path.join(tmp, "engine");
+      const workflowDir = path.join(engineHome, "workflows", "round-limit-contract");
+      fs.mkdirSync(workflowDir, { recursive: true });
+      // 外部作業・人間のTTY入力は対象外。実defのloop設定・roundフック・判定を再利用し、
+      // findings生成とrequest_changes入力だけをfixture化する。DBの手動更新は行わない。
+      fs.writeFileSync(
+        path.join(workflowDir, "index.ts"),
+        `
+import def from ${JSON.stringify(path.join(import.meta.dir, "index.ts"))};
+const human = def.steps.find(s => s.key === "human_review_cycle");
+const autonomous = human.body.find(s => s.key === "autonomous_review_cycle");
+const normalize = autonomous.body.find(s => s.key === "normalize_findings");
+const verdict = autonomous.body.find(s => s.key === "agent_verdict");
+const judge = human.body.find(s => s.key === "judge_human");
+const task = { action: "orchestrate", buildPrompt: () => "boundary test" };
+export default {
+  id: "round-limit-contract",
+  steps: [{ ...human, body: [
+    { ...autonomous, body: [
+      { ...normalize, task, check: () => ({ status: "pass", reasons: [] }) },
+      { ...verdict, task },
+    ] },
+    { ...judge, task, check: ctx => judge.check({ ...ctx, gateAnswers: {
+      await_human_review: { decision: { value: "request_changes", input: "test fixture" } },
+    } }) },
+  ] }],
+};
+`,
       );
+      const cli = path.resolve(
+        path.dirname(fileURLToPath(import.meta.resolve("tado"))),
+        "../cli/main.ts",
+      );
+      const run = (args: string[], input?: object) => {
+        const result = Bun.spawnSync([process.execPath, cli, ...args], {
+          env: { ...process.env, TADO_HOME: engineHome },
+          stdin: input ? Buffer.from(JSON.stringify(input)) : undefined,
+          stdout: "pipe",
+          stderr: "pipe",
+        });
+        if (result.exitCode !== 0) throw new Error(result.stderr.toString());
+        return JSON.parse(result.stdout.toString());
+      };
+      const initialized = run([
+        "init",
+        "--workflow",
+        "round-limit-contract",
+        "--title",
+        "boundary test",
+      ]);
+      const sessionArgs = ["--session", initialized.sessionId];
+      const effortPath = path.join(initialized.sessionDir, "effort.json");
+      fs.writeFileSync(effortPath, JSON.stringify({ round: 1 }));
+      const report = (stepKey: string) =>
+        run(["report", ...sessionArgs], { stepKey, status: "completed" });
+      for (let human = 1; human <= REVIEW_ROUND_LIMIT; human++) {
+        for (let round = 1; round <= REVIEW_ROUND_LIMIT; round++) {
+          const next = run(["next", ...sessionArgs]);
+          expect(next.stepKey).toBe("normalize_findings");
+          expect(next.context.loop.iteration).toBe(round);
+          const effort = JSON.parse(fs.readFileSync(effortPath, "utf-8"));
+          expect(effort.round).toBe(round);
+          writeFindings({ must: 1, should: 0, want: 0 }, effort.round);
+          fs.copyFileSync(
+            path.join(sessionDir, "findings.json"),
+            path.join(initialized.sessionDir, "findings.json"),
+          );
+          expect(report("normalize_findings").nextAction).toBe("continue");
+          expect(run(["next", ...sessionArgs]).stepKey).toBe("agent_verdict");
+          expect(report("agent_verdict").nextAction).toBe(
+            round < REVIEW_ROUND_LIMIT ? "repeat" : "continue",
+          );
+        }
+        const next = run(["next", ...sessionArgs]);
+        expect(next.stepKey).toBe("judge_human");
+        expect(next.context.loop.iteration).toBe(human);
+        const result = report("judge_human");
+        expect(result.checkResult.status).toBe("continue");
+        expect(result.nextAction).toBe(human < REVIEW_ROUND_LIMIT ? "repeat" : "escalate");
+        expect(run(["status", ...sessionArgs]).sessionStatus).toBe(
+          human < REVIEW_ROUND_LIMIT ? "running" : "paused",
+        );
+      }
+    }, 30_000);
 
-      expect(result.status).toBe("continue");
-      expect(result.reasons.join("\n")).toContain("ゲート出力");
-      // 巻き戻しは loop の repeat 遷移に一本化され、DB 直アクセスは行わない。
-      // 復旧は次ラウンドとして round が前進する（据え置きは round 停滞の検出で
-      // 自律ループを反復するため、ここで写像を固定する）
-      expect(readEffortRound()).toBe(2);
+    it("findingsにmustが残っていても人間が最新difitで解決済みなら承認・cleanupできる", () => {
+      prepare(5, 1);
+      fakeMtDifitGate({ threads: [thread("question"), thread("want")] });
+      expect(
+        stepCheck("judge_human")(makeCtx({ gateAnswers: humanAnswers("approve") })).status,
+      ).toBe("pass");
+      expect(doneCalled()).toBe(true);
     });
 
-    it("done 実行時点のゲート非通過 fail は自律ループの継続へ載せる", () => {
-      fakeGit();
-      writeEffort();
-      writeFindings({ must: 0, should: 0, want: 0 });
-      const passedVerdict = {
-        round: 1,
-        width: "medium",
-        depth: "medium",
-        passed: true,
-        blocking_threads: [],
-      };
-      fs.writeFileSync(path.join(sessionDir, "verdict.json"), JSON.stringify(passedVerdict));
-      // 後始末後の pid 終了確認を通すため、生存しない pid を使う
-      writeDifitState({ pid: 2147483647 });
+    it("doneがshould/wantだけで非通過ならmust=0として承認できる", () => {
+      prepare(5, 1);
       fakeMtDifitGate({
-        checkJson: JSON.stringify({ passes: true, blocking_threads: [] }),
+        threads: [thread("question"), thread("want")],
         doneJson: JSON.stringify({
           passes: false,
           blocking_threads: [
-            {
-              id: "h1",
-              taxonomy: "human",
-              file: "src/a.ts",
-              line: 1,
-              body: "追加の人間コメント",
-              replies: [],
-            },
+            { id: "t8", taxonomy: "question", body: "should", replies: [] },
+            { id: "t9", taxonomy: "want", body: "want", replies: ["human reply"] },
           ],
         }),
       });
-
-      const result = stepCheck("collect_verdict")(
-        makeCtx({
-          attemptResult: { status: "completed", subagentOutput: JSON.stringify(passedVerdict) },
-        }),
-      );
-
-      expect(result.status).toBe("continue");
-      expect(result.reasons.join("\n")).toContain("非通過");
-      // difit セッションは done で終了済み。次ラウンドの start_difit_review で再作成する
-      expect(fs.existsSync(path.join(tmp, "repo", ".difit", "difit-review.json"))).toBe(false);
-    });
-  });
-
-  describe("release_difit_session (round limit 受容の後始末)", () => {
-    it("round_limit_gate の直後（finalize_done より前）に置かれ、受容時のみ condition が true", () => {
-      const keys = def.steps.map((s) => s.key);
-      expect(keys.indexOf("release_difit_session")).toBeGreaterThan(
-        keys.indexOf("round_limit_gate"),
-      );
-      expect(keys.indexOf("release_difit_session")).toBeLessThan(keys.indexOf("finalize_done"));
-
-      const release = taskStep("release_difit_session");
-      const gateCtx = makeConditionCtx();
-      fs.writeFileSync(
-        path.join(sessionDir, "verdict.json"),
-        JSON.stringify({
-          round: 3,
-          width: "medium",
-          depth: "medium",
-          passed: false,
-          blocking_threads: [],
-        }),
-      );
-      expect(release.condition!(gateCtx)).toBe(true);
-      fs.writeFileSync(
-        path.join(sessionDir, "verdict.json"),
-        JSON.stringify({
-          round: 3,
-          width: "medium",
-          depth: "medium",
-          passed: true,
-          blocking_threads: [],
-        }),
-      );
-      expect(release.condition!(gateCtx)).toBe(false);
-    });
-
-    it("task は readonly で、状態を変更せず report のみ行うことを指示する", () => {
-      const step = taskStep("release_difit_session");
-      expect(step.task.readonly).toBe(true);
-      const prompt = step.task.buildPrompt(makePromptCtx());
-      expect(prompt).toContain("状態を変更しない");
-      expect(prompt).toContain("read-only");
-      expect(prompt).toContain("report のみ");
-      expect(prompt).toContain("mt difit done");
-      expect(prompt).toContain("実行しない");
-      // 後始末は check が担う（task に状態確認・done 実行の work を残さない）
-      expect(prompt).toContain("check");
-      expect(prompt).not.toContain("有無を確認し、report する");
-    });
-
-    it("受容経路で mt difit done を実行し、state 消失を検証して pass する", () => {
-      fakeGit();
-      writeDifitState({ pid: 2147483647 });
-      fakeMtDifitGate({});
-
-      const result = stepCheck("release_difit_session")(makeCtx());
-
-      expect(result.status).toBe("pass");
-      expect(result.reasons.join("\n")).toContain("state removed");
-      expect(doneCalled()).toBe(true);
-      expect(fs.existsSync(path.join(tmp, "repo", ".difit", "difit-review.json"))).toBe(false);
-    });
-
-    it("done 前に控えた pid が生存していれば error（release 経路の orphan 検出）", () => {
-      fakeGit();
-      writeDifitState({ pid: process.pid });
-      fakeMtDifitGate({});
-
-      const result = stepCheck("release_difit_session")(makeCtx());
-
-      expect(result.status).toBe("error");
-      expect(result.reasons.join("\n")).toContain("生存");
-      expect(result.reasons.join("\n")).toContain(String(process.pid));
+      expect(
+        stepCheck("judge_human")(makeCtx({ gateAnswers: humanAnswers("approve") })).status,
+      ).toBe("pass");
       expect(doneCalled()).toBe(true);
     });
 
-    it("done 後も state ファイルが残っていれば error（後始末未完の検出）", () => {
-      fakeGit();
-      writeDifitState({ pid: 2147483647 });
-      // state を削除しない done（後始末失敗のシミュレーション）
-      writeScript(
-        "mt",
-        `[ "$1" = "difit" ] || exit 64
-[ "$2" = "done" ] || exit 64
-printf '%s\\n' '{"passes":true,"blocking_threads":[]}'
-exit 0`,
+    it("doneが非通過かつblocking空（判定不能出力）なら検証済みでも承認しない", () => {
+      prepare(5, 1);
+      fakeMtDifitGate({
+        threads: [thread("question")],
+        doneJson: '{"passes":false,"blocking_threads":[]}',
+      });
+      const result = stepCheck("judge_human")(makeCtx({ gateAnswers: humanAnswers("approve") }));
+      expect(result.status).toBe("fail");
+      expect(result.reasons.join("\n")).toContain("ゲート結果を取得できていない");
+      expect(doneCalled()).toBe(true);
+    });
+
+    it("done時点で未解決mustが追加されていれば承認しない", () => {
+      prepare(5, 1);
+      fakeMtDifitGate({
+        threads: [thread("question")],
+        doneJson: JSON.stringify({
+          passes: false,
+          blocking_threads: [{ id: "t9", taxonomy: "issue", body: "late must", replies: [] }],
+        }),
+      });
+      const result = stepCheck("judge_human")(makeCtx({ gateAnswers: humanAnswers("approve") }));
+      expect(result.status).toBe("fail");
+      expect(result.reasons.join("\n")).toContain("未解決 must=1");
+    });
+
+    it("findingsがmust=0でも最新difitに未解決mustがあれば承認・cleanupしない", () => {
+      prepare(1);
+      fakeMtDifitGate({ threads: [thread("issue")] });
+      const result = stepCheck("judge_human")(makeCtx({ gateAnswers: humanAnswers("approve") }));
+      expect(result.status).toBe("fail");
+      expect(result.reasons.join("\n")).toContain("未解決 must=1");
+      expect(doneCalled()).toBe(false);
+    });
+
+    it("上限時も破損verdict・不一致・task失敗を人間レビューへの正常通過に変換しない", () => {
+      prepare(5, 1);
+      writeVerdict({ round: 5, passed: false, blocking: true });
+      fakeMtDifitGate({ checkJson: '{"passes":true,"blocking_threads":[]}' });
+      expect(stepCheck("collect_verdict")(makeCtx()).status).toBe("fail");
+      expect(
+        stepCheck("collect_verdict")(makeCtx({ attemptResult: { status: "failed" } })).status,
+      ).toBe("error");
+      fs.writeFileSync(path.join(sessionDir, "verdict.json"), "invalid");
+      expect(stepCheck("collect_verdict")(makeCtx()).status).toBe("error");
+      expect(doneCalled()).toBe(false);
+    });
+
+    it("finalize_doneは旧再計画artifactを要求せず承認後のIssue閉鎖を検証する", () => {
+      writeScript("gh", `printf '%s\\n' '{"state":"CLOSED"}'`);
+      const file = path.join(sessionDir, "plan-number.txt");
+      fs.writeFileSync(file, "97");
+      const result = stepCheck("finalize_done")(
+        makeCtx({ artifacts: [artifactRecord("plan-number.txt", file)] }),
       );
-
-      const result = stepCheck("release_difit_session")(makeCtx());
-
-      expect(result.status).toBe("error");
-      expect(result.reasons.join("\n")).toContain(".difit/difit-review.json");
-    });
-
-    it("round_limit_gate の description / choices が後始末経路（approve=自動、abort=手動 done）を案内する", () => {
-      const gate = gateStep("round_limit_gate");
-      const question = gate.humanGate.questions.find((q) => q.key === "decision")!;
-      expect(question.description).toContain("mt difit done");
-      expect(question.description).toContain("release_difit_session");
-      // 上限到達後の追加対応は受容→完了後の再計画で行う（このゲートで戻ることはできない）
-      expect(question.description).toContain("再計画");
-      expect(question.description).toContain("mt-plan-create");
-      const approve = question.choices!.find((c) => c.value === "approve")!;
-      expect(approve.desc).toContain("release_difit_session");
-      const abortChoice = question.choices!.find((c) => c.value === "abort")!;
-      expect(abortChoice.desc).toContain("mt difit done");
-      // 未通過前提の文言は未通過ゲートにのみ残る（通過済みは passed gate が担当）
-      expect(question.description).toContain("未通過");
-      // loop 外ゲートのため差し戻し選択は持たない（巻き戻しは loop 内の judge が行う）
-      expect(question.choices!.find((c) => c.value === "request_changes")).toBeUndefined();
-      expect(question.choices!.find((c) => c.value === "revise")).toBeUndefined();
-    });
-
-    it("round_limit_passed_gate の description / choices が通過済みの後始末経路を案内し、未通過の文言を出さない", () => {
-      const gate = gateStep("round_limit_passed_gate");
-      const question = gate.humanGate.questions.find((q) => q.key === "decision")!;
-      expect(question.description).toContain("通過済み");
-      expect(question.description).toContain("release_difit_session");
-      expect(question.description).toContain("mt difit done");
-      expect(question.description).not.toContain("未通過");
-      const approve = question.choices!.find((c) => c.value === "approve")!;
-      expect(approve.label).toContain("上限到達");
-      expect(approve.label).toContain("通過済み");
-      expect(approve.desc).toContain("release_difit_session");
-      const abortChoice = question.choices!.find((c) => c.value === "abort")!;
-      expect(abortChoice.desc).toContain("mt difit done");
-      // 通過済みに差し戻しは提示しない
-      expect(question.choices!.find((c) => c.value === "request_changes")).toBeUndefined();
-      expect(question.choices!.find((c) => c.value === "revise")).toBeUndefined();
-      expect("reviseTargetStep" in gate.humanGate).toBe(false);
-    });
-
-    it("round_limit_gate 群は approve/abort のみで、loop 外に継続手段を持たない（上限後の巻き戻し不可の回帰固定）", () => {
-      // 「もう1巡」の復活はしない（M2 の設計判断）。上限到達後の追加対応は受容→完了後の再計画。
-      for (const key of ["round_limit_gate", "round_limit_passed_gate"]) {
-        const question = gateStep(key).humanGate.questions.find((q) => q.key === "decision")!;
-        expect((question.choices ?? []).map((c) => c.value).sort()).toEqual(["abort", "approve"]);
-        expect("reviseTargetStep" in gateStep(key).humanGate).toBe(false);
-      }
-      // loop 外ステップの check は continue を返さない（構造テストで固定済みの再確認）
-      expect(stepCheck("round_limit_gate").toString()).not.toContain('"continue"');
-      expect(stepCheck("round_limit_passed_gate").toString()).not.toContain('"continue"');
-    });
-  });
-
-  describe("finalize_done (round limit 受容の記録)", () => {
-    function fakeGhState(state: string): void {
-      writeScript("gh", `printf '%s' '{"state":"${state}","labels":[],"body":""}'`);
-    }
-
-    function planNumberRecord(num = "97"): ArtifactRecord {
-      const filePath = path.join(sessionDir, "plan-number.txt");
-      fs.writeFileSync(filePath, `${num}\n`);
-      return artifactRecord("plan-number.txt", filePath);
-    }
-
-    it("通常完了では警告なしで pass する", () => {
-      fakeGhState("CLOSED");
-      writeFindings({ must: 0, should: 0, want: 0 });
-      writeVerdict({ round: 1, passed: true, blocking: false });
-
-      const result = stepCheck("finalize_done")(makeCtx({ artifacts: [planNumberRecord()] }));
-
       expect(result.status).toBe("pass");
-      expect(result.reasons.join("\n")).toContain("is closed on GitHub");
-      expect(result.reasons.join("\n")).not.toContain("再計画");
-    });
-
-    it("round limit 到達＋must 残存では再計画なしに done できない（req-1 の機械強制）", () => {
-      // NOTE(req-1): must 残存＋round limit 到達で再計画 artifact が無ければ fail する。
-      // 警告のみの旧仕様では finalize_done が must 残存でも pass して CLOSEDにしていた。
-      // loop 外継続の復活はしない（再計画は完了後の別 Issue で行う）。
-      fakeGhState("CLOSED");
-      writeFindings({ must: 1, should: 0, want: 0 }, 3);
-      writeVerdict({ round: 3, passed: false, blocking: false });
-
-      const result = stepCheck("finalize_done")(makeCtx({ artifacts: [planNumberRecord()] }));
-
-      expect(result.status).toBe("fail");
-      expect(result.reasons.join("\n")).toContain("must=1");
-      expect(result.reasons.join("\n")).toContain("replan-plan-number.txt");
-      expect(result.reasons.join("\n")).toContain("mt-plan-create");
-    });
-
-    it("round limit 到達＋must 残存でも再計画 Issue の起票証明があれば pass する", () => {
-      // 再計画 Issue（計画自身と相違・OPEN）の番号を replan-plan-number.txt へ保存し、
-      // artifacts へ申告すれば、受容判断の記録として pass する。
-      writeScript(
-        "gh",
-        `if [ "$3" = "98" ]; then printf '%s' '{"state":"OPEN","labels":[],"body":""}'; else printf '%s' '{"state":"CLOSED","labels":[],"body":""}'; fi`,
+      expect(taskStep("finalize_done").task.buildPrompt!(makePromptCtx())).not.toContain(
+        "replan-plan-number",
       );
-      writeFindings({ must: 1, should: 0, want: 0 }, 3);
-      writeVerdict({ round: 3, passed: false, blocking: false });
-      const replanPath = path.join(sessionDir, "replan-plan-number.txt");
-      fs.writeFileSync(replanPath, "98\n");
-
-      const result = stepCheck("finalize_done")(
-        makeCtx({
-          artifacts: [planNumberRecord(), artifactRecord("replan-plan-number.txt", replanPath)],
-        }),
-      );
-
-      expect(result.status).toBe("pass");
-      expect(result.reasons.join("\n")).toContain("is closed on GitHub");
-      expect(result.reasons.join("\n")).toContain("#98");
-      expect(result.reasons.join("\n")).toContain("再計画");
-    });
-
-    it("再計画 Issue が計画自身の番号なら fail する（自己参照の防止）", () => {
-      fakeGhState("CLOSED");
-      writeFindings({ must: 1, should: 0, want: 0 }, 3);
-      writeVerdict({ round: 3, passed: false, blocking: false });
-      const replanPath = path.join(sessionDir, "replan-plan-number.txt");
-      fs.writeFileSync(replanPath, "97\n");
-
-      const result = stepCheck("finalize_done")(
-        makeCtx({
-          artifacts: [planNumberRecord(), artifactRecord("replan-plan-number.txt", replanPath)],
-        }),
-      );
-
-      expect(result.status).toBe("fail");
-      expect(result.reasons.join("\n")).toContain("計画自身");
-    });
-
-    it("再計画 Issue が OPEN でなければ fail する", () => {
-      fakeGhState("CLOSED");
-      writeFindings({ must: 1, should: 0, want: 0 }, 3);
-      writeVerdict({ round: 3, passed: false, blocking: false });
-      const replanPath = path.join(sessionDir, "replan-plan-number.txt");
-      fs.writeFileSync(replanPath, "98\n");
-
-      const result = stepCheck("finalize_done")(
-        makeCtx({
-          artifacts: [planNumberRecord(), artifactRecord("replan-plan-number.txt", replanPath)],
-        }),
-      );
-
-      expect(result.status).toBe("fail");
-      expect(result.reasons.join("\n")).toContain("#98");
-    });
-
-    it("Issue が CLOSED でなければ fail する", () => {
-      fakeGhState("OPEN");
-      writeFindings({ must: 0, should: 0, want: 0 });
-
-      const result = stepCheck("finalize_done")(makeCtx({ artifacts: [planNumberRecord()] }));
-
-      expect(result.status).toBe("fail");
-      expect(result.reasons.join("\n")).toContain("not CLOSED");
     });
   });
 });

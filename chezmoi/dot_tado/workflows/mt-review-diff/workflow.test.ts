@@ -2259,24 +2259,24 @@ exit 1`,
     });
 
     it("round limit 経路の difit コマンドエラーは error にせず、検証不能を明示して human_gate 判断へ委ねる", () => {
-      const round3 = { ...verdict, round: 3, passed: false, blocking_threads: [blockingThread] };
+      const round5 = { ...verdict, round: 5, passed: false, blocking_threads: [blockingThread] };
       fakeGit();
-      writeEffort({ round: 3 });
-      writeFindings(3);
-      fs.writeFileSync(path.join(sessionDir, "verdict.json"), JSON.stringify(round3));
+      writeEffort({ round: 5 });
+      writeFindings(5);
+      fs.writeFileSync(path.join(sessionDir, "verdict.json"), JSON.stringify(round5));
       writeDifitState(process.pid);
       const originalPath = process.env.PATH;
       process.env.PATH = binDir; // mt を PATH から外す（git fake のみ残す）
       try {
         const result = stepCheck("collect_verdict")(
           makeCtx({
-            attemptResult: { status: "completed", subagentOutput: JSON.stringify(round3) },
+            attemptResult: { status: "completed", subagentOutput: JSON.stringify(round5) },
           }),
         );
 
         expect(result.status).toBe("fail");
         const reasons = result.reasons.join("\n");
-        expect(reasons).toContain("round limit reached (3/3)");
+        expect(reasons).toContain("round limit reached (5/5)");
         expect(reasons).toContain("検証できていません");
         expect(reasons).toContain("human_gate");
         // コマンドエラーのメッセージ（原因）も理由に残す
@@ -2287,18 +2287,18 @@ exit 1`,
       }
     });
 
-    it("round 4 は limit exceeded で fail（mt-review-diff 単独では fail 終端）。dry-run 突合結果を理由と difit-check.json に反映する", () => {
-      const round4 = { ...verdict, round: 4 };
+    it("round 6 は limit exceeded で fail（mt-review-diff 単独では fail 終端）。dry-run 突合結果を理由と difit-check.json に反映する", () => {
+      const round6 = { ...verdict, round: 6 };
       fakeGit();
-      writeEffort({ round: 4 });
-      writeFindings(4);
-      fs.writeFileSync(path.join(sessionDir, "verdict.json"), JSON.stringify(round4));
+      writeEffort({ round: 6 });
+      writeFindings(6);
+      fs.writeFileSync(path.join(sessionDir, "verdict.json"), JSON.stringify(round6));
       writeDifitState(process.pid);
       fakeMtDifitGate({ gateJson: JSON.stringify(daemonPass) });
 
       const result = stepCheck("collect_verdict")(
         makeCtx({
-          attemptResult: { status: "completed", subagentOutput: JSON.stringify(round4) },
+          attemptResult: { status: "completed", subagentOutput: JSON.stringify(round6) },
         }),
       );
 
@@ -2306,7 +2306,7 @@ exit 1`,
       expect(result.status).toBe("fail");
       const reasons = result.reasons.join("\n");
       expect(reasons).toContain("round limit exceeded");
-      expect(reasons).toContain("round=4");
+      expect(reasons).toContain("round=6");
       expect(reasons).toContain("human_gate");
       // 上限経路でも non-destructive な dry-run で daemon 突合を行い、結果を理由に載せる
       expect(reasons).toContain("daemon 突合 ok");
@@ -2322,56 +2322,56 @@ exit 1`,
     });
 
     it("round limit でも daemon と verdict が不一致なら理由に明示する（無検証の終端を可視化）", () => {
-      const round3 = { ...verdict, round: 3, passed: false, blocking_threads: [blockingThread] };
+      const round5 = { ...verdict, round: 5, passed: false, blocking_threads: [blockingThread] };
       fakeGit();
-      writeEffort({ round: 3 });
-      writeFindings(3);
-      fs.writeFileSync(path.join(sessionDir, "verdict.json"), JSON.stringify(round3));
+      writeEffort({ round: 5 });
+      writeFindings(5);
+      fs.writeFileSync(path.join(sessionDir, "verdict.json"), JSON.stringify(round5));
       writeDifitState(process.pid);
       fakeMtDifitGate({ gateJson: JSON.stringify(daemonPass) });
 
       const result = stepCheck("collect_verdict")(
         makeCtx({
-          attemptResult: { status: "completed", subagentOutput: JSON.stringify(round3) },
+          attemptResult: { status: "completed", subagentOutput: JSON.stringify(round5) },
         }),
       );
 
       expect(result.status).toBe("fail");
       const reasons = result.reasons.join("\n");
-      expect(reasons).toContain("round limit reached (3/3)");
+      expect(reasons).toContain("round limit reached (5/5)");
       expect(reasons).toContain("不一致");
       expect(reasons).toContain("daemon passes=true");
       expect(reasons).toContain("verdict passed=false");
     });
 
     it("round limit で dry-run が出力を返さない場合は「検証できていない」ことを理由に明示する", () => {
-      const round3 = { ...verdict, round: 3, passed: false, blocking_threads: [blockingThread] };
+      const round5 = { ...verdict, round: 5, passed: false, blocking_threads: [blockingThread] };
       fakeGit();
-      writeEffort({ round: 3 });
-      writeFindings(3);
-      fs.writeFileSync(path.join(sessionDir, "verdict.json"), JSON.stringify(round3));
+      writeEffort({ round: 5 });
+      writeFindings(5);
+      fs.writeFileSync(path.join(sessionDir, "verdict.json"), JSON.stringify(round5));
       writeDifitState(process.pid);
       fakeMtDifitCheckNoOutput();
 
       const result = stepCheck("collect_verdict")(
         makeCtx({
-          attemptResult: { status: "completed", subagentOutput: JSON.stringify(round3) },
+          attemptResult: { status: "completed", subagentOutput: JSON.stringify(round5) },
         }),
       );
 
       expect(result.status).toBe("fail");
       const reasons = result.reasons.join("\n");
-      expect(reasons).toContain("round limit reached (3/3)");
+      expect(reasons).toContain("round limit reached (5/5)");
       expect(reasons).toContain("検証できていません");
       expect(reasons).toContain("human_gate");
     });
 
     it("round limit で選択ドリフト中なら pass/blocking 一致でも「突合 ok」と言い切らない", () => {
-      const round3 = { ...verdict, round: 3, passed: false, blocking_threads: [blockingThread] };
+      const round5 = { ...verdict, round: 5, passed: false, blocking_threads: [blockingThread] };
       fakeGit();
-      writeEffort({ round: 3 });
-      writeFindings(3);
-      fs.writeFileSync(path.join(sessionDir, "verdict.json"), JSON.stringify(round3));
+      writeEffort({ round: 5 });
+      writeFindings(5);
+      fs.writeFileSync(path.join(sessionDir, "verdict.json"), JSON.stringify(round5));
       writeDifitState(process.pid);
       fakeMtDifitGate({
         gateJson: JSON.stringify({
@@ -2388,7 +2388,7 @@ exit 1`,
 
       const result = stepCheck("collect_verdict")(
         makeCtx({
-          attemptResult: { status: "completed", subagentOutput: JSON.stringify(round3) },
+          attemptResult: { status: "completed", subagentOutput: JSON.stringify(round5) },
         }),
       );
 
@@ -2400,12 +2400,12 @@ exit 1`,
       expect(reasons).toContain("信頼性は限定的");
     });
 
-    it("round 3 かつ未通過も fail で終端し、保持したセッションの手動 done を案内する", () => {
-      const round3 = { ...verdict, round: 3, passed: false, blocking_threads: [blockingThread] };
+    it("round 5 かつ未通過も fail で終端し、保持したセッションの手動 done を案内する", () => {
+      const round5 = { ...verdict, round: 5, passed: false, blocking_threads: [blockingThread] };
       fakeGit();
-      writeEffort({ round: 3 });
-      writeFindings(3);
-      fs.writeFileSync(path.join(sessionDir, "verdict.json"), JSON.stringify(round3));
+      writeEffort({ round: 5 });
+      writeFindings(5);
+      fs.writeFileSync(path.join(sessionDir, "verdict.json"), JSON.stringify(round5));
       writeDifitState(process.pid);
       // verdict と同じ blocking_threads を返す daemon（突合 ok）
       fakeMtDifitGate({
@@ -2415,13 +2415,13 @@ exit 1`,
 
       const result = stepCheck("collect_verdict")(
         makeCtx({
-          attemptResult: { status: "completed", subagentOutput: JSON.stringify(round3) },
+          attemptResult: { status: "completed", subagentOutput: JSON.stringify(round5) },
         }),
       );
 
       expect(result.status).toBe("fail");
       const reasons = result.reasons.join("\n");
-      expect(reasons).toContain("round limit reached (3/3)");
+      expect(reasons).toContain("round limit reached (5/5)");
       expect(reasons).toContain("daemon 突合 ok");
       expect(reasons).toContain("mt difit done");
       expect(doneCalled()).toBe(false);
@@ -2470,11 +2470,11 @@ exit 1`,
     });
 
     it("round limit 経路でも state.selection の再照合を行い、不一致なら突合 ok と扱わない", () => {
-      const round3 = { ...verdict, round: 3, passed: false, blocking_threads: [blockingThread] };
+      const round5 = { ...verdict, round: 5, passed: false, blocking_threads: [blockingThread] };
       fakeGit();
-      writeEffort({ round: 3, target: "feature" });
-      writeFindings(3);
-      fs.writeFileSync(path.join(sessionDir, "verdict.json"), JSON.stringify(round3));
+      writeEffort({ round: 5, target: "feature" });
+      writeFindings(5);
+      fs.writeFileSync(path.join(sessionDir, "verdict.json"), JSON.stringify(round5));
       writeDifitState(process.pid); // selection は target="."（effort の target と不一致）
       fakeMtDifitGate({
         gateJson: JSON.stringify({ passes: false, blocking_threads: [blockingThread] }),
@@ -2483,13 +2483,13 @@ exit 1`,
 
       const result = stepCheck("collect_verdict")(
         makeCtx({
-          attemptResult: { status: "completed", subagentOutput: JSON.stringify(round3) },
+          attemptResult: { status: "completed", subagentOutput: JSON.stringify(round5) },
         }),
       );
 
       expect(result.status).toBe("fail");
       const reasons = result.reasons.join("\n");
-      expect(reasons).toContain("round limit reached (3/3)");
+      expect(reasons).toContain("round limit reached (5/5)");
       expect(reasons).toContain("再検証に失敗");
       expect(reasons).toContain("一致しません");
       expect(reasons).not.toContain("daemon 突合 ok");
@@ -2498,13 +2498,13 @@ exit 1`,
     });
 
     it("round limit 経路でも findings との round 不一致を素通りさせない", () => {
-      const round4 = { ...verdict, round: 4 };
+      const round6 = { ...verdict, round: 6 };
       writeFindings(); // findings round=1
-      fs.writeFileSync(path.join(sessionDir, "verdict.json"), JSON.stringify(round4));
+      fs.writeFileSync(path.join(sessionDir, "verdict.json"), JSON.stringify(round6));
 
       const result = stepCheck("collect_verdict")(
         makeCtx({
-          attemptResult: { status: "completed", subagentOutput: JSON.stringify(round4) },
+          attemptResult: { status: "completed", subagentOutput: JSON.stringify(round6) },
         }),
       );
 
@@ -2515,13 +2515,13 @@ exit 1`,
     });
 
     it("round limit 経路でも must>0×passed 矛盾を検出する", () => {
-      const round4Pass = { ...verdict, round: 4, passed: true };
-      writeFindings(4, 1);
-      fs.writeFileSync(path.join(sessionDir, "verdict.json"), JSON.stringify(round4Pass));
+      const round6Pass = { ...verdict, round: 6, passed: true };
+      writeFindings(6, 1);
+      fs.writeFileSync(path.join(sessionDir, "verdict.json"), JSON.stringify(round6Pass));
 
       const result = stepCheck("collect_verdict")(
         makeCtx({
-          attemptResult: { status: "completed", subagentOutput: JSON.stringify(round4Pass) },
+          attemptResult: { status: "completed", subagentOutput: JSON.stringify(round6Pass) },
         }),
       );
 

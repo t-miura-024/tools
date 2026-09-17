@@ -446,7 +446,7 @@ export function validateVerdictJson(raw: string | undefined): {
 /// レビューラウンドの上限（ADR-0026）。round limit の判定規則は
 /// `isRoundLimitReached` に一本化し、mt-review-diff の collect_verdict と
 /// mt-plan-run の round_limit_gate が同じ写像を使う（写像ドリフト防止）。
-export const REVIEW_ROUND_LIMIT = 3;
+export const REVIEW_ROUND_LIMIT = 5;
 
 /// verdict がラウンド上限（round > 3、または round = 3 かつ未通過）に達しているか（純粋関数）。
 /// 上限は再実行では解消しないため、消費者は human gate で継続/中止を人間に委ねる。
