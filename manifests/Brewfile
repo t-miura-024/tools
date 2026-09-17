@@ -62,6 +62,7 @@ cask "ghostty"
 
 mas "Kindle", id: 302584613
 mas "LINE", id: 539883307
+mas "Remote Mouse", id: 403195710
 
 vscode "catppuccin.catppuccin-vsc"
 vscode "catppuccin.catppuccin-vsc-icons"
