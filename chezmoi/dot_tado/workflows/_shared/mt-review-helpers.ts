@@ -842,7 +842,10 @@ const GIT_LIST_MAX_BUFFER_BYTES = 16 * 1024 * 1024;
 /// git をクリーンな文脈（GIT_DIR 等を除去）で実行し stdout を返す。
 /// 失敗は例外のまま伝播し、呼び出し元が error 理由へ変換する。
 /// cwd は実行ディレクトリ（既定は process.cwd()）。
-function execGit(args: string[], options: { cwd?: string; maxBuffer?: number } = {}): string {
+export function execGit(
+  args: string[],
+  options: { cwd?: string; maxBuffer?: number } = {},
+): string {
   return String(
     execFileSync("git", args, {
       encoding: "utf-8",
@@ -1900,7 +1903,7 @@ const GIT_CONTEXT_ENV = [
   "GIT_PREFIX",
 ] as const;
 
-function cleanGitEnv(): Record<string, string | undefined> {
+export function cleanGitEnv(): Record<string, string | undefined> {
   const env: Record<string, string | undefined> = { ...process.env };
   for (const key of GIT_CONTEXT_ENV) {
     delete env[key];

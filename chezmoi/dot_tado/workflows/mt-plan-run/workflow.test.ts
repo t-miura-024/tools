@@ -4,9 +4,22 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import def from "./index.ts";
-import { awaitHumanReviewStep } from "../mt-review-diff/index.ts";
+
+it("収集専用ステップを撤去し検証者起動のhookに移す", () => {
+  expect(flattenSteps(def.steps).some((step) => step.key === "collect_context")).toBe(false);
+  expect(taskStep("run_reviewers").beforeStep).toBeFunction();
+});
+import { awaitHumanReviewStep, runReviewersStep } from "../mt-review-diff/index.ts";
+import {
+  collectPlanReviewContext,
+  validateReviewDiff,
+  effortFromIssueBody,
+} from "../_shared/collect-plan-review-context.ts";
+import { execFileSync } from "node:child_process";
+import { Database } from "bun:sqlite";
 import {
   buildDifitComments,
+  getReviewerAssignments,
   REVIEW_ROUND_LIMIT,
   formatReviewComment as formatComment,
 } from "../_shared/mt-review-helpers.ts";
@@ -75,6 +88,444 @@ function ensureFakeScriptRunner(): string {
   }
   return FAKE_SCRIPT_RUNNER;
 }
+
+describe("plan-run 収集hook 実Git・実tado", () => {
+  let tmp: string;
+  let repo: string;
+  const cli = path.resolve(
+    path.dirname(fileURLToPath(import.meta.resolve("tado"))),
+    "../cli/main.ts",
+  );
+  beforeEach(() => {
+    tmp = fs.mkdtempSync(path.join(os.tmpdir(), "plan-collect-engine-"));
+    repo = path.join(tmp, "repo");
+    fs.mkdirSync(repo);
+    git("init", "-b", "main");
+    fs.writeFileSync(path.join(repo, "tracked.txt"), "base\n");
+    git("add", ".");
+    git(
+      "-c",
+      "user.name=Test",
+      "-c",
+      "user.email=test@example.invalid",
+      "-c",
+      "commit.gpgsign=false",
+      "commit",
+      "-m",
+      "base",
+    );
+    git("checkout", "-b", "work");
+    fs.writeFileSync(path.join(repo, "committed.txt"), "committed\n");
+    git("add", ".");
+    git(
+      "-c",
+      "user.name=Test",
+      "-c",
+      "user.email=test@example.invalid",
+      "-c",
+      "commit.gpgsign=false",
+      "commit",
+      "-m",
+      "work",
+    );
+    fs.writeFileSync(path.join(repo, "tracked.txt"), "base\nunstaged\n");
+    fs.writeFileSync(path.join(repo, "staged.txt"), "staged\n");
+    git("add", "staged.txt");
+    fs.writeFileSync(path.join(repo, "untracked.txt"), "untracked\n");
+  });
+  afterEach(() => fs.rmSync(tmp, { recursive: true, force: true }));
+  function git(...args: string[]): string {
+    return execFileSync("git", args, { cwd: repo, encoding: "utf8", stdio: "pipe" });
+  }
+  function setup(id: string, baseline = false) {
+    const home = path.join(tmp, id);
+    const dir = path.join(home, "workflows", id);
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, "index.ts"),
+      `
+import fs from "node:fs";
+import {join} from "node:path";
+import def from ${JSON.stringify(path.join(import.meta.dir, "index.ts"))};
+import {collectContextStep} from ${JSON.stringify(path.resolve(import.meta.dir, "../mt-review-diff/index.ts"))};
+function find(steps) { for(const step of steps) { if(step.key === 'run_reviewers') return step; if(step.type === 'loop') { const found = find(step.body); if(found) return found; } } }
+const review = find(def.steps);
+const hook = review.beforeStep;
+export default {id:${JSON.stringify(id)}, steps:[{
+  key:'cycle', type:'loop', phase:'test', maxIterations:2, onExhausted:'abort', body:[
+    ${baseline ? "collectContextStep," : ""}
+    {...review, beforeStep:${baseline ? "undefined" : `async(ctx) => { fs.appendFileSync(join(ctx.sessionDir,'hook-calls.txt'),'call\\n'); return hook(ctx); }`},
+      task:{...review.task, buildPrompt:ctx => { fs.appendFileSync(join(ctx.sessionDir,'prompt-calls.txt'),'prompt\\n'); fs.writeFileSync(join(ctx.sessionDir,'prompt-artifacts.json'),JSON.stringify(ctx.artifacts)); return review.task.buildPrompt(ctx); }},
+      check:ctx => { fs.writeFileSync(join(ctx.sessionDir,'check-artifacts.json'),JSON.stringify(ctx.artifacts)); return review.check(ctx); }},
+    {key:'judge',type:'task',phase:'test',maxRetries:0,onFail:{action:'abort'},task:{action:'orchestrate',buildPrompt:()=> 'judge'},check:ctx=>({status:ctx.loop.iteration < 2 ? 'continue':'pass',reasons:[]})}
+  ]}]};
+`,
+    );
+    const invoke = (args: string[], input?: object, env: Record<string, string> = {}) =>
+      Bun.spawnSync([process.execPath, cli, ...args], {
+        cwd: repo,
+        env: { ...process.env, TADO_HOME: home, ...env },
+        stdin: input ? Buffer.from(JSON.stringify(input)) : undefined,
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+    const run = (args: string[], input?: object) => {
+      const result = invoke(args, input);
+      if (result.exitCode !== 0) throw new Error(result.stderr.toString());
+      return JSON.parse(result.stdout.toString());
+    };
+    const session = run(["init", "--workflow", id, "--title", id]);
+    return { home, invoke, run, ...session };
+  }
+
+  it("同条件2サイクルで2→1往復、DB登録/上書き、check参照とレビューreportを維持", async () => {
+    const indexBefore = git("diff", "--cached");
+    const totals: Record<string, number> = {};
+    for (const baseline of [true, false]) {
+      const id = baseline ? "baseline" : "hook";
+      const s = setup(id, baseline);
+      const args = ["--session", s.sessionId];
+      fs.writeFileSync(
+        path.join(s.sessionDir, "issue-body.md"),
+        "<!-- effort: width=low depth=max -->",
+      );
+      const keys: string[] = [];
+      for (let round = 1; round <= 2; round++) {
+        fs.writeFileSync(path.join(repo, "tracked.txt"), `base\nround${round}\n`);
+        if (baseline) {
+          expect(s.run(["next", ...args]).stepKey).toBe("collect_context");
+          // 旧エージェント作業を同一収集処理でfixture化。実エンジン/旧check/reportは残す。
+          const cwd = process.cwd();
+          let artifacts;
+          try {
+            process.chdir(repo);
+            artifacts = await collectPlanReviewContext({
+              sessionDir: s.sessionDir,
+              sessionId: s.sessionId,
+              artifacts: [],
+              gateAnswers: {},
+              stepKey: "collect_context",
+              attemptNumber: 1,
+              loop: null,
+            });
+          } finally {
+            process.chdir(cwd);
+          }
+          expect(
+            s.run(["report", ...args], {
+              stepKey: "collect_context",
+              status: "completed",
+              artifacts,
+            }).checkResult.status,
+          ).toBe("pass");
+          keys.push("collect_context");
+        }
+        const review = s.run(["next", ...args]);
+        expect(review.stepKey).toBe("run_reviewers");
+        expect(review.action).toBe("orchestrate");
+        expect(review.constraints.reportAfterCompletion).toBe(true);
+        expect(review.prompt).toContain('subagent_type = "mt-review-diff-reviewer"');
+        const diff = fs.readFileSync(path.join(s.sessionDir, "diff.txt"), "utf8");
+        for (const file of ["committed.txt", "staged.txt", "untracked.txt", "tracked.txt"])
+          expect(diff).toContain(file);
+        expect(diff).toContain(`+round${round}`);
+        expect(fs.readFileSync(path.join(s.sessionDir, "context.md"), "utf8")).toContain("work");
+        expect(JSON.parse(fs.readFileSync(path.join(s.sessionDir, "effort.json"), "utf8"))).toEqual(
+          { width: "low", depth: "max", round: 1 },
+        );
+        expect(s.run(["next", ...args]).stepKey).toBe("run_reviewers");
+        if (!baseline)
+          expect(
+            fs.readFileSync(path.join(s.sessionDir, "hook-calls.txt"), "utf8").trim().split("\n"),
+          ).toHaveLength(round);
+        const outputs = ["reviewer-outputs.json", "review-history.jsonl"].map((key) => ({
+          key,
+          path: path.join(s.sessionDir, key),
+        }));
+        fs.writeFileSync(outputs[0].path, "[]");
+        fs.appendFileSync(outputs[1].path, '{"total":0}\n');
+        const result = s.run(["report", ...args], {
+          stepKey: "run_reviewers",
+          status: "completed",
+          subagentOutput: getReviewerAssignments("low", "max")
+            .map((_, i) => `reviewer ${i + 1} checked: tracked.txt`)
+            .join("\n"),
+          artifacts: outputs,
+        });
+        console.log(JSON.stringify({ id, round, reviewCheck: result.checkResult }));
+        expect(result.checkResult.status).toBe("pass");
+        for (const name of ["prompt-artifacts.json", "check-artifacts.json"]) {
+          const records = JSON.parse(fs.readFileSync(path.join(s.sessionDir, name), "utf8"));
+          for (const key of ["diff.txt", "effort.json"])
+            expect(
+              records.some(
+                (a: ArtifactRecord) =>
+                  a.artifactKey === key && a.filePath === path.join(s.sessionDir, key),
+              ),
+            ).toBe(true);
+        }
+        if (!baseline) {
+          const db = new Database(path.join(s.home, "workflow.db"), { readonly: true });
+          const records = db
+            .query(
+              "SELECT artifact_key FROM artifacts WHERE session_id=? AND artifact_key IN ('diff.txt','effort.json')",
+            )
+            .all(s.sessionId);
+          db.close();
+          expect(records).toHaveLength(2);
+        }
+        keys.push("run_reviewers");
+        expect(s.run(["next", ...args]).stepKey).toBe("judge");
+        expect(
+          s.run(["report", ...args], { stepKey: "judge", status: "completed" }).nextAction,
+        ).toBe(round === 1 ? "repeat" : "done");
+      }
+      totals[id] = keys.length;
+      console.log(JSON.stringify({ id, keys, collectionReviewRoundTrips: keys.length, cycles: 2 }));
+    }
+    expect(totals.baseline - totals.hook).toBe(2);
+    expect(git("diff", "--cached")).toBe(indexBefore);
+  }, 30000);
+
+  for (const failure of ["command", "validation"] as const) {
+    it(`${failure}失敗はmaxRetries+1回でfailed/aborted、レビューと後続promptを生成しない`, () => {
+      const s = setup(`failure-${failure}`);
+      const args = ["--session", s.sessionId];
+      if (failure === "command") {
+        fs.writeFileSync(
+          path.join(s.sessionDir, "effort.json"),
+          JSON.stringify({ width: "low", depth: "max", round: 1, base: "nonexistent" }),
+        );
+      }
+      const env: Record<string, string> = {};
+      if (failure === "validation") {
+        // raw diffだけを空にするGit fixture。他コマンドは実Gitへ渡し、numstat等で欠落を検出。
+        const realGit = execFileSync("which", ["git"], { encoding: "utf8" }).trim();
+        const bin = path.join(tmp, "bin");
+        fs.mkdirSync(bin);
+        const script = path.join(bin, "git");
+        fs.writeFileSync(
+          script,
+          `#!/bin/sh\nif [ "$1" = "-c" ] && [ "$3" = "diff" ]; then exit 0; fi\nexec '${realGit}' "$@"\n`,
+        );
+        fs.chmodSync(script, 0o755);
+        env.PATH = `${bin}${path.delimiter}${process.env.PATH}`;
+      }
+      const result = s.invoke(["next", ...args], undefined, env);
+      expect(result.exitCode).not.toBe(0);
+      expect(result.stderr.toString()).toContain("beforeStep failed after 3 retries");
+      expect(
+        fs.readFileSync(path.join(s.sessionDir, "hook-calls.txt"), "utf8").trim().split("\n"),
+      ).toHaveLength(4);
+      expect(fs.existsSync(path.join(s.sessionDir, "prompt-calls.txt"))).toBe(false);
+      expect(fs.existsSync(path.join(s.sessionDir, "diff.txt"))).toBe(false);
+      const db = new Database(path.join(s.home, "workflow.db"), { readonly: true });
+      const step = db
+        .query("SELECT status FROM steps WHERE session_id=? AND step_key='run_reviewers'")
+        .get(s.sessionId) as { status: string };
+      const session = db.query("SELECT status FROM sessions WHERE id=?").get(s.sessionId) as {
+        status: string;
+      };
+      const attempts = db.query("SELECT COUNT(*) AS n FROM step_attempts").get() as { n: number };
+      db.close();
+      expect(step.status).toBe("failed");
+      expect(session.status).toBe("aborted");
+      expect(attempts.n).toBe(0);
+      expect(s.invoke(["next", ...args]).exitCode).not.toBe(0);
+      console.log(
+        JSON.stringify({
+          failure,
+          calls: 4,
+          step: step.status,
+          session: session.status,
+          prompts: 0,
+          attempts: attempts.n,
+        }),
+      );
+    }, 30000);
+  }
+
+  for (const failure of ["no-index", "validation"] as const) {
+    it(`${failure}失敗で正式成果物を保持し一時ファイルを後始末する`, async () => {
+      const dir = path.join(tmp, "preserved-artifacts");
+      fs.mkdirSync(dir);
+      const originals = {
+        "diff.txt": "previous verified diff\n",
+        "context.md": "previous context\n",
+        "effort.json": JSON.stringify({ width: "medium", depth: "medium", round: 1 }),
+      };
+      for (const [key, value] of Object.entries(originals))
+        fs.writeFileSync(path.join(dir, key), value);
+      const indexPath = path.resolve(repo, git("rev-parse", "--git-path", "index").trim());
+      const indexBefore = fs.readFileSync(indexPath);
+      const realGit = execFileSync("which", ["git"], { encoding: "utf8" }).trim();
+      const bin = path.join(tmp, "failure-bin");
+      fs.mkdirSync(bin);
+      const script = path.join(bin, "git");
+      fs.writeFileSync(
+        script,
+        `#!/bin/sh\nif [ "$1" = "-c" ] && [ "$3" = "diff" ]; then\n${failure === "no-index" ? '[ "$4" = "--no-index" ] && { echo "partial diff"; echo "no-index failed" >&2; exit 2; }' : "exit 0"}\nfi\nexec '${realGit}' "$@"\n`,
+      );
+      fs.chmodSync(script, 0o755);
+      const cwd = process.cwd();
+      const oldPath = process.env.PATH;
+      try {
+        process.chdir(repo);
+        process.env.PATH = `${bin}${path.delimiter}${oldPath}`;
+        await expect(
+          collectPlanReviewContext({
+            sessionDir: dir,
+            sessionId: "failure",
+            artifacts: [],
+            gateAnswers: {},
+            stepKey: "run_reviewers",
+            attemptNumber: 1,
+            loop: null,
+          }),
+        ).rejects.toThrow(failure === "no-index" ? "no-index failed" : "欠落");
+      } finally {
+        process.chdir(cwd);
+        process.env.PATH = oldPath;
+      }
+      for (const [key, value] of Object.entries(originals))
+        expect(fs.readFileSync(path.join(dir, key), "utf8")).toBe(value);
+      expect(fs.readdirSync(dir).sort()).toEqual(Object.keys(originals).sort());
+      expect(fs.readFileSync(indexPath).equals(indexBefore)).toBe(true);
+    });
+  }
+
+  for (const kind of ["tracked", "untracked"] as const) {
+    it(`16MiB超 ${kind} の差分を全文・末尾まで収集しindexを変更しない`, async () => {
+      const dir = path.join(tmp, "large-artifacts");
+      fs.mkdirSync(dir);
+      const marker = `END-OF-LARGE-${kind}`;
+      const content = `${"x".repeat(1023)}\n`.repeat(17 * 1024) + `${marker}\n`;
+      fs.writeFileSync(path.join(repo, `${kind}.txt`), content);
+      const indexPath = path.resolve(repo, git("rev-parse", "--git-path", "index").trim());
+      const indexBefore = fs.readFileSync(indexPath);
+      const expectedPath = path.join(tmp, "expected.diff");
+      const fd = fs.openSync(expectedPath, "w");
+      let trackedBytes = 0;
+      let untrackedBytes = 0;
+      try {
+        execFileSync(
+          "git",
+          ["-c", "core.quotePath=false", "diff", git("merge-base", "HEAD", "main").trim()],
+          {
+            cwd: repo,
+            stdio: ["ignore", fd, "pipe"],
+          },
+        );
+        trackedBytes = fs.statSync(expectedPath).size;
+        for (const file of git("ls-files", "--others", "--exclude-standard", "-z")
+          .split("\0")
+          .filter(Boolean)) {
+          const before = fs.statSync(expectedPath).size;
+          try {
+            execFileSync(
+              "git",
+              ["-c", "core.quotePath=false", "diff", "--no-index", "--", "/dev/null", file],
+              {
+                cwd: repo,
+                stdio: ["ignore", fd, "pipe"],
+              },
+            );
+          } catch (error) {
+            if ((error as { status?: number }).status !== 1) throw error;
+          }
+          if (file === "untracked.txt") untrackedBytes = fs.statSync(expectedPath).size - before;
+        }
+      } finally {
+        fs.closeSync(fd);
+      }
+      const measuredBytes = kind === "tracked" ? trackedBytes : untrackedBytes;
+      expect(measuredBytes).toBeGreaterThan(16 * 1024 * 1024);
+      console.log(
+        JSON.stringify({
+          largeDiff: kind,
+          inputBytes: Buffer.byteLength(content),
+          measuredDiffBytes: measuredBytes,
+        }),
+      );
+      const cwd = process.cwd();
+      try {
+        process.chdir(repo);
+        await collectPlanReviewContext({
+          sessionDir: dir,
+          sessionId: "large",
+          artifacts: [],
+          gateAnswers: {},
+          stepKey: "run_reviewers",
+          attemptNumber: 1,
+          loop: null,
+        });
+      } finally {
+        process.chdir(cwd);
+      }
+      const actual = fs.readFileSync(path.join(dir, "diff.txt"));
+      expect(actual.equals(fs.readFileSync(expectedPath))).toBe(true);
+      expect(actual.includes(Buffer.from(`+${marker}\n`))).toBe(true);
+      expect(fs.readFileSync(indexPath).equals(indexBefore)).toBe(true);
+      expect(fs.readdirSync(dir).sort()).toEqual(["context.md", "diff.txt", "effort.json"]);
+    }, 30000);
+  }
+
+  it("target指定はbase...targetのみ、空差分も許容、numstat/staged欠落は拒否", async () => {
+    const dir = path.join(tmp, "artifacts");
+    fs.mkdirSync(dir);
+    const cwd = process.cwd();
+    try {
+      process.chdir(repo);
+      fs.writeFileSync(
+        path.join(dir, "effort.json"),
+        JSON.stringify({
+          width: "medium",
+          depth: "medium",
+          round: 2,
+          base: "main",
+          target: "work",
+        }),
+      );
+      await collectPlanReviewContext({
+        sessionDir: dir,
+        sessionId: "test",
+        artifacts: [],
+        gateAnswers: {},
+        stepKey: "run_reviewers",
+        attemptNumber: 1,
+        loop: null,
+      });
+      const diff = fs.readFileSync(path.join(dir, "diff.txt"), "utf8");
+      expect(diff).toContain("committed.txt");
+      expect(diff).not.toContain("untracked.txt");
+      expect(diff).not.toContain("staged.txt");
+      expect(() => validateReviewDiff("", { base: "main", target: "work" })).toThrow("numstat");
+      expect(() => validateReviewDiff("", { base: "main" })).toThrow("staged");
+      fs.writeFileSync(
+        path.join(dir, "effort.json"),
+        JSON.stringify({
+          width: "medium",
+          depth: "medium",
+          round: 2,
+          base: "work",
+          target: "work",
+        }),
+      );
+      await collectPlanReviewContext({
+        sessionDir: dir,
+        sessionId: "test",
+        artifacts: [],
+        gateAnswers: {},
+        stepKey: "run_reviewers",
+        attemptNumber: 1,
+        loop: null,
+      });
+      expect(fs.readFileSync(path.join(dir, "diff.txt"), "utf8")).toBe("");
+    } finally {
+      process.chdir(cwd);
+    }
+  });
+});
 
 describe("mt-plan-run workflow checks", () => {
   let tmp: string;
@@ -1137,50 +1588,56 @@ exit 0`,
     });
   });
 
-  describe("collect_context (plan-run 固有: effort.json round 検証)", () => {
-    const step = () => taskStep("collect_context");
-
-    it("effort.json の round が有効なら pass する", () => {
-      fakeGit();
-      fs.writeFileSync(path.join(sessionDir, "diff.txt"), "");
-      writeEffort({ round: 1 });
-
-      const result = step().check(makeCtx());
-
-      expect(result.status).toBe("pass");
-      expect(result.reasons.join("\n")).toContain("round=1");
-    });
-
-    it("effort.json が無ければ fail（round limit へ到達できないままループしない）", () => {
-      fakeGit();
-      fs.writeFileSync(path.join(sessionDir, "diff.txt"), "");
-
-      const result = step().check(makeCtx());
-
-      expect(result.status).toBe("fail");
-      expect(result.reasons.join("\n")).toContain("effort.json");
-    });
-
-    it("effort.json の round が不正なら fail", () => {
-      fakeGit();
-      fs.writeFileSync(path.join(sessionDir, "diff.txt"), "");
+  describe("run_reviewers.beforeStep の収集契約", () => {
+    it("effort.json の round が不正なら収集前に停止", async () => {
       writeEffort({ round: 0 });
-
-      const result = step().check(makeCtx());
-
-      expect(result.status).toBe("fail");
-      expect(result.reasons.join("\n")).toContain("round");
+      await expect(
+        collectPlanReviewContext({
+          ...makePromptCtx(),
+          stepKey: "run_reviewers",
+          attemptNumber: 1,
+        }),
+      ).rejects.toThrow("round");
+      expect(fs.existsSync(path.join(sessionDir, "diff.txt"))).toBe(false);
     });
 
-    it("untracked が diff.txt に欠落していれば fail（打ち切られた差分を機械照合へ渡さない）", () => {
+    it("untracked 欠落は旧checkと同じ検証ヘルパで拒否", () => {
       fakeGit({ untracked: ["src/dropped.ts"] });
-      fs.writeFileSync(path.join(sessionDir, "diff.txt"), "");
+      expect(() => validateReviewDiff("", { base: "main" })).toThrow("src/dropped.ts");
+    });
+
+    it("truncate マーカーを拒否", () => {
+      fakeGit();
+      expect(() =>
+        validateReviewDiff("[... truncated: 42 lines omitted]", { base: "main" }),
+      ).toThrow("truncate");
+    });
+
+    it("effort はコメントを決定論的に解決し、不正値を既定化しない", () => {
+      expect(effortFromIssueBody("width=max depth=max")).toEqual({
+        width: "medium",
+        depth: "medium",
+      });
+      expect(effortFromIssueBody("<!-- effort: width=high depth=low -->")).toEqual({
+        width: "high",
+        depth: "low",
+      });
+      expect(() => effortFromIssueBody("<!-- effort: width=highly depth=low -->")).toThrow("不正");
+      expect(() => effortFromIssueBody("<!-- effort: width=high -->")).toThrow("不正");
+    });
+
+    it("レビュー判断・並列起動・reportの契約は同じStepを継承", () => {
+      const step = taskStep("run_reviewers");
+      expect(step.task).toBe(runReviewersStep.task);
+      expect(step.check).toBe(runReviewersStep.check);
+      expect(step.type).toBe("task");
+      expect(step.task.action).toBe("orchestrate");
       writeEffort({ round: 1 });
-
-      const result = step().check(makeCtx());
-
-      expect(result.status).toBe("fail");
-      expect(result.reasons.join("\n")).toContain("src/dropped.ts");
+      const prompt = step.task.buildPrompt(makePromptCtx());
+      expect(prompt).toContain('subagent_type = "mt-review-diff-reviewer"');
+      expect(prompt).not.toContain("2. 対象差分を収集する");
+      expect(prompt.replaceAll(sessionDir, "<SESSION>")).toMatchSnapshot();
+      expect(step.check(makeCtx()).status).toBe("fail");
     });
   });
 
