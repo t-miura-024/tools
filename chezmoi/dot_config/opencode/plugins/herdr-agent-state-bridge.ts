@@ -8,7 +8,7 @@
 // NOTE: このファイルは default エクスポート（Plugin.define の結果）のみを持つこと。
 // opencode のローダーはこの形式を要求し、他の値エクスポートがあると
 // ロード全体が失敗する。
-import { Plugin } from "@opencode-ai/plugin";
+import { Plugin } from "@opencode/plugin";
 import { HerdrAgentStatePlugin } from "./herdr-agent-state.js";
 import { translateEvent } from "../lib/herdr-agent-state-bridge.js";
 

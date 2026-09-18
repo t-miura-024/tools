@@ -8,7 +8,7 @@
 // ロード全体が失敗する。
 
 import { spawn } from "node:child_process";
-import { Plugin } from "@opencode-ai/plugin";
+import { Plugin } from "@opencode/plugin";
 
 const TITLE = "OpenCode";
 const STATUS_KEY = "agent_status";
