@@ -9,7 +9,7 @@
 // V2 制約: プラグイン API に session.list / session.remove がないため、
 // 起動時の既存セッションはシードできず、イベント経由で遅延追跡する。
 // タイトル生成は一時セッションではなく ctx.generate.text を使う。
-import { Plugin } from "@opencode-ai/plugin";
+import { Plugin } from "@opencode/plugin";
 import { orderModelIDs } from "../lib/mt-session-namer";
 
 const THROTTLE_MS = 60_000;

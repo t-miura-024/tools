@@ -8,7 +8,7 @@
 //
 // V2 制約: プラグイン API に session.list がないため、起動時の既存セッションは
 // シードできない。ロード後に届くイベントから追跡を開始する。
-import { Plugin } from "@opencode-ai/plugin";
+import { Plugin } from "@opencode/plugin";
 import {
   createHerdrMetadataReporter,
   errorMessage,
