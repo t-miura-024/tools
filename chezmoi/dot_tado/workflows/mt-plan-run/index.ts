@@ -23,7 +23,6 @@ import { loadConfig } from "../_shared/mt-plan-init-config";
 // （mt-plan-create が書く `<!-- effort: ... -->`）または medium/medium のみで行う。
 import {
   resolveEffortStep,
-  collectContextStep,
   runReviewersStep,
   normalizeFindingsStep,
   startDifitReviewStep,
@@ -37,12 +36,10 @@ import {
   validateFindingsJson,
   validateVerdictJson,
   parseDifitCheck,
-  parseJson,
   isRecord,
   isolateDifitFeedback,
   describeDifitSelectionDrift,
   requireDifitSelectionDrift,
-  validateEffort,
   DIFIT_CHECK_KEY,
   FINDINGS_KEY as REVIEW_FINDINGS_KEY,
   VERDICT_KEY as REVIEW_VERDICT_KEY,
@@ -54,6 +51,10 @@ import {
 import type { FindingsJson, VerdictJson } from "../_shared/mt-review-helpers.ts";
 import { requireStepArtifacts } from "../_shared/artifact-check";
 import { verifyIssueClosed } from "../_shared/gh-issue-verify";
+import {
+  collectPlanReviewContext,
+  effortFromIssueBody,
+} from "../_shared/collect-plan-review-context.ts";
 
 /**
  * executor 向けの difit フィードバック文面。
@@ -666,16 +667,8 @@ function parseEffortFromIssueBody(body: string | undefined): {
   width?: string;
   depth?: string;
 } {
-  if (!body) return {};
-  const blocks = [...body.matchAll(/<!--\s*effort:.*?-->/gis)].map((m) => m[0]);
-  if (blocks.length === 0) return {};
-  const last = blocks[blocks.length - 1];
-  const widthMatch = last.match(/width\s*=\s*(low|medium|high|xhigh|max)/i);
-  const depthMatch = last.match(/depth\s*=\s*(max|xhigh|high|medium|low)/i);
-  const result: { width?: string; depth?: string } = {};
-  if (widthMatch) result.width = widthMatch[1].toLowerCase();
-  if (depthMatch) result.depth = depthMatch[1].toLowerCase();
-  return result;
+  if (!body || !/<!--\s*effort:/i.test(body)) return {};
+  return effortFromIssueBody(body);
 }
 
 /// Issue body に effort コメントらしきものがあるが、厳密な width+depth を
@@ -684,8 +677,12 @@ function hasInvalidEffortComment(body: string | undefined): boolean {
   if (!body) return false;
   const blocks = [...body.matchAll(/<!--\s*effort:.*?-->/gis)].map((m) => m[0]);
   if (blocks.length === 0) return false;
-  const parsed = parseEffortFromIssueBody(body);
-  return !parsed.width || !parsed.depth;
+  try {
+    effortFromIssueBody(body);
+    return false;
+  } catch {
+    return true;
+  }
 }
 
 function ensureEffortFromIssueBody(
@@ -704,7 +701,7 @@ function ensureEffortFromIssueBody(
   })();
   const effort = parseEffortFromIssueBody(issueBody);
   if (effort.width && effort.depth) {
-    // check は純粋判定が契約のためファイル生成は行わない (生成は collect_context の task 側で実施)
+    // check は純粋判定が契約のためファイル生成は行わない (生成は run_reviewers.beforeStep の task 側で実施)
     return { width: effort.width, depth: effort.depth };
   }
   return undefined;
@@ -1401,7 +1398,7 @@ const def: WorkflowDef = {
                       "1. セッションディレクトリの issue-body.md（または artifacts の issue-body.md）を読み、末尾の `<!-- effort: width=... depth=... -->` を確認する",
                       "2. コメントがあればその width/depth を報告する。なければ width=medium depth=medium を適用する旨を報告する",
                       "3. プロンプト記法 `width=... depth=...` による上書きは無視する",
-                      "4. effort.json の生成は行わない（生成は collect_context が担う）。check は純粋判定のみ",
+                      "4. effort.json の生成は行わない（生成は run_reviewers.beforeStep が担う）。check は純粋判定のみ",
                     ],
                     output: [],
                     input: [`セッションディレクトリ: ${ctx.sessionDir}`],
@@ -1453,79 +1450,8 @@ const def: WorkflowDef = {
                 return {
                   status: "pass",
                   reasons: [
-                    "effort not specified — will be generated with medium/medium in collect_context",
+                    "effort not specified — will be generated with medium/medium in run_reviewers.beforeStep",
                   ],
-                };
-              },
-            },
-
-            // -------------------------------------------------------------------
-            // Step 4.5: 差分収集（mt-review-diff から import — plan-run では target なし = merge-base..ワーキングツリー（committed + staged + unstaged）+ untracked を収集）
-            //           追加で Issue body 由来の effort.json 生成を担う（check は純粋判定のため）
-            //           width/depth は Issue body コメントのみ、なければ medium/medium。base/target は既定動作を維持。
-            // -------------------------------------------------------------------
-            {
-              ...collectContextStep,
-              phase: "差分収集",
-              task: {
-                ...collectContextStep.task,
-                buildPrompt: (ctx: PromptCtx) => {
-                  const basePrompt = (
-                    collectContextStep.task as unknown as {
-                      buildPrompt: (ctx: PromptCtx) => string;
-                    }
-                  ).buildPrompt(ctx);
-                  const extra = buildStepPrompt({
-                    purpose: [],
-                    criteria: [],
-                    approach: [
-                      {
-                        title: "追加手順（plan-run 固有: Issue body 由来の effort 補完）",
-                        content: [
-                          "collect_context の agent は、effort.json が存在しない場合に以下で補完する（プロンプト記法 width=… depth=… による上書きは無視する）:",
-                          "1. セッションディレクトリの issue-body.md（または artifacts の issue-body.md）末尾の `<!-- effort: width=... depth=... -->` を解析し、width/depth を抽出できた場合はその値で effort.json を生成する",
-                          "2. 上記コメントがない場合は width=medium depth=medium で effort.json を生成する",
-                          "3. コメントがあるが形式不正（片方欠落・enum 外）の場合は生成せず error で停止し、mt-plan-create での修正を案内する",
-                          "4. base は未指定時に origin/HEAD 検出→失敗時 main、target は空の既定動作を維持する",
-                          "5. 生成時は `{ width, depth, round: 1 }` を effort.json として保存し、artifacts へ登録する",
-                          "なお check 段階ではファイル生成を行わず、ここで初めて生成する（check は純粋検証のみ）。",
-                        ],
-                      },
-                    ],
-                    output: [],
-                  });
-                  return `${basePrompt}\n\n${extra}`;
-                },
-              },
-              check: (ctx: CheckCtx): CheckResult => {
-                const base = collectContextStep.check(ctx);
-                if (base.status !== "pass") return base;
-                // effort の契約を単独レビューと同じ規則で検証する。
-                const effortRaw =
-                  findArtifactText(ctx.artifacts, REVIEW_EFFORT_KEY, ctx.sessionDir) ??
-                  readSessionFile(ctx.sessionDir, REVIEW_EFFORT_KEY);
-                const effort = parseJson(effortRaw ?? "");
-                if (!isRecord(effort)) {
-                  return {
-                    status: "fail",
-                    reasons: [
-                      `${REVIEW_EFFORT_KEY} が生成されていないか JSON オブジェクトではありません。width/depth/round を持つ effort.json を生成してください`,
-                    ],
-                  };
-                }
-                // effort の契約は単独レビューと共有する。
-                const validation = validateEffort(effort);
-                if (validation.status !== "pass") {
-                  return {
-                    status: "fail",
-                    reasons: [
-                      `${REVIEW_EFFORT_KEY} の契約が不正です: ${validation.reasons.join(" / ")}`,
-                    ],
-                  };
-                }
-                return {
-                  status: "pass",
-                  reasons: [...base.reasons, `effort.json: round=${validation.round}`],
                 };
               },
             },
@@ -1536,6 +1462,9 @@ const def: WorkflowDef = {
             {
               ...runReviewersStep,
               phase: "検証者起動",
+              // ADR-0019: レビュー判断は Step import を維持。plan-run の収集専用
+              // collect_context は撤去し、プロンプト生成前に収集・機械検証を完結する。
+              beforeStep: collectPlanReviewContext,
             },
 
             // -------------------------------------------------------------------
