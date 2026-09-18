@@ -22,6 +22,7 @@ import * as path from "node:path";
 import def, {
   resolveEffortStep,
   collectContextStep,
+  verifyFixStep,
   runReviewersStep,
   startDifitReviewStep,
   awaitHumanReviewStep,
@@ -118,10 +119,11 @@ describe("mt-review-diff step structure (human gate loop 置換)", () => {
     ]);
   });
 
-  it("human_review_loop の本体がレビューパイプライン＋judge である", () => {
+  it("human_review_loop の本体が修正確認＋レビューパイプライン＋judge である", () => {
     const loop = def.steps.find((s) => s.key === "human_review_loop")!;
     if (loop.type !== "loop") throw new Error("human_review_loop is not a loop step");
     expect(loop.body.map((s) => s.key)).toEqual([
+      "verify_fix",
       "run_reviewers",
       "normalize_findings",
       "start_difit_review",
@@ -145,9 +147,10 @@ describe("mt-review-diff step structure (human gate loop 置換)", () => {
     expect(new Set(keys).size).toBe(keys.length);
   });
 
-  it("Step export が各 step を指している（全11件・key 解決の回帰）", () => {
+  it("Step export が各 step を指している（全12件・key 解決の回帰）", () => {
     expect(resolveEffortStep === stepOf("resolve_effort")).toBe(true);
     expect(collectContextStep === stepOf("collect_context")).toBe(true);
+    expect(verifyFixStep === stepOf("verify_fix")).toBe(true);
     expect(runReviewersStep === stepOf("run_reviewers")).toBe(true);
     expect(normalizeFindingsStep === stepOf("normalize_findings")).toBe(true);
     expect(startDifitReviewStep === stepOf("start_difit_review")).toBe(true);
@@ -164,6 +167,8 @@ describe("mt-review-diff step structure (human gate loop 置換)", () => {
     expect(resolveEffortStep.type).toBe("human_gate");
     expect(collectContextStep.key).toBe("collect_context");
     expect(collectContextStep.type).toBe("task");
+    expect(verifyFixStep.key).toBe("verify_fix");
+    expect(verifyFixStep.type).toBe("task");
     expect(runReviewersStep.key).toBe("run_reviewers");
     expect(runReviewersStep.type).toBe("task");
     expect(normalizeFindingsStep.key).toBe("normalize_findings");
@@ -1595,7 +1600,7 @@ exit 1`,
       );
       expect(human.status).toBe("continue");
       expect(human.reasons.join("\n")).toContain("human_review_loop");
-      expect(human.reasons.join("\n")).toContain("run_reviewers");
+      expect(human.reasons.join("\n")).toContain("verify_fix");
     });
 
     it("abort → error（中断意図の記録。巻き戻しなし）", () => {
@@ -2933,5 +2938,146 @@ describe("collect_context (提示範囲 base...target とのファイル集合�
     expect(missingStagedFilesReasons(truncated, stagedFiles).join("\n")).toContain(
       "src/staged-new.ts",
     );
+  });
+});
+
+describe("verify_fix（修正確認の分離・白紙レビューの担保）", () => {
+  let tmp: string;
+  let sessionDir: string;
+
+  beforeEach(() => {
+    tmp = fs.mkdtempSync(path.join(os.tmpdir(), "mt-verify-fix-"));
+    sessionDir = path.join(tmp, "session");
+    fs.mkdirSync(sessionDir);
+  });
+
+  afterEach(() => {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  });
+
+  const DIFF_WITH_TEST = `diff --git a/src/a.ts b/src/a.ts
+index 1111111..2222222 100644
+--- a/src/a.ts
++++ b/src/a.ts
+@@ -1 +1 @@
+-old
++new
+diff --git a/src/a.test.ts b/src/a.test.ts
+new file mode 100644
+index 0000000..3333333
+--- /dev/null
++++ b/src/a.test.ts
+@@ -0,0 +1 @@
++test
+`;
+
+  function makeCtx(overrides: Record<string, unknown> = {}): CheckCtx {
+    return {
+      sessionDir,
+      sessionId: path.basename(sessionDir),
+      gateAnswers: {},
+      loop: null,
+      attemptResult: { status: "completed" },
+      artifacts: [],
+      ...overrides,
+    } as CheckCtx;
+  }
+
+  function writeVerifyFix(value: unknown): void {
+    fs.writeFileSync(path.join(sessionDir, "verify-fix.json"), JSON.stringify(value));
+  }
+
+  function writeDiff(raw: string): void {
+    fs.writeFileSync(path.join(sessionDir, "diff.txt"), raw);
+  }
+
+  it("prompt は修正有無と回帰テストの存在のみを扱い再反証を禁じる", () => {
+    const prompt = (verifyFixStep.task as { buildPrompt: (ctx: unknown) => string }).buildPrompt({
+      sessionDir,
+      artifacts: [],
+    });
+    expect(prompt).toContain("verify-fix.json");
+    expect(prompt).toContain("回帰テスト");
+    expect(prompt).toContain("再反証は行わない");
+  });
+
+  it("run_reviewers prompt は各ラウンド同一内容（白紙レビュー）を宣言し重点付けを禁じる", () => {
+    fs.writeFileSync(
+      path.join(sessionDir, "effort.json"),
+      JSON.stringify({ width: "medium", depth: "medium", round: 1 }),
+    );
+    const prompt = (runReviewersStep.task as { buildPrompt: (ctx: unknown) => string }).buildPrompt(
+      {
+        sessionDir,
+        sessionId: "test",
+        gateAnswers: {},
+        loop: null,
+        artifacts: [],
+      },
+    );
+    expect(prompt).toContain("白紙レビュー");
+    expect(prompt).toContain("verify_fix");
+    expect(prompt).toContain("diffSha");
+  });
+
+  it("normalize_findings prompt は coverage 併記を指示する", () => {
+    const prompt = (
+      normalizeFindingsStep.task as { buildPrompt: (ctx: unknown) => string }
+    ).buildPrompt({ sessionDir, artifacts: [] });
+    expect(prompt).toContain("coverage");
+    expect(prompt).toContain("record-only");
+  });
+
+  it("initial は pass（初回のため検証対象なし）", () => {
+    writeDiff(DIFF_WITH_TEST);
+    writeVerifyFix({ status: "initial" });
+    const result = stepCheck("verify_fix")(makeCtx());
+    expect(result.status).toBe("pass");
+  });
+
+  it("verify-fix.json が無ければ error", () => {
+    writeDiff(DIFF_WITH_TEST);
+    const result = stepCheck("verify_fix")(makeCtx());
+    expect(result.status).toBe("error");
+  });
+
+  it("unfixed は fail し理由を返す", () => {
+    writeDiff(DIFF_WITH_TEST);
+    writeVerifyFix({ status: "unfixed", reason: "差分が前ラウンドから変化していない" });
+    const result = stepCheck("verify_fix")(makeCtx());
+    expect(result.status).toBe("fail");
+    expect(result.reasons.join("\n")).toContain("差分が前ラウンドから変化していない");
+  });
+
+  it("verified は回帰テストが差分内なら pass", () => {
+    writeDiff(DIFF_WITH_TEST);
+    writeVerifyFix({
+      status: "verified",
+      diffChanged: true,
+      regressionTests: ["src/a.test.ts"],
+    });
+    const result = stepCheck("verify_fix")(makeCtx());
+    expect(result.status).toBe("pass");
+  });
+
+  it("verified でも回帰テストが差分外なら fail", () => {
+    writeDiff(DIFF_WITH_TEST);
+    writeVerifyFix({
+      status: "verified",
+      diffChanged: true,
+      regressionTests: ["src/ghost.test.ts"],
+    });
+    const result = stepCheck("verify_fix")(makeCtx());
+    expect(result.status).toBe("fail");
+    expect(result.reasons.join("\n")).toContain("src/ghost.test.ts");
+  });
+
+  it("未完了の attempt は error", () => {
+    writeDiff(DIFF_WITH_TEST);
+    writeVerifyFix({ status: "initial" });
+    const result = stepCheck("verify_fix")(
+      makeCtx({ attemptResult: { status: "failed", errors: "boom" } }),
+    );
+    expect(result.status).toBe("error");
   });
 });
