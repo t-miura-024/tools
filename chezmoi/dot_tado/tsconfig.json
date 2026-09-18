@@ -1,5 +1,5 @@
 {
   "extends": "tado/tsconfig.base",
   "include": ["workflows/**/*.ts"],
-  "exclude": ["node_modules", "workflows/mt-deep-research/scripts"]
+  "exclude": ["node_modules", "workflows/deep-research/scripts"]
 }

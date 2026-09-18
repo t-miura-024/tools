@@ -7,7 +7,7 @@
 //! state 不在・選択キー未記録・サーバ同一性照合不能・サーバ不応答は明確な
 //! エラーで非 0 exit し、無音で pass しない。
 //!
-//! このコマンドは mt-review-diff ワークフロー（M2）の読み取り経路を、
+//! このコマンドは review-diff ワークフロー（M2）の読み取り経路を、
 //! difit 内部契約に依存する unpinned な `difit comment get` から、選択ピン留め
 //! 契約（`check` と同一の CommentSelection）へ載せ替えるための公開 API である。
 //! ゲート分類は Rust の `gate.rs`（`mt difit check` と同一実装）が行い、

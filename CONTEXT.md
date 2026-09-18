@@ -77,7 +77,7 @@ _Avoid_: git エントリ, GitHub パッケージエントリ
 _Avoid_: npm エントリ, registry エントリ
 
 **ファイルレベル指摘**:
-行紐づけを持たない指摘。difit の comment import スキーマは position 必須のため、`mt difit start` の stdin 直 import が `{"side":"new","line":1}` に合成して表現する（注入は選択確定後の HTTP POST `/api/comment-imports`）。mt-review-diff の findings は position 必須で、欠落は機械的に除外され合成されない。
+行紐づけを持たない指摘。difit の comment import スキーマは position 必須のため、`mt difit start` の stdin 直 import が `{"side":"new","line":1}` に合成して表現する（注入は選択確定後の HTTP POST `/api/comment-imports`）。review-diff の findings は position 必須で、欠落は機械的に除外され合成されない。
 _Avoid_: ファイル全体コメント, ファイルスコープ指摘
 
 **position 合成**:
@@ -167,7 +167,7 @@ _Avoid_: repository-local JSON, workspace-local JSON
 _Avoid_: アーカイブ, 非推奨化
 
 **共通リソース**:
-`mt-plan-create` と `mt-plan-run` の双方からimportまたはファイルパス参照されている資材。`init-config` / `init-config-gh` / `transition-plan` / `plan-format` が該当する。
+`plan-create` と `plan-run` の双方からimportまたはファイルパス参照されている資材。`init-config` / `init-config-gh` / `transition-plan` / `plan-format` が該当する。
 _Avoid_: 共有ファイル, 共通モジュール
 
 **片側専用リソース**:
@@ -217,7 +217,7 @@ ConditionCtx.gateAnswers[stepKey][questionKey] の新参照形式。旧 gateChoi
 _Avoid_: gateChoices
 
 **round_limit_gate**:
-plan-run がレビューの round 上限（3）到達・停滞時に提示する human_gate 群。未通過は `round_limit_gate`（受容して完了処理へ / もう1巡続ける / 中断）、通過済みは `round_limit_passed_gate`（上限到達・通過済み。後始末へ / 中断）、round 停滞は `round_stall_gate`（このまま次のレビューサイクルへ進む / execute_work からやり直す / 中断）を提示する。round 上限到達時の受容（approve）は後続の `release_difit_session` が `mt difit done` で difit セッション（サーバ・state）を後始末し（state 消失と記録 pid の終了まで検証）、finalize_done へ進む。「もう1巡」（revise）と round 停滞のやり直しはセッションを残して次ラウンドの start_difit_review が再利用する。中断（abort）はいずれのゲートでもエンジン終了のため後始末されず、手動 `mt difit done` を案内する。mt-review-diff 単独では round limit は fail で終端する。
+plan-run がレビューの round 上限（3）到達・停滞時に提示する human_gate 群。未通過は `round_limit_gate`（受容して完了処理へ / もう1巡続ける / 中断）、通過済みは `round_limit_passed_gate`（上限到達・通過済み。後始末へ / 中断）、round 停滞は `round_stall_gate`（このまま次のレビューサイクルへ進む / execute_work からやり直す / 中断）を提示する。round 上限到達時の受容（approve）は後続の `release_difit_session` が `mt difit done` で difit セッション（サーバ・state）を後始末し（state 消失と記録 pid の終了まで検証）、finalize_done へ進む。「もう1巡」（revise）と round 停滞のやり直しはセッションを残して次ラウンドの start_difit_review が再利用する。中断（abort）はいずれのゲートでもエンジン終了のため後始末されず、手動 `mt difit done` を案内する。review-diff 単独では round limit は fail で終端する。
 _Avoid_: round gate, 上限ゲート
 
 **検証観点**:

@@ -38,7 +38,7 @@ pub enum DifitCommands {
     Status,
     /// 未 resolve スレッドを選択固定で読み取り、JSON で出力する（読み取り専用）
     Threads {
-        /// JSON で出力する（機械可読契約。mt-review-diff ワークフローが使用する）
+        /// JSON で出力する（機械可読契約。review-diff ワークフローが使用する）
         #[arg(long)]
         json: bool,
     },

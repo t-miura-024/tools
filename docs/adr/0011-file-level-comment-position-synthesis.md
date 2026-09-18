@@ -8,4 +8,4 @@ difit の comment import スキーマは position（side + line）を必須と�
 
 ## 再採用範囲（ADR-0026）
 
-ADR-0026 により、`mt difit start` の stdin 直 import（stdin コメント、および stale 復旧・difit 引数変更時の保存済みコメント再注入）に限り再採用された。mt-review-diff の findings 経由は position 必須（ADR-0022）で、position なしは convert 時に機械的に除外され、合成は発生しない。
+ADR-0026 により、`mt difit start` の stdin 直 import（stdin コメント、および stale 復旧・difit 引数変更時の保存済みコメント再注入）に限り再採用された。review-diff の findings 経由は position 必須（ADR-0022）で、position なしは convert 時に機械的に除外され、合成は発生しない。

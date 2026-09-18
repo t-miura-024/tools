@@ -12,14 +12,14 @@ status: accepted
 
 計画草案は「`[context]` taxonomy と contextNotes は廃止のまま」としていたが、実装は「AI フローからは注入しないが、ノンブロッキング分類としてのみ認識する」を採用した。ADR-0005 が定義した「`[context]` は解説であり指摘ではない」という分類を、difit のゲート語義として引き継ぐものである（再採用範囲は「旧 difit ADR の再採用状況」参照）。
 
-- 認識のみ残す理由: 旧 difit 時代のセッションや stdin 直 import には author なしの `[context]` 解説スレッドが残り得る。これをブロッキング扱いすると、対応不要の解説に対して人間の resolve を強要する。認識は本文 1 行目の先頭プレフィックスのみで行い、詳細本文中の文字列は判定に使わない。生成側（mt-review-diff）は `[context]` を生成しないため、新規セッションではこの例外は発生しない。
+- 認識のみ残す理由: 旧 difit 時代のセッションや stdin 直 import には author なしの `[context]` 解説スレッドが残り得る。これをブロッキング扱いすると、対応不要の解説に対して人間の resolve を強要する。認識は本文 1 行目の先頭プレフィックスのみで行い、詳細本文中の文字列は判定に使わない。生成側（review-diff）は `[context]` を生成しないため、新規セッションではこの例外は発生しない。
 - ゲート例外の実効範囲: 非ブロッキングになるのは author が `User` でない `[context]` スレッドのみ。人間が投稿したコメント（author: `User`）は本文の内容にかかわらずブロックし、`[context]` と書いてゲートを通過させることはできない。
 - 人間 reply の判定: 人間由来とみなすのは author が `User` のメッセージのみで、author を持たない reply を人間とみなすフォールバックは持たない。非ブロッキングの親（want / AI の `[context]`）でも、人間（`User`）の reply が 1 件でも付いたスレッドはブロッキングに昇格する（人間の指示を無視しない）。
 - 計画の完了条件 4（未 resolve スレッドがブロック）の解釈: この要求は、want（人間 reply なし）と同じく、AI の `[context]` をノンブロッキングとする例外を含む。`[context]` スレッドは resolve しなくても通過時にセッションが片付く。
 
 ### position 合成（ADR-0011）の再採用範囲
 
-difit の comment import スキーマが position を必須とするため、`mt difit start` の stdin 直 import（stdin コメント、および stale 復旧・difit 引数変更時の保存済みコメント再注入）に限り、position なしエントリを `{"side":"new","line":1}` に合成する（ADR-0011 の再採用）。mt-review-diff の findings 経由は position 必須（ADR-0022 の diff-only 契約）であり、position なしは convert 時に機械的に除外され、合成は発生しない。
+difit の comment import スキーマが position を必須とするため、`mt difit start` の stdin 直 import（stdin コメント、および stale 復旧・difit 引数変更時の保存済みコメント再注入）に限り、position なしエントリを `{"side":"new","line":1}` に合成する（ADR-0011 の再採用）。review-diff の findings 経由は position 必須（ADR-0022 の diff-only 契約）であり、position なしは convert 時に機械的に除外され、合成は発生しない。
 
 ### コメント注入（argv 廃止と HTTP チャンク）
 
@@ -30,23 +30,23 @@ difit の comment import スキーマが position を必須とするため、`mt
 
 ### findings → difit-comments の機械導出
 
-mt-review-diff の normalize_findings は findings.json から `buildDifitComments`（純粋関数）で difit comment import 形式の difit-comments.json を機械導出し、注入前に完全一致を検証する。突合キーは type / filePath / position.side / position.line / body で、欠落・改変・余剰・キー生成不能要素（position なし等）は fail とする。
+review-diff の normalize_findings は findings.json から `buildDifitComments`（純粋関数）で difit comment import 形式の difit-comments.json を機械導出し、注入前に完全一致を検証する。突合キーは type / filePath / position.side / position.line / body で、欠落・改変・余剰・キー生成不能要素（position なし等）は fail とする。
 
 - reviewer-outputs.json（生 findings）→ findings.json の正規化も機械照合する（`auditFindingsNormalization`）。同じ純粋関数パイプライン（基本検証 → `filterFindingsByDiff` → `mergeFindingsByProximity`）で期待値を再導出し、findings / filteredOut の欠落・余剰、`filteredOut.count` と items の不一致、diff.txt 不在は fail とする。集約段で must / should を無音で落とす経路を塞ぐ（counts が自己整合していても通過しない）。
 - コメント本文は `formatReviewComment` が GFM Markdown で生成し、severity / taxonomy / axis を 1 行目ヘッダの `·` 区切りトークン（例: `**🚨 must · 🐛 issue · 🎯 req-1**`。Rust の分類契約）で表す。detail / suggestions は攻撃者由来の差分を引用し得るため、コードスパン外の `[` / `]` をエスケープして画像・リンク記法をリテラル化し、difit UI（react-markdown + remark-gfm）を開いた時点での外部 URL 自動リクエストを防ぐ。
 - start_difit_review は注入直後の check で、difit-comments.json の各コメント（thread）が選択固定・read-only の `mt difit threads --json` の threads[] に `{filePath, position.side, position.line, body}` の組の multiset として含まれること（containment）を検証する。サーバ側の余剰（前ラウンドの未 resolve スレッド・人間コメント）は許容し、注入側の欠落（同一 body の片方欠落を含む）・位置 / side の差し替え・キー生成不能は fail とする。あわせて stdout 契約（`port` / `url` / `comments`。`url` は `http://localhost:<port>` と完全一致）と state の port、difit-comments.json の件数を突合する。
 - `.difit/difit-review.json` の読み取りは「state / 不在 / 読み取り不能」の三値（`readDifitReviewState`）で扱い、読み取り不能（EACCES / EISDIR / 競合）を「セッション不在」と誤診せず fail にする。同じ三値は done 後の後始末検証にも使う。
 
-findings の指摘が提示から漏れたまま人間レビュー・ゲートへ進む経路を塞ぐ（契約は workflow.test.ts で固定する）。
+findings の指摘が提示から漏れたまま人間レビュー・ゲートへ進む経路を塞ぐ（契約は index.test.ts で固定する）。
 
 ### 検証対象 diff.txt の提示範囲と完全性（target あり / なし）
 
-mt-review-diff の `collect_context` が生成する diff.txt（normalize_findings / audit と検証者が参照する SoT）の収集範囲は、difit に提示される範囲と一致させる。
+review-diff の `collect_context` が生成する diff.txt（normalize_findings / audit と検証者が参照する SoT）の収集範囲は、difit に提示される範囲と一致させる。
 
 - target なし: `git -c core.quotePath=false diff "$(git merge-base HEAD "$BASE")"` = merge-base..ワーキングツリー（committed + staged + unstaged を 1 コマンドで含む）+ untracked（`git ls-files --others --exclude-standard` の各ファイルへ `git diff --no-index /dev/null <f>` を追記。index の intent-to-add に依存しない）。`mt difit start <base>` が提示する working diff の範囲と一致する。`git diff "$BASE...HEAD"` + unstaged のような index（staged）を欠く分割収集は staged 変更・staged 新規ファイルを diff.txt から丸ごと落とすため採用しない（collect_context はこの分割収集を禁止し、`git status --porcelain` の staged エントリを diff.txt と機械突合する）。
 - target あり: `git diff <base>...<target>` のみとし、untracked は収集しない。difit は target 提示時に working tree の untracked を表示しないため、混ぜると提示範囲（人間とゲートが見る差分）と検証対象（diff.txt）が乖離する。collect_context の完全性検査も target ありでは untracked / staged の欠落照合を行わず、truncate マーカー検査と numstat 突合のみ行う。
 - 収集コマンドは `git -c core.quotePath=false` で実行し、diff.txt の SoT に C-quote（octal escape）を持ち込まない。`"` を含むパスは `core.quotePath=false` でも引用されるため、パス解析（`parseDiffChangedLines` → `parseDiffHeaderPath`）は `"b/<path>"` 形を逆写像し、検証者が返す生の filePath とキーを一致させる。untracked の出現照合（`diffContainsUntrackedFile`）は生パスと C-quote 形の両方を候補にする。
-- 完全性検査（truncate マーカー + untracked 欠落）は diff.txt を 1 回だけ行展開したインデックス（`indexDiffText`）を共有して行う（打ち切り・生成失敗を SoT に残さない。契約は mt-review-diff / mt-plan-run の workflow.test.ts で固定する）。
+- 完全性検査（truncate マーカー + untracked 欠落）は diff.txt を 1 回だけ行展開したインデックス（`indexDiffText`）を共有して行う（打ち切り・生成失敗を SoT に残さない。契約は review-diff / plan-run の index.test.ts で固定する）。
 
 ### collect_verdict の単一実行プロトコル
 
@@ -56,16 +56,16 @@ mt-review-diff の `collect_context` が生成する diff.txt（normalize_findin
 - ゲートの権威判定と突合は `collect_verdict` の check フェーズが行う。verdict の形式・ラウンド上限・findings との整合を検証した後に `mt difit check --dry-run`（非破壊。出力 JSON と exit code は通常の check と同一）を一度だけ実行し、task の verdict（passes / blocking_threads）と daemon 出力を canonicalize して比較する。不一致は fail とし、サーバ・状態を変更せず保持する（daemon 照合なしの通過は認めない。前段で止まる場合は check を実行せず、セッションを消費しない）。
 - 一致かつ通過（passes=true）の場合のみ `mt difit done` で後始末する（停止・状態削除。done はゲート結果にかかわらず常に `close_session` を実行して exit 0 でゲート結果 JSON を返す契約で、kill はサーバ同一性を照合できた場合のみ行う）。一致かつブロックなら後始末せず、次ラウンドの `start_difit_review` がセッションを再利用する。done の stdout は done 実行時点のゲート結果であり、後始末の成否ではない。後始末の実効性は、done 前後の state 消失と記録 pid の終了で検証し、state 残留・pid 生存は error（後始末未完。orphan の可能性）に倒す。done.passes=false は「dry-run 突合（passes=true）から done 実行までの間にゲートが変わった（人間の追加コメント・返信、または判定不能）」ことを意味するため、後始末失敗と誤診せず、done 出力を `difit-check.json` に永続化し、blocking_threads を executor の feedback として次ラウンドの修正対象に引き継ぐ fail にする（difit セッションは終了済み）。daemon 出力（`check --dry-run` / `done`）は一致・不一致にかかわらず `difit-check.json` に永続化する。
 - `mt difit threads --json` の stdout は未 resolve スレッド全件の本文と replies を含むため、ワークフロー側の読み取りは maxBuffer 16 MiB を明示し、超過を「出力サイズ超過」として fail にする（切り詰められた stdout をパース失敗として扱わない）。
-- 分類（taxonomy / want の人間 reply 昇格 / author 判定）の権威は Rust の `mt difit check` / `mt difit threads --json`（実装は `src/difit/gate.rs`）にあり、task プロンプトは機械出力をそのまま verdict 化し、規則の写経・再分類をしない。規則の写像が残る箇所（mt-review-diff のプロンプト、agents 3 面、workflow.test.ts）は規則変更時に同時修正する。写像がドリフトすると突合不一致として fail で検出される（Rust 側の判定を読み替えない）。
+- 分類（taxonomy / want の人間 reply 昇格 / author 判定）の権威は Rust の `mt difit check` / `mt difit threads --json`（実装は `src/difit/gate.rs`）にあり、task プロンプトは機械出力をそのまま verdict 化し、規則の写経・再分類をしない。規則の写像が残る箇所（review-diff のプロンプト、agents 3 面、index.test.ts）は規則変更時に同時修正する。写像がドリフトすると突合不一致として fail で検出される（Rust 側の判定を読み替えない）。
 
 ### 人間レビューへの引き渡しと上限（2026-09-17 改訂）
 
-- `mt-plan-run` の自律・人間 loop はともに最大5回（共有値 `REVIEW_ROUND_LIMIT`）。自律レビューは must=0 または上限到達で通常通過し、正規化済みの残 must / should / want を既存の `start_difit_review` で登録して `await_human_review` へ渡す。位置なし・old側の除外や近接マージの規則は変更しない。上限専用ゲートや二重注入は設けない。
+- `plan-run` の自律・人間 loop はともに最大5回（共有値 `REVIEW_ROUND_LIMIT`）。自律レビューは must=0 または上限到達で通常通過し、正規化済みの残 must / should / want を既存の `start_difit_review` で登録して `await_human_review` へ渡す。位置なし・old側の除外や近接マージの規則は変更しない。上限専用ゲートや二重注入は設けない。
 - `effort.round` は `normalize_findings.beforeStep` でエンジンの内側 `loop.iteration` を代入する。人間の `request_changes` は外側 loop の `continue` へ変換され、エンジンが内側 iteration を1へ戻すことで、自律5ラウンドの予算を再付与する。累積カウンターやワークフロー独自の巻き戻しは持たない。
 - plan-run の `collect_verdict` は単独版とスキーマ・選択整合・非破壊突合を共有するが、通過時も上限時もセッションを保持する。`judge_human` の approve 時に、選択固定の `mt difit threads --json` で最新の未解決 must（taxonomy=issue）が0件であることを検証し、`mt difit done` で後始末してから `finalize_done` へ進む。人間が修正結果を確認し、difit 上ですべて解決することが承認条件であり、追加自動レビューは要求しない。
 - 未修正mustの受容・別Issue引き継ぎによる完了経路は廃止する。`round_limit_gate` / `round_limit_passed_gate` / `release_difit_session` と `replan-plan-number.txt` は使用しない。
 - 人間 loop の5回すべてで差し戻した場合は `onExhausted=escalate` によりエンジンが paused にする。登録失敗・破損データ等も通常通過へ変換せず、tado の異常処理に委ねる。
-- `mt-review-diff` 単独では必ず人間レビューを提示する既存フローを維持する。共有の round 上限は5となり、未通過で上限到達または上限超過なら fail で停止する。通常通過時の後始末は `collect_verdict` が行う。
+- `review-diff` 単独では必ず人間レビューを提示する既存フローを維持する。共有の round 上限は5となり、未通過で上限到達または上限超過なら fail で停止する。通常通過時の後始末は `collect_verdict` が行う。
 
 ### コメント選択のピン留め
 
@@ -74,7 +74,7 @@ difit はコメントを diff の選択（base / target / baseMode）ごとの�
 - `mt difit start` はサーバ起動直後に `/api/diff` の解決済み選択（`baseCommitish` / `targetCommitish` / `requestedBaseMode`）を取得し、`ReviewState.selection`（`base` / `target` / `baseMode`）として `.difit/difit-review.json` に永続化する。再利用時のコメント追記・ゲート判定・stale 復旧時の再注入はすべてこの選択に固定する。
 - difit CLI の `comment get/add` は選択を引数で指定できないため、mt difit のコメント読み書きは difit の HTTP API（`/api/comments-json` / `/api/comment-imports` への `base` / `target` / `baseMode` クエリ）で行う。ADR-0008 の「内部 API は使用しない」は、選択固定のためのコメント I/O に限り見直す（引数変換自体は再採用のまま）。この内部契約は E2E テストで固定する。ワークフロー向けにはこの読み取りを `mt difit threads --json`（選択固定・read-only）として公開し、verdict 生成は unpinned な `difit comment get` を使わない。
 - クエリ値（`base` / `target` / `baseMode`）は RFC 3986 の unreserved 以外をパーセントエンコードする。解決済み commitish にブランチ由来の `&` `#` `%` `+` 等が残っても、パラメータ分割や空白解釈で読み書きが別セッションへ向かわない（契約は client.test.rs で固定する）。
-- `mt difit check`（通常 / `--dry-run`）と `mt difit threads --json` は、固定した選択と difit サーバが現在返す選択（GET `/api/diff`・read-only）を比較し、`selection_drift: {detection, expected, current}` として出力する。`detection` は `detected`（不一致）/ `none`（一致）/ `unavailable`（probe 失敗＝検知不能）の三値で、probe 失敗を「ドリフトなし」へ倒さない。ワークフロー（start_difit_review / collect_verdict）は `none` 以外を fail-closed に扱い、ドリフト中は difit UI の reply / resolve がゲートと別セッションへ書き込まれるため通過・後始末を認めない（契約は check.test.rs / workflow.test.ts で固定する）。
+- `mt difit check`（通常 / `--dry-run`）と `mt difit threads --json` は、固定した選択と difit サーバが現在返す選択（GET `/api/diff`・read-only）を比較し、`selection_drift: {detection, expected, current}` として出力する。`detection` は `detected`（不一致）/ `none`（一致）/ `unavailable`（probe 失敗＝検知不能）の三値で、probe 失敗を「ドリフトなし」へ倒さない。ワークフロー（start_difit_review / collect_verdict）は `none` 以外を fail-closed に扱い、ドリフト中は difit UI の reply / resolve がゲートと別セッションへ書き込まれるため通過・後始末を認めない（契約は check.test.rs / index.test.ts で固定する）。
 - `mt difit check` は `selection` 未記録の state を、ゲート対象セッションを確定できない状態として扱い、サーバ・状態を変更せず fail-closed で停止する（無音 pass を認めない）。記録済みでもサーバの現在選択が変わっている場合は、固定した選択で判定を継続しつつ stderr に警告を出す。
 - 再起動（stale 復旧・difit 引数変更）では新しいサーバの選択を取得して記録し直し、起動 → 選択確定 → state 書き込み完了の後に旧サーバを停止する。spawn・選択取得・書き込みのいずれかに失敗した場合は旧 state を復旧源として残す（起動済みの新サーバは停止する）。
 - 既知の制約: 外部 CLI の `difit comment resolve` は選択を指定できない（difit 5.0.12 は `--port` のみ）。人間がリビジョン切替した状態で resolve / reply すると別セッションへ向かい、resolve は 404 で失敗する。エージェントの resolve は選択固定・同一性検証つきの `mt difit resolve <threadId>` に一本化したため、この制約は人間の UI 操作と外部 CLI 直叩きに限られる。mt の `check` は起動時のセッションに固定して読むため無音 pass には至らないが、UI の選択を起動時のリビジョンに戻してから resolve / reply する必要がある。

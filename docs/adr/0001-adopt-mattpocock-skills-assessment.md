@@ -18,7 +18,7 @@ Issue #28 に基づき、固定した `mattpocock/skills@66898f60e8c744e269f8ce0
 ## ユーザー承認で確定した変更
 
 - `grill-with-docs` は新規 Skill とし、`mt-create-plan` にも統合する
-- `codebase-design` は `mt-sdd-architecture-reviewer` に加え `mt-review-diff` へも統合する
+- `codebase-design` は `mt-sdd-architecture-reviewer` に加え `review-diff` へも統合する
 - `implement` は `mt-sdd-implement` に加え `mt-run-plan` へも統合する
 - `improve-codebase-architecture` は既存レビューへ統合し、単独 Skill としても新規作成する
 - `triage`・`teach`・`prototype` は不要として見送る
@@ -29,15 +29,15 @@ Issue #28 に基づき、固定した `mattpocock/skills@66898f60e8c744e269f8ce0
 | 出典 | 判断 | 統合先または新規名 | 採用・見送り理由 |
 | --- | --- | --- | --- |
 | [`ask-matt`](https://github.com/mattpocock/skills/blob/66898f60e8c744e269f8ce06c2b2b99ce7660d5f/skills/engineering/ask-matt/SKILL.md) | 見送り | - | 上流固有の Skill 名とフローを案内するルーターであり、現行カタログと整合しない。 |
-| [`code-review`](https://github.com/mattpocock/skills/blob/66898f60e8c744e269f8ce06c2b2b99ce7660d5f/skills/engineering/code-review/SKILL.md) | 統合 | `mt-review-diff` | 既存の差分レビューと同責務。仕様適合と設計上の臭いの観点を補う。 |
-| [`codebase-design`](https://github.com/mattpocock/skills/blob/66898f60e8c744e269f8ce06c2b2b99ce7660d5f/skills/engineering/codebase-design/SKILL.md) | 統合 | `mt-sdd-architecture-reviewer` / `mt-review-diff` | 深いモジュールと seam の設計語彙をアーキテクチャレビューと差分レビューへ加える。 |
+| [`code-review`](https://github.com/mattpocock/skills/blob/66898f60e8c744e269f8ce06c2b2b99ce7660d5f/skills/engineering/code-review/SKILL.md) | 統合 | `review-diff` | 既存の差分レビューと同責務。仕様適合と設計上の臭いの観点を補う。 |
+| [`codebase-design`](https://github.com/mattpocock/skills/blob/66898f60e8c744e269f8ce06c2b2b99ce7660d5f/skills/engineering/codebase-design/SKILL.md) | 統合 | `mt-sdd-architecture-reviewer` / `review-diff` | 深いモジュールと seam の設計語彙をアーキテクチャレビューと差分レビューへ加える。 |
 | [`diagnosing-bugs`](https://github.com/mattpocock/skills/blob/66898f60e8c744e269f8ce06c2b2b99ce7660d5f/skills/engineering/diagnosing-bugs/SKILL.md) | 統合 | `mt-analyze-error` | 原因・影響・対策の既存責務に、高速で失敗する再現の確立を加える。 |
 | [`domain-modeling`](https://github.com/mattpocock/skills/blob/66898f60e8c744e269f8ce06c2b2b99ce7660d5f/skills/engineering/domain-modeling/SKILL.md) | 統合 | `mt-sdd-spec` / `mt-grill-with-docs` | 用語と ADR の確定は仕様策定と文書付きヒアリングの一部とする。 |
 | [`grill-with-docs`](https://github.com/mattpocock/skills/blob/66898f60e8c744e269f8ce06c2b2b99ce7660d5f/skills/engineering/grill-with-docs/SKILL.md) | 新規+統合 | `mt-grill-with-docs` / `mt-create-plan` | 文書を残す徹底ヒアリングは独立責務。計画作成の Grill Phase にも取り込む。 |
 | [`implement`](https://github.com/mattpocock/skills/blob/66898f60e8c744e269f8ce06c2b2b99ce7660d5f/skills/engineering/implement/SKILL.md) | 統合 | `mt-sdd-implement` / `mt-run-plan` | 実装・検証・最終レビューの原則を SDD 実装と計画実行の両方へ補う。 |
-| [`improve-codebase-architecture`](https://github.com/mattpocock/skills/blob/66898f60e8c744e269f8ce06c2b2b99ce7660d5f/skills/engineering/improve-codebase-architecture/SKILL.md) | 新規+統合 | `mt-improve-codebase-architecture` / `mt-sdd-architecture-reviewer` / `mt-review-diff` | 改善候補の探索は単独 Skill とし、既存レビューにも候補発見観点を加える。 |
+| [`improve-codebase-architecture`](https://github.com/mattpocock/skills/blob/66898f60e8c744e269f8ce06c2b2b99ce7660d5f/skills/engineering/improve-codebase-architecture/SKILL.md) | 新規+統合 | `mt-improve-codebase-architecture` / `mt-sdd-architecture-reviewer` / `review-diff` | 改善候補の探索は単独 Skill とし、既存レビューにも候補発見観点を加える。 |
 | [`prototype`](https://github.com/mattpocock/skills/blob/66898f60e8c744e269f8ce06c2b2b99ce7660d5f/skills/engineering/prototype/SKILL.md) | 見送り | - | ユーザー判断により不要。 |
-| [`research`](https://github.com/mattpocock/skills/blob/66898f60e8c744e269f8ce06c2b2b99ce7660d5f/skills/engineering/research/SKILL.md) | 統合 | `mt-deep-research` | 調査・引用・レポートは既存責務。軽量な一次資料調査の入口を補う。 |
+| [`research`](https://github.com/mattpocock/skills/blob/66898f60e8c744e269f8ce06c2b2b99ce7660d5f/skills/engineering/research/SKILL.md) | 統合 | `deep-research` | 調査・引用・レポートは既存責務。軽量な一次資料調査の入口を補う。 |
 | [`resolving-merge-conflicts`](https://github.com/mattpocock/skills/blob/66898f60e8c744e269f8ce06c2b2b99ce7660d5f/skills/engineering/resolving-merge-conflicts/SKILL.md) | 新規 | `mt-resolve-merge-conflicts` | 競合を意図を保って解消する専用手順は存在しない。 |
 | [`setup-matt-pocock-skills`](https://github.com/mattpocock/skills/blob/66898f60e8c744e269f8ce06c2b2b99ce7660d5f/skills/engineering/setup-matt-pocock-skills/SKILL.md) | 見送り | - | 上流固有の issue tracker・文書構造を前提とし、既存の計画管理と二重化する。 |
 | [`tdd`](https://github.com/mattpocock/skills/blob/66898f60e8c744e269f8ce06c2b2b99ce7660d5f/skills/engineering/tdd/SKILL.md) | 統合 | `mt-sdd-implement` | テスト seam の合意と Red-Green の原則を既存実装工程に統合する。 |

@@ -6,7 +6,7 @@ status: proposed
 
 ## Context
 
-tadoワークフロー（`mt-plan-run` 等）は `buildPrompt` でエージェントにスクリプト実行を指示している。エージェントの不確実性により手順抜かし・捏造が発生し、決定論性と監査可能性が損なわれる。
+tadoワークフロー（`plan-run` 等）は `buildPrompt` でエージェントにスクリプト実行を指示している。エージェントの不確実性により手順抜かし・捏造が発生し、決定論性と監査可能性が損なわれる。
 
 2026-09-17のM1では、plan-runの収集専用 `collect_context` を削除し、直後にあった `run_reviewers`（検証者起動）の `beforeStep` へ収集・機械検証を移した。hookだけ追加して専用ステップを残す案では往復削減が0だったため、ステップ境界を変更した。以下は承認済み計画の転記ではなく、M1の実装・実エンジン検証を踏まえたM2の記録である。PoC方針は承認済みだが、横展開・基盤化は未承認のためADRは `proposed` を維持する。
 
@@ -17,16 +17,16 @@ tadoワークフロー（`mt-plan-run` 等）は `buildPrompt` でエージェ�
 ## Decision
 
 - ユーザー承認済みのPoCとして、plan-run側の収集専用 `collect_context` ステップを削除し、直後の `run_reviewers.beforeStep` へ収集スクリプトと既存相当の検証を移す。収集専用AIプロンプトとreportを撤去して、収集・検証者起動を通過する各サイクルで1往復削減する。`run_reviewers` のレビュー判断・検証者起動・本来のreportは残す
-- Git差分収集、Issue body由来のeffort補完、補助context生成を `Bun.$` / `node:child_process` 等の既存手段と `_shared/` ヘルパで決定論的に行う。`diff.txt` / `effort.json` を `ArtifactInput[]` としてDB登録し、補助 `context.md` を生成する。後続の `PromptCtx.artifacts` / `CheckCtx.artifacts` から参照でき、反復時も現行キーで更新する。旧キーへの後方互換レイヤーは追加しない
+- Git差分収集、Issue body由来のeffort補完、補助context生成を `Bun.$` / `node:child_process` 等の既存手段と `shared/` ヘルパで決定論的に行う。`diff.txt` / `effort.json` を `ArtifactInput[]` としてDB登録し、補助 `context.md` を生成する。後続の `PromptCtx.artifacts` / `CheckCtx.artifacts` から参照でき、反復時も現行キーで更新する。旧キーへの後方互換レイヤーは追加しない
 - 収集後・レビュー用プロンプト生成前に、現行相当の差分範囲・完全性検証（truncate、target有無に応じたuntracked/staged、numstat突合）とeffort契約検証を実施する。失敗はhook失敗として扱う。既存相当の検証を維持するためのplan-run側check変更は許可するが、旧収集専用reportを偽造して残さない
 - 収集または検証の失敗時は、外部tadoの既存仕様により初回実行 + `run_reviewers` の `maxRetries` 回再試行し、全失敗なら step を `failed`、セッションを `aborted` とする。レビュー用および後続のプロンプトは生成せず、エージェントへフォールバックしない。原因解消後は新規セッションで再実行する。`onFail.action` の `escalate` 適用は要求しない
-- 実装範囲はplan-runの必要なステップ構成・`buildPrompt`・`check`・import/コメント、`_shared/` ヘルパ、plan-runの `workflow.test.ts` / `__snapshots__/` とする。外部tadoとreview-diff本体は改修しない。plan-run側で不要になった収集コードパスは撤去するが、孤児ファイル `mt-plan-collect-review-context.ts` は再利用可否の先行判定・削除予定の記録のみとし、今回編集・削除しない
+- 実装範囲はplan-runの必要なステップ構成・`buildPrompt`・`check`・import/コメント、`shared/` ヘルパ、plan-runの `index.test.ts` / `__snapshots__/` とする。外部tadoとreview-diff本体は改修しない。plan-run側で不要になった収集コードパスは撤去するが、孤児ファイル `mt-plan-collect-review-context.ts` は再利用可否の先行判定・削除予定の記録のみとし、今回編集・削除しない
 - hookのPoCは単一の `task: orchestrate`（`run_reviewers`）に限定し、エンジンの `parallel` ステップ・subtaskへの適用は対象外とする。既存の検証者並列起動は維持する。権限は現行エージェントと同一（ローカルBun）で、分離機構は追加しない
-- ADR-0019のStep importによる敵対的検証の再利用を維持する。ただし「収集Stepも取り込む」構成はplan-runに限って更新し、判断用の `task` / `check` は同一Stepを継承する。ADR-0014の作成/実行の責務分離、ADR-0002のデプロイ先を直接編集しない原則を維持する。新ヘルパは `_shared/` 配置でもplan-run専用であり、汎用interceptor APIの採用を意味しない。ADR-0028の型設定の所有方針も変更しない（現環境との不整合は下記）。
+- ADR-0019のStep importによる敵対的検証の再利用を維持する。ただし「収集Stepも取り込む」構成はplan-runに限って更新し、判断用の `task` / `check` は同一Stepを継承する。ADR-0014の作成/実行の責務分離、ADR-0002のデプロイ先を直接編集しない原則を維持する。新ヘルパは `shared/` 配置でもplan-run専用であり、汎用interceptor APIの採用を意味しない。ADR-0028の型設定の所有方針も変更しない（現環境との不整合は下記）。
 
 ## PoCの学習と根拠（2026-09-17）
 
-根拠となる実装は `chezmoi/dot_tado/workflows/` 以下の `mt-plan-run/index.ts`、`_shared/collect-plan-review-context.ts`、`mt-plan-run/workflow.test.ts`。実行証跡はセッション `/Users/mt/.tado/sessions/20260917-200611-szm3/` の `m1-result.json`、`m1-log.md`、`m1-final-tests.log`（7/10行: 往復、12/14行: 失敗、526–528行: 集計）にある。
+根拠となる実装は `chezmoi/dot_tado/workflows/` 以下の `plan-run/index.ts`、`shared/collect-plan-review-context.ts`、`plan-run/index.test.ts`。実行証跡はセッション `/Users/mt/.tado/sessions/20260917-200611-szm3/` の `m1-result.json`、`m1-log.md`、`m1-final-tests.log`（7/10行: 往復、12/14行: 失敗、526–528行: 集計）にある。
 
 | 確認した成果 | 学習・適用上の意味 |
 | --- | --- |
@@ -36,7 +36,7 @@ tadoワークフロー（`mt-plan-run` 等）は `buildPrompt` でエージェ�
 | truncate、target有無に応じたuntracked/staged、numstat、effort契約を既存ヘルパで検証。実Gitでindex不変。target指定・空差分も検証 | 機械検証をprompt前へ移し、旧収集reportの偽造は不要。`--no-index` の終了値1だけを差分ありとして扱い、その他の収集失敗は伝播する |
 | 関連8テストファイルは499 pass / 0 fail、32 snapshots、2208 assertions | 実tado CLI・Git・DBを使った隔離ハーネスの結果。旧AI収集は同じ収集関数でfixture化し、検証者の出力もfixtureであり、実Issueでのplan-run全体やAI判断品質の実測ではない |
 
-旧孤児 `mt-plan-run/mt-plan-collect-review-context.ts` はそのまま再利用できない。`markUntrackedIntentToAdd` はindexを変更し（94–102行）、差分取得失敗を空文字に縮退し（74–91行）、出力は旧 `git-branch-diff.txt` / `git-unstaged-diff.txt` / `issue-body.md` で現契約に一致しない（140–148行）。失敗停止・読み取り専用の契約に反するため、再利用ではなく削除予定候補として記録する。今回の編集・削除対象には含めない。
+旧孤児 `plan-run/mt-plan-collect-review-context.ts` はそのまま再利用できない。`markUntrackedIntentToAdd` はindexを変更し（94–102行）、差分取得失敗を空文字に縮退し（74–91行）、出力は旧 `git-branch-diff.txt` / `git-unstaged-diff.txt` / `issue-body.md` で現契約に一致しない（140–148行）。失敗停止・読み取り専用の契約に反するため、再利用ではなく削除予定候補として記録する。今回の編集・削除対象には含めない。
 
 ### 追記: 16MiB超差分の修正後（2026-09-18）
 
@@ -57,7 +57,7 @@ tadoワークフロー（`mt-plan-run` 等）は `buildPrompt` でエージェ�
 
 | 論点 | 推奨案と判断材料 |
 | --- | --- |
-| 横展開順 | まず `mt-deep-research` のread系を候補調査する。既存 `afterInit` の決定論実行が前例であり、収集とAI判断の境界を比較しやすい。次に `mt-plan-create` / `mt-propose-*` のread系を評価し、`gh label`・`mt hunk`・DB保存等の書き込み系は後段の別評価とする。収集専用往復が実際に消せるか、失敗再実行が安全かを確認するまで対象・順序を確定しない |
+| 横展開順 | まず `deep-research` のread系を候補調査する。既存 `afterInit` の決定論実行が前例であり、収集とAI判断の境界を比較しやすい。次に `plan-create` / `mt-propose-*` のread系を評価し、`gh label`・`mt hunk`・DB保存等の書き込み系は後段の別評価とする。収集専用往復が実際に消せるか、失敗再実行が安全かを確認するまで対象・順序を確定しない |
 | 正式API / `StepCtx` | 現状の `beforeStep(StepCtx) → Promise<ArtifactInput[]>` と用途別ヘルパを当面の比較基準にする。別ワークフローで不足が実証された場合に限り、hook拡張・専用interceptorフィールド・`run_command`実実行化を比較する。正式APIの採用や外部tado改修は未承認 |
 | parallel / 権限分離 | 今回は追加しない。必要性を別計画で確認し、同名artifactの競合、失敗の単位（全体/subtask）、再試行時の副作用を具体例で検証してからparallelの適用単位を決める。権限分離は同一Bunでの決定論化と独立した要件として、収集元read・成果物write・ネットワーク/認証の必要範囲を評価する |
 

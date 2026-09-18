@@ -108,9 +108,9 @@ mod tests;
   - 例: `tests/cli.rs` は `assert_cmd` でビルド済みバイナリを起動する CLI 全体の
     ブラックボックステスト。
 
-## difit の機械可読契約（mt-review-diff ワークフロー向け）
+## difit の機械可読契約（review-diff ワークフロー向け）
 
-ワークフロー（`chezmoi/dot_tado/workflows/mt-review-diff`）が読み取り経路として
+ワークフロー（`chezmoi/dot_tado/workflows/review-diff`）が読み取り経路として
 固定名で呼ぶ CLI 契約をここに明記する。実装は `src/difit/threads.rs` と
 `src/difit/check.rs`。
 

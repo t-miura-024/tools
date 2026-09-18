@@ -1,0 +1,17 @@
+export const AXIS_EMOJI: Record<string, string> = {
+  "req-1": "🎯",
+  "req-2": "📋",
+  "logic-1": "🛡️",
+  "logic-2": "🔒",
+  "logic-3": "🧭",
+  "logic-4": "⚡",
+  "ai-1": "👁️",
+  "ai-2": "🔌",
+  "ai-3": "♻️",
+  "ai-4": "🩹",
+  "arch-1": "🧩",
+  "arch-2": "🧱",
+  "arch-3": "🎨",
+  "arch-4": "🏷️",
+  "arch-5": "🔗",
+};
