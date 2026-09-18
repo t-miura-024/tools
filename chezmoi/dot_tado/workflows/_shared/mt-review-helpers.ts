@@ -275,7 +275,29 @@ export interface FindingsJson {
   findings: Finding[];
   counts: { must: number; should: number; want: number };
   filteredOut?: { count: number; items: FilteredOutItem[] };
+  /// レビュー実施範囲の記録（ゼロ結果を「未検出」として透明化するための併記）。
+  /// 判定には使わない（record-only）。欠落しても valid とする。
+  coverage?: ReviewCoverage;
 }
+
+/// findings.json に併記するレビュー実施範囲。
+/// - reviewers: 検証者番号と担当観点 ID（effort.json の width/depth からの機械導出）
+/// - diffFiles: 検証対象差分に含まれるファイル一覧
+/// - diffAddedLines: 検証対象の `+` 行総数
+export interface ReviewCoverage {
+  reviewers: Array<{ index: number; perspectives: string[] }>;
+  diffFiles: string[];
+  diffAddedLines: number;
+}
+
+/// 修正確認ステップ（verify_fix）の報告。
+/// - initial: 初回（前ラウンドなし）のため検証対象なし
+/// - verified: 差分変化と回帰テストの存在を確認済み
+/// - unfixed: 修正なし（差分不変）または回帰テストなし。check が fail にする
+export type VerifyFixJson =
+  | { status: "initial" }
+  | { status: "verified"; diffChanged: true; regressionTests: string[] }
+  | { status: "unfixed"; reason: string };
 
 export interface VerdictJson {
   round: number;
@@ -407,7 +429,121 @@ export function validateFindingsJson(raw: string | undefined): {
     };
   }
 
+  // coverage は record-only（判定に使わない）。存在する場合のみ形状を検証する。
+  if (r.coverage !== undefined) {
+    const coverageError = validateReviewCoverage(r.coverage);
+    if (coverageError) return { valid: false, error: coverageError };
+  }
+
   return { valid: true, parsed: parsed as unknown as FindingsJson };
+}
+
+/// ReviewCoverage の形状検証（純粋関数）。異常時は理由文、正常時は null。
+export function validateReviewCoverage(value: unknown): string | null {
+  if (!isRecord(value)) return "coverage is not an object";
+  if (!Array.isArray(value.reviewers)) return "coverage.reviewers must be array";
+  for (const reviewer of value.reviewers as unknown[]) {
+    if (!isRecord(reviewer)) return "coverage.reviewers[] is not an object";
+    if (
+      typeof reviewer.index !== "number" ||
+      !Number.isInteger(reviewer.index) ||
+      reviewer.index < 1
+    ) {
+      return "coverage.reviewers[].index must be positive integer";
+    }
+    if (!Array.isArray(reviewer.perspectives)) {
+      return "coverage.reviewers[].perspectives must be array";
+    }
+    for (const axis of reviewer.perspectives as unknown[]) {
+      if (typeof axis !== "string" || !axis.trim()) {
+        return "coverage.reviewers[].perspectives[] must be non-empty string";
+      }
+    }
+  }
+  if (!Array.isArray(value.diffFiles)) return "coverage.diffFiles must be array";
+  for (const file of value.diffFiles as unknown[]) {
+    if (typeof file !== "string" || !file.trim()) {
+      return "coverage.diffFiles[] must be non-empty string";
+    }
+  }
+  if (
+    typeof value.diffAddedLines !== "number" ||
+    !Number.isInteger(value.diffAddedLines) ||
+    value.diffAddedLines < 0
+  ) {
+    return "coverage.diffAddedLines must be non-negative integer";
+  }
+  return null;
+}
+
+/// 検証者割り当てと差分 `+` 行 Map から ReviewCoverage を組み立てる（純粋関数）。
+/// normalize_findings が findings.json へ併記する期待内容の正典。
+export function buildReviewCoverage(
+  assignments: ReadonlyArray<ReadonlyArray<{ id: string }>>,
+  changedLinesMap: ReadonlyMap<string, ReadonlySet<number>>,
+): ReviewCoverage {
+  let diffAddedLines = 0;
+  const diffFiles: string[] = [];
+  for (const [filePath, lines] of changedLinesMap) {
+    diffFiles.push(filePath);
+    diffAddedLines += lines.size;
+  }
+  diffFiles.sort();
+  return {
+    reviewers: assignments.map((perspectives, index) => ({
+      index: index + 1,
+      perspectives: perspectives.map((p) => p.id),
+    })),
+    diffFiles,
+    diffAddedLines,
+  };
+}
+
+/// verify-fix.json の機械検証（純粋関数）。
+export function validateVerifyFixJson(raw: string | undefined): {
+  valid: boolean;
+  error?: string;
+  parsed?: VerifyFixJson;
+} {
+  if (!raw) return { valid: false, error: "verify-fix.json not found" };
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return { valid: false, error: "verify-fix.json is not valid JSON" };
+  }
+  if (!isRecord(parsed)) return { valid: false, error: "verify-fix.json is not an object" };
+  if (parsed.status === "initial") {
+    return { valid: true, parsed: { status: "initial" } };
+  }
+  if (parsed.status === "verified") {
+    if (parsed.diffChanged !== true) {
+      return { valid: false, error: "verified requires diffChanged: true" };
+    }
+    if (!Array.isArray(parsed.regressionTests) || parsed.regressionTests.length === 0) {
+      return { valid: false, error: "verified requires non-empty regressionTests" };
+    }
+    for (const test of parsed.regressionTests as unknown[]) {
+      if (typeof test !== "string" || !test.trim()) {
+        return { valid: false, error: "regressionTests[] must be non-empty string" };
+      }
+    }
+    return {
+      valid: true,
+      parsed: {
+        status: "verified",
+        diffChanged: true,
+        regressionTests: parsed.regressionTests as string[],
+      },
+    };
+  }
+  if (parsed.status === "unfixed") {
+    if (typeof parsed.reason !== "string" || !parsed.reason.trim()) {
+      return { valid: false, error: "unfixed requires non-empty reason" };
+    }
+    return { valid: true, parsed: { status: "unfixed", reason: parsed.reason } };
+  }
+  return { valid: false, error: `invalid status: ${String(parsed.status)}` };
 }
 
 export function validateVerdictJson(raw: string | undefined): {

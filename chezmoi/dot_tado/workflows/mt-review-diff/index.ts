@@ -10,6 +10,7 @@ import type {
 import type { HumanGateStepDef, StepDef, TaskStepDef } from "tado/types/workflow-def.ts";
 import { join } from "node:path";
 import fs from "node:fs";
+import { createHash } from "node:crypto";
 import {
   shellQuote,
   WIDTH_TO_COUNT,
@@ -18,6 +19,7 @@ import {
   getReviewerAssignments,
   getReviewerWaves,
   validateFindingsJson,
+  validateVerifyFixJson,
   validateVerdictJson,
   findArtifactText,
   readSessionFile,
@@ -647,9 +649,12 @@ function resolveEffortTarget(ctx: CheckCtx): string | undefined {
 //     先頭 worker（collect_context）が request_changes 入力を effort.json 生成に反映する。
 //   - await_human_review（difit 提示の確認）:
 //     human_review_loop body =
-//     [run_reviewers, normalize_findings, start_difit_review,
+//     [verify_fix, run_reviewers, normalize_findings, start_difit_review,
 //      await_human_review, collect_verdict, judge_human_review]。
-//     先頭 worker（run_reviewers）が request_changes 入力を再レビューに反映する。
+//     差し戻し時は先頭 worker（verify_fix）が修正有無・回帰テスト存在を確認してから、
+//     run_reviewers が白紙・同一テンプレートで再反証する（依頼文による収束の防止）。
+//     先頭 worker（verify_fix）は request_changes 入力を修正確認にのみ使い、
+//     run_reviewers の検証者プロンプトへ重点付け・混入させない。
 // 共通設計:
 //   - loop は maxIterations=3・onExhausted=escalate。
 //   - judge（末尾 task の check）が gateAnswers を読む唯一の分岐点:
@@ -787,13 +792,15 @@ function judgeEffortCheck(ctx: CheckCtx): CheckResult {
 }
 
 /// judge_human_review の check。本体 check が返す判定 `continue` で
-/// human_review_loop 先頭（run_reviewers）へ巻き戻る。
+/// human_review_loop 先頭（verify_fix）へ巻き戻る。verify_fix が前ラウンドからの
+/// 修正有無・回帰テスト存在を確認してから run_reviewers が白紙で再反証する
+/// （依頼文による収束の防止）。初回は verify_fix が initial で通過する。
 /// round は人間 loop の反復に写像しないため前進させない。
 function judgeHumanReviewCheck(ctx: CheckCtx): CheckResult {
   return judgeGateContinuation(readGateDecision(ctx.gateAnswers, "await_human_review"), {
     gateKey: "await_human_review",
     loopKey: HUMAN_REVIEW_LOOP_KEY,
-    headKey: "run_reviewers",
+    headKey: "verify_fix",
     abortHint:
       "difit セッションの後始末が必要な場合は `mt difit done`（冪等・exit 0）を手動実行してください",
   });
@@ -880,8 +887,10 @@ function buildEffortFeedbackLines(ctx: PromptCtx): string[] {
   });
 }
 
-/// run_reviewers（human_review_loop の先頭 worker）の差し戻し行。
+/// run_reviewers の差し戻し行。
 /// await_human_review のみ読み、他ゲート（resolve_effort 等）は読まない（誤注入の防止）。
+/// 修正理由は原文引用・隔離し、検証者プロンプトへの重点付け・混入には使わない
+/// （各ラウンド白紙レビュー。修正確認は verify_fix の責務）。
 function buildHumanFeedbackLines(ctx: PromptCtx): string[] {
   return buildGateFeedbackLines(ctx.gateAnswers, {
     gateKey: "await_human_review",
@@ -1228,7 +1237,7 @@ const def: WorkflowDef = {
     // -------------------------------------------------------------------
     // human_review_loop: 人間レビューの修正ループ（revise 置換）。
     //   maxIterations=3・onExhausted=escalate。judge_human_review の判定 continue で
-    //   本体先頭（run_reviewers）へ巻き戻る。枯渇時は後段の human_exhausted_gate で判断する。
+    //   本体先頭（verify_fix）へ巻き戻る。枯渇時は後段の human_exhausted_gate で判断する。
     // -------------------------------------------------------------------
     {
       key: "human_review_loop",
@@ -1237,6 +1246,100 @@ const def: WorkflowDef = {
       maxIterations: 3,
       onExhausted: "escalate",
       body: [
+        {
+          key: "verify_fix",
+          phase: "修正確認",
+          type: "task",
+          maxRetries: 1,
+          onFail: { action: "escalate" },
+          task: {
+            action: "orchestrate",
+            buildPrompt: (ctx: PromptCtx) => {
+              const historyPath = join(ctx.sessionDir, "review-history.jsonl");
+              const verifyFixPath = join(ctx.sessionDir, "verify-fix.json");
+              return [
+                "## 目的",
+                "",
+                "前ラウンド指摘の修正有無と回帰テストの存在だけを確認する（分離ステップ）。全体の再反証は行わない（run_reviewers の責務）。",
+                "",
+                "## 手順",
+                "",
+                `1. ${historyPath} を読む。レビュー実施行が 0 行（初回）の場合は検証対象がないため ${verifyFixPath} に \`{"status":"initial"}\` と書く。`,
+                "",
+                "2. 1 行以上ある場合（差し戻し後の再入）は、前ラウンドからの修正を確認する:",
+                "   - 最終行の `diffSha` と現在の diff.txt 全文の sha256 hex を比較する。最終行に `diffSha` がない場合は修正有無を判定できないため `unfixed` とする。",
+                '   - 一致した場合は修正が行われていないため、理由（例: 差分が前ラウンドから変化していない）とともに `{"status":"unfixed","reason":"..."}` と書く。',
+                '   - 変化している場合は、今回の修正に対応する回帰テストファイルを特定し、`{"status":"verified","diffChanged":true,"regressionTests":["<リポジトリ相対パス>",...]}` と書く。回帰テストは差分内に含まれるテストファイルに限定する（新規・変更のいずれも可）。該当がなければ `unfixed` とする。',
+                "",
+                "## 制約",
+                "",
+                "- 指摘内容の再反証・新規指摘の探索は行わない（run_reviewers の責務）",
+                "- regressionTests への捏造・推測の記載は禁止。差分内に存在しないファイルを挙げない",
+                "- workflow.db のループ制御に触れない",
+                "",
+                "## 成果物",
+                "",
+                "report 時の `artifacts` に以下を含める:",
+                "```json",
+                `[{"key":"verify-fix.json","path":"${verifyFixPath}"}]`,
+                "```",
+                "",
+                "## セッション情報",
+                "",
+                `- セッションディレクトリ: ${ctx.sessionDir}`,
+              ].join("\n");
+            },
+          },
+          check: (ctx: CheckCtx): CheckResult => {
+            if (ctx.attemptResult.status !== "completed") {
+              return {
+                status: "error",
+                reasons: [ctx.attemptResult.errors ?? "verify_fix failed"],
+              };
+            }
+            const raw =
+              findArtifactText(
+                ctx.artifacts as ArtifactRecord[],
+                "verify-fix.json",
+                ctx.sessionDir,
+              ) ?? readSessionFile(ctx.sessionDir, "verify-fix.json");
+            const result = validateVerifyFixJson(raw);
+            if (!result.valid) {
+              return { status: "error", reasons: [result.error ?? "verify-fix validation failed"] };
+            }
+            if (result.parsed!.status === "initial") {
+              return { status: "pass", reasons: ["初回のため修正確認の対象なし"] };
+            }
+            if (result.parsed!.status === "unfixed") {
+              return { status: "fail", reasons: [`修正未確認: ${result.parsed!.reason}`] };
+            }
+            // verified: 申告された回帰テストが現行 diff.txt のファイル一覧に含まれることを検証する
+            const diffRaw =
+              findArtifactText(ctx.artifacts as ArtifactRecord[], "diff.txt", ctx.sessionDir) ??
+              readSessionFile(ctx.sessionDir, "diff.txt");
+            if (diffRaw === undefined) {
+              return { status: "fail", reasons: ["diff.txt not found"] };
+            }
+            const changedLinesMap = parseDiffChangedLines(diffRaw);
+            const missing = result.parsed!.regressionTests.filter(
+              (test) => !changedLinesMap.has(test),
+            );
+            if (missing.length > 0) {
+              return {
+                status: "fail",
+                reasons: [
+                  `申告された回帰テストが差分内に存在しません: ${missing.join(", ")}。差分内のテストファイルを挙げてください`,
+                ],
+              };
+            }
+            return {
+              status: "pass",
+              reasons: [
+                `修正確認: 差分変化あり・回帰テスト ${result.parsed!.regressionTests.length} 件（${result.parsed!.regressionTests.join(", ")})`,
+              ],
+            };
+          },
+        },
         {
           key: "run_reviewers",
           phase: "検証者起動",
@@ -1328,6 +1431,7 @@ const def: WorkflowDef = {
                 "     - 対象差分 (diff.txt の内容。サイズガードで切り詰めたもの。要約は行わないが truncate は必須)",
                 "     - セッションディレクトリのパス",
                 "     - 上記以外の絞り込み指示の付加は禁止する。特に対象ファイルの限定・過去指摘の蒸し返し禁止・severity の事前指定・「新規のみ」等の narrowed 指示を SubAgent プロンプトに書き足さない。",
+                "     - 各ラウンド同一内容（白紙レビュー）: 検証者プロンプトは effort.json の width/depth から機械的に導出した上記テンプレートのみとし、前ラウンドの findings・修正内容・重点指示・人間の修正理由を混入させない。重点付け・解消確認の指示は厳禁。前回指摘の修正確認は分離ステップ verify_fix の責務であり、検証者は毎回白紙で全文差分を反証する。",
                 "     - 毎ラウンド全文 diff（サイズガード内）を渡す。前回差分のみを抜き出した差分レビューにしない。",
                 '     - **差分限定規律**: 指摘は diff.txt の `+` 行のみ。`filePath` 必須、`position` 必須（`side:"new"` かつ `line` は `+` 行の行番号）。`filePath` なし / `position` なし / `side:"old"` / diff外ファイル / `+` 行でない line は normalize_findings で機械的に除外される。差分外の破壊（例: 呼び出し元が壊れる）は差分内の原因行に紐付けて記述し、差分外ファイルへの直接 `filePath` は禁止。読み取りは自由だが指摘の出力は差分内に制限。',
                 "   - 各 SubAgent は `edit: deny / bash: deny`相当の read-only で動作し、担当外観点の指摘を禁止される。",
@@ -1343,7 +1447,7 @@ const def: WorkflowDef = {
                 "",
                 `4. 集約した生 findings を ${join(ctx.sessionDir, "reviewer-outputs.json")} に保存し、report 時の artifacts に含める。findings.json の正規化・検証は次の normalize_findings が行う。`,
                 "",
-                `5. ラウンド証跡として ${join(ctx.sessionDir, "review-history.jsonl")} に1行追記する（上書き禁止・追記のみ）。形式: {"ts": "<UTC ISO8601>", "width": "<width>", "depth": "<depth>", "reviewers": <検証者数>, "total": <findings件数>, "counts": {"must": n, "should": n, "want": n}, "findings": [<生findings配列全文>]}。total は reviewer-outputs.json の配列長と一致させること。`,
+                `5. ラウンド証跡として ${join(ctx.sessionDir, "review-history.jsonl")} に1行追記する（上書き禁止・追記のみ）。形式: {"ts": "<UTC ISO8601>", "width": "<width>", "depth": "<depth>", "reviewers": <検証者数>, "total": <findings件数>, "counts": {"must": n, "should": n, "want": n}, "diffSha": "<diff.txt 全文の sha256 hex>", "findings": [<生findings配列全文>]}。total は reviewer-outputs.json の配列長と一致させること。diffSha は verify_fix が前ラウンドからの修正有無を判定する基準であり、省略しないこと。`,
                 "",
                 "6. report 時の artifacts に reviewer-outputs.json・review-history.jsonl を含める。report の subagentOutput には reviewer ごとに `reviewer <i> checked: <確認した主対象ファイルの列挙>` の行を必ず含める（i=1..検証者数）。0件の場合も省略しない。",
                 "",
@@ -1410,6 +1514,21 @@ const def: WorkflowDef = {
               reasons.push(
                 `"review-history.jsonl": 最終行 total=${last.total} が reviewer-outputs.json 件数 ${total} と不一致`,
               );
+            }
+            // diffSha の完全性: 最終行に diffSha がある場合は diff.txt の sha256 と照合する
+            // （verify_fix が前ラウンド比較の基準にする。欠落は旧セッション互換のため許容）
+            if (isRecord(last) && typeof last.diffSha === "string") {
+              const diffRawForHash =
+                findArtifactText(ctx.artifacts, "diff.txt", ctx.sessionDir) ??
+                readSessionFile(ctx.sessionDir, "diff.txt");
+              if (diffRawForHash !== undefined) {
+                const actualSha = createHash("sha256").update(diffRawForHash).digest("hex");
+                if (last.diffSha !== actualSha) {
+                  reasons.push(
+                    `"review-history.jsonl": 最終行 diffSha が diff.txt の sha256 と不一致（記録値の改変または差分のすり替えの可能性）`,
+                  );
+                }
+              }
             }
             // カバレッジ宣言: reviewer i checked: (i=1..N)。N は effort.json から導出
             let reviewerCount: number | null = null;
@@ -1491,11 +1610,12 @@ const def: WorkflowDef = {
                 "",
                 `2. 正規化した findings を findings.json (${findingsPath}) として書き出す。スキーマ:`,
                 "```json",
-                '{ "round": 1, "width": "medium", "depth": "medium", "findings": [{"axis":"req-1","severity":"must","detail":"...","filePath":"src/a.ts","position":{"side":"new","line":10}}], "counts":{"must":1,"should":0,"want":0}, "filteredOut":{"count":2,"items":[{"axis":"req-1","filePath":"src/b.ts","line":5,"reason":"line_not_in_added"}]} }',
+                '{ "round": 1, "width": "medium", "depth": "medium", "findings": [{"axis":"req-1","severity":"must","detail":"...","filePath":"src/a.ts","position":{"side":"new","line":10}}], "counts":{"must":1,"should":0,"want":0}, "filteredOut":{"count":2,"items":[{"axis":"req-1","filePath":"src/b.ts","line":5,"reason":"line_not_in_added"}]}, "coverage":{"reviewers":[{"index":1,"perspectives":["req-1"]}],"diffFiles":["src/a.ts"],"diffAddedLines":10} }',
                 "```",
                 "   - round は effort.json の round (なければ 1)",
                 "   - width/depth は effort.json の値を継承",
                 "   - filteredOut は任意。除外があった場合のみ count と items（axis/filePath/line/reason/detail）を記録し、人間へ透明に通知する",
+                "   - coverage は必須（ゼロ結果を「未検出」として透明化するための実施範囲の記録）。effort.json の width/depth から導出した検証者番号と担当観点 ID 一覧（reviewers）、diff.txt の `+++ b/<path>` から列挙した検証対象ファイル一覧（diffFiles、ソート済み）、`+` 行総数（diffAddedLines）を記録する。判定には使わない（record-only）が、省略しないこと。",
                 "",
                 `3. findings.json を difit comment import 形式へ変換し、GFM Markdown のコメント本文を生成する (純粋関数 formatReviewComment / buildDifitComments):`,
                 "   - severity: 🚨 must / ⚠️ should / 💡 want、taxonomy: 🐛 issue (must) / 🙋 question (should/want)",
@@ -1986,7 +2106,7 @@ const def: WorkflowDef = {
         // -------------------------------------------------------------------
         // judge_human_review: human_review_loop 末尾の分岐判定（loop の check）。
         //   gateAnswers["await_human_review"] を読む唯一の分岐点。request_changes →
-        //   判定 continue で human_review_loop 先頭（run_reviewers）へ巻き戻る。
+        //   判定 continue で human_review_loop 先頭（verify_fix）へ巻き戻る。
         //   round は人間 loop の反復に写像しないため前進させない。
         // -------------------------------------------------------------------
         {
@@ -2098,6 +2218,7 @@ function requireStep(key: string, type: "task" | "human_gate"): TaskStepDef | Hu
 
 export const resolveEffortStep: HumanGateStepDef = requireStep("resolve_effort", "human_gate");
 export const collectContextStep: TaskStepDef = requireStep("collect_context", "task");
+export const verifyFixStep: TaskStepDef = requireStep("verify_fix", "task");
 export const runReviewersStep: TaskStepDef = requireStep("run_reviewers", "task");
 export const normalizeFindingsStep: TaskStepDef = requireStep("normalize_findings", "task");
 export const startDifitReviewStep: TaskStepDef = requireStep("start_difit_review", "task");

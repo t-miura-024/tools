@@ -23,6 +23,7 @@ import { pathToFileURL } from "node:url";
 import type { ArtifactRecord } from "tado";
 import {
   auditFindingsNormalization,
+  buildReviewCoverage,
   canonicalizeDifitThreads,
   cleanupDifitSession,
   countDiffLinesByPath,
@@ -68,6 +69,8 @@ import {
   unquoteGitPath,
   validateDifitSelection,
   validateEffort,
+  validateFindingsJson,
+  validateVerifyFixJson,
 } from "./mt-review-helpers.ts";
 import type { DiffNumstatEntry } from "./mt-review-helpers.ts";
 import type { DifitThreadView, FindingsJson } from "./mt-review-helpers.ts";
@@ -2216,5 +2219,126 @@ describe("isolateDifitFeedback (difit 由来文面のフェンス隔離)", () =>
     expect(isolated.startsWith("````markdown\n")).toBe(true);
     expect(isolated.endsWith("\n````")).toBe(true);
     expect(isolated).toContain(feedback);
+  });
+});
+
+describe("findings.json coverage 併記 (record-only)", () => {
+  const base = {
+    round: 1,
+    width: "medium",
+    depth: "medium",
+    findings: [],
+    counts: { must: 0, should: 0, want: 0 },
+  };
+
+  test("coverage なしは valid（旧成果物との後方互換）", () => {
+    const result = validateFindingsJson(JSON.stringify(base));
+    expect(result.valid).toBe(true);
+  });
+
+  test("正しい coverage は valid で parsed に維持される", () => {
+    const coverage = {
+      reviewers: [
+        { index: 1, perspectives: ["req-1", "req-2"] },
+        { index: 2, perspectives: ["logic-2"] },
+      ],
+      diffFiles: ["src/a.ts", "src/b.ts"],
+      diffAddedLines: 42,
+    };
+    const result = validateFindingsJson(JSON.stringify({ ...base, coverage }));
+    expect(result.valid).toBe(true);
+    expect(result.parsed!.coverage).toEqual(coverage);
+  });
+
+  test.each([
+    ["reviewers 非配列", { reviewers: "req-1", diffFiles: [], diffAddedLines: 0 }],
+    [
+      "index 非正整数",
+      { reviewers: [{ index: 0, perspectives: ["req-1"] }], diffFiles: [], diffAddedLines: 0 },
+    ],
+    [
+      "perspectives 非配列",
+      { reviewers: [{ index: 1, perspectives: "req-1" }], diffFiles: [], diffAddedLines: 0 },
+    ],
+    ["diffFiles 非配列", { reviewers: [], diffFiles: "src/a.ts", diffAddedLines: 0 }],
+    ["diffAddedLines 負数", { reviewers: [], diffFiles: [], diffAddedLines: -1 }],
+    ["coverage 非オブジェクト", "coverage-string"],
+  ])("不正な coverage は invalid（%s）", (_label, coverage) => {
+    const result = validateFindingsJson(JSON.stringify({ ...base, coverage }));
+    expect(result.valid).toBe(false);
+  });
+});
+
+describe("buildReviewCoverage (coverage 正典の組み立て)", () => {
+  test("割り当てと差分 Map から reviewers・diffFiles・行数総和を組み立てる", () => {
+    const coverage = buildReviewCoverage(
+      [[{ id: "req-1" }, { id: "req-2" }], [{ id: "logic-2" }]],
+      new Map([
+        ["src/b.ts", new Set([3])],
+        ["src/a.ts", new Set([1, 2])],
+      ]),
+    );
+    expect(coverage).toEqual({
+      reviewers: [
+        { index: 1, perspectives: ["req-1", "req-2"] },
+        { index: 2, perspectives: ["logic-2"] },
+      ],
+      diffFiles: ["src/a.ts", "src/b.ts"],
+      diffAddedLines: 3,
+    });
+  });
+
+  test("空の割り当て・空差分はゼロ値になる", () => {
+    expect(buildReviewCoverage([], new Map())).toEqual({
+      reviewers: [],
+      diffFiles: [],
+      diffAddedLines: 0,
+    });
+  });
+});
+
+describe("validateVerifyFixJson (verify_fix 報告の検証)", () => {
+  test("initial は valid", () => {
+    const result = validateVerifyFixJson(JSON.stringify({ status: "initial" }));
+    expect(result.valid).toBe(true);
+    expect(result.parsed).toEqual({ status: "initial" });
+  });
+
+  test("verified は diffChanged と非空 regressionTests が必要", () => {
+    const result = validateVerifyFixJson(
+      JSON.stringify({
+        status: "verified",
+        diffChanged: true,
+        regressionTests: ["src/a.test.ts"],
+      }),
+    );
+    expect(result.valid).toBe(true);
+  });
+
+  test.each([
+    ["未作成", undefined],
+    ["不正 JSON", "{not-json"],
+    ["status 不正", JSON.stringify({ status: "done" })],
+    [
+      "diffChanged 欠落",
+      JSON.stringify({ status: "verified", regressionTests: ["src/a.test.ts"] }),
+    ],
+    [
+      "regressionTests 空",
+      JSON.stringify({ status: "verified", diffChanged: true, regressionTests: [] }),
+    ],
+    [
+      "regressionTests 非文字列",
+      JSON.stringify({ status: "verified", diffChanged: true, regressionTests: [42] }),
+    ],
+    ["unfixed 理由欠落", JSON.stringify({ status: "unfixed", reason: "  " })],
+  ])("不正な報告は invalid（%s）", (_label, raw) => {
+    expect(validateVerifyFixJson(raw as string | undefined).valid).toBe(false);
+  });
+
+  test("unfixed は非空 reason で valid", () => {
+    const result = validateVerifyFixJson(JSON.stringify({ status: "unfixed", reason: "差分不変" }));
+    expect(result.valid).toBe(true);
+    expect(result.parsed).toEqual({ status: "unfixed", reason: "差分不変" });
   });
 });
