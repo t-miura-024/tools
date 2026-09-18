@@ -1,6 +1,6 @@
 // Managed by chezmoi: tools/chezmoi/dot_config/opencode/lib/herdr-agent-state-bridge.ts
 //
-// herdr 公式プラグイン（../plugins/herdr-agent-state.js、herdr 管理）の V1 形式
+// herdr 公式プラグイン（herdr-agent-state.js、同ディレクトリ・herdr 管理）の V1 形式
 // イベントを、opencode beta（V2）のイベントに翻訳する純粋ロジック。
 // 公式ファイル自体には触らず、このブリッジを横に置く（公式ヘッダの指示通り）。
 // このディレクトリは opencode のプラグイン自動検出対象外のため、
