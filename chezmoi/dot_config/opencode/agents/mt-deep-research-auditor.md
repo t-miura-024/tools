@@ -1,6 +1,7 @@
 ---
 description: "Deep Research のサイクル後（research / writer-reviewer）に呼ばれる総合監査 SubAgent。SQLite スナップショット JSON を受け取り、意味的整合性・網羅性を評価して JSON で監査結果を返す。読み取り専用で、DB への書き込みはオーケストレーターが担当する。"
 mode: "subagent"
+model: "opencode-go/muse-spark-1.3-contributor#high"
 color: "warning"
 permission:
   edit: "deny"
