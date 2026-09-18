@@ -1,6 +1,7 @@
 ---
 description: "セッションの振り返りレビュー。self-fork で引き継いだ会話コンテキストを読み、プロセス評価・改善提案を行う。mt-review-session Skill から呼び出される。"
 mode: "subagent"
+model: "opencode-go/muse-spark-1.3-contributor#high"
 color: "warning"
 permission:
   edit: "deny"

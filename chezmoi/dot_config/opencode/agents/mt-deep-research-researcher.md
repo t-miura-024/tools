@@ -1,6 +1,7 @@
 ---
 description: "Deep Research 用の情報収集 SubAgent。SQLite の questions テーブルから割り当てられた問いを取得し、自律的に検索・取得・抽出を行い、evidence_rounds / sources / facts / off_topic_questions テーブルに一括保存する。"
 mode: "subagent"
+model: "opencode-go/muse-spark-1.3-contributor#high"
 color: "primary"
 ---
 # mt-deep-research-researcher

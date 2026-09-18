@@ -1,6 +1,7 @@
 ---
 description: "Deep Research 用のレビュアー SubAgent。SQLite から questions / evidence / report.md を取得し、5 つの観点（coverage / sources / accuracy / structure / citations）のいずれかを担当してレビューし、reviews / review_findings テーブルに JSON で結果を保存する。"
 mode: "subagent"
+model: "opencode-go/muse-spark-1.3-contributor#high"
 color: "warning"
 permission:
   edit: "deny"

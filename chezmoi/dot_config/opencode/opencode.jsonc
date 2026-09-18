@@ -1,6 +1,14 @@
 {
   "$schema": "https://opencode.ai/config.json",
   "shell": "zsh",
+  "agents": {
+    "explore": {
+      "model": "opencode-go/muse-spark-1.3-contributor#high"
+    },
+    "general": {
+      "model": "opencode-go/muse-spark-1.3-contributor#high"
+    }
+  },
   "agent": {
     "title": {
       "disable": true
