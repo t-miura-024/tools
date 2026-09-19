@@ -6,19 +6,19 @@ status: accepted
 
 ## 背景 (Context)
 
-旧 `mt-plan-run` の `review_work` は difit セッション開始から findings 集約、verdict 判定、`workflow.db` の `resetReviewCycle` によるループ制御までを一体で担っていた。単独で敵対的検証を起動したい場合にもループ制御が巻き込まれ、再利用時に状態破壊が起きる構造であった。Issue の完了条件 2 は「単独起動は修正ループを持たず、plan-run が loop を所有」することを求めている。
+旧 `plan-run` の `review_work` は difit セッション開始から findings 集約、verdict 判定、`workflow.db` の `resetReviewCycle` によるループ制御までを一体で担っていた。単独で敵対的検証を起動したい場合にもループ制御が巻き込まれ、再利用時に状態破壊が起きる構造であった。Issue の完了条件 2 は「単独起動は修正ループを持たず、plan-run が loop を所有」することを求めている。
 
 grill で「検証 Step は difit セッションと findings/verdict にのみ副作用を持ち、workflow.db に触れない」原則が合意された。検証ワークフローは純粋に指摘と判定を生成し、修正の反復は呼び出し元が決定すべきという責務分離が求められた。
 
 ## 決定 (Decision)
 
-検証 Step は difit セッションと findings/verdict アーティファクトにのみ副作用を持ち、workflow.db のループ制御（`resetReviewCycle` 相当）に触れないこととした。`mt-review-diff` は `collect_verdict` で verdict.json を出力して終端し、修正ループは消費者（`mt-plan-run` の `execute_work` 等）が所有する。
+検証 Step は difit セッションと findings/verdict アーティファクトにのみ副作用を持ち、workflow.db のループ制御（`resetReviewCycle` 相当）に触れないこととした。`review-diff` は `collect_verdict` で verdict.json を出力して終端し、修正ループは消費者（`plan-run` の `execute_work` 等）が所有する。
 
-アーティファクト契約: `findings.json`（axis/severity/detail/position）と `verdict.json`（passed/blocked/blocking_threads/round）がワークフロー間の唯一のインターフェースとなる。ラウンド上限 3 の判定は `collect_verdict` で行い、単独起動では fail で終端する。消費者である `mt-plan-run` は、上限到達時のみ human gate `round_limit_gate`（受容して完了 / もう1巡 / 中断）を提示し、それ以外の復旧不能な fail（セッション不在・突合不一致・done 非通過等）は `resetReviewCycle` で execute_work より後を pending に戻し、execute_work からの再実行で次ラウンドに復旧させる。
+アーティファクト契約: `findings.json`（axis/severity/detail/position）と `verdict.json`（passed/blocked/blocking_threads/round）がワークフロー間の唯一のインターフェースとなる。ラウンド上限 3 の判定は `collect_verdict` で行い、単独起動では fail で終端する。消費者である `plan-run` は、上限到達時のみ human gate `round_limit_gate`（受容して完了 / もう1巡 / 中断）を提示し、それ以外の復旧不能な fail（セッション不在・突合不一致・done 非通過等）は `resetReviewCycle` で execute_work より後を pending に戻し、execute_work からの再実行で次ラウンドに復旧させる。
 
 ## 決定の補足: revise フィードバックの追跡（無音化防止）
 
-人間ゲートの revise 入力を executor の修正指示へ確実に引き継ぐため、`mt-plan-run` の `execute_work` は次の契約で理由の欠落・混入を検出する。
+人間ゲートの revise 入力を executor の修正指示へ確実に引き継ぐため、`plan-run` の `execute_work` は次の契約で理由の欠落・混入を検出する。
 
 - workflow.db（`~/.tado/workflow.db`）は全セッション共有のため、revise 理由の読み出しは `gate_events` を `session_id = <セッションディレクトリ basename>` かつ `event = 'confirmed'` で必ず絞る（`step_attempts.result_json` 経由でも `steps.session_id` で絞る）。絞らないと別 Issue の revise 入力が本セッションの修正指示として混入する。
 - オーケストレーターは抽出結果を `revise-feedback.json`（`{"sessionId": "<session_id>", "items": [{"stepKey": "<gate step_key>", "reason": "<input 原文>"}]}`）に保存する。reason は要約・改変しない。対象の step_key は `await_human_review` / `round_stall_gate` / `round_limit_gate`。
@@ -32,7 +32,7 @@ grill で「検証 Step は difit セッションと findings/verdict にのみ�
 
 ## 帰結 (Consequences)
 
-- `mt-review-diff` は再利用時に状態破壊を起こさず、単独起動でも計画内でも同一の検証結果を返す。テストはアーティファクトのスキーマ検証と純粋関数の単体テストで担保できる。
-- 修正ループの所有が `mt-plan-run` に集約され、`execute_work` が verdict の blocking_threads を参照して反復を制御する。責務が明確化される。
+- `review-diff` は再利用時に状態破壊を起こさず、単独起動でも計画内でも同一の検証結果を返す。テストはアーティファクトのスキーマ検証と純粋関数の単体テストで担保できる。
+- 修正ループの所有が `plan-run` に集約され、`execute_work` が verdict の blocking_threads を参照して反復を制御する。責務が明確化される。
 - 検証ワークフロー単体では「指摘して終わり」となるため、利用者は verdict を読んで手動修正するか、plan-run のループに委譲するかを選択する運用になる。
 - workflow.db への副作用が検証側から除去されたことで、並列実行やリトライ時の再現性が向上する。

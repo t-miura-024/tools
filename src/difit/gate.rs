@@ -59,7 +59,7 @@ fn first_line(body: &str) -> &str {
 
 /// ヘッダ行を `·` 区切りのトークン列にする。
 ///
-/// 生成側（mt-review-helpers の formatReviewComment）の契約は
+/// 生成側（review-helpers の formatReviewComment）の契約は
 /// `**🚨 must · 🐛 issue · 🎯 req-1**` の形式で、taxonomy / severity は
 /// 1 行目ヘッダのトークンとしてのみ現れる。`**` 強調と旧形式の
 /// taxonomy プレフィックス（`[issue]` 等）を外し、詳細本文（2 行目以降）は

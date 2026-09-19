@@ -42,7 +42,7 @@ intent-to-add エントリはレビュー終了後もクリーンアップしな
 ADR-0026 は「レビュー対象の untracked ファイルを difit 表示と検証証拠の両方に含める」という目的を再採用するが、実装は旧決定（両層を `git add --intent-to-add` で統一）から変更した。
 
 - **difit 層**: `mt difit start` が difit 公式の `--include-untracked` を全ターゲットの共通フラグとして付与する。untracked の列挙と `git add --intent-to-add` は difit 自身が起動時に行う（target が working / `.` の起動に限る。mt の `--background` 起動ではバックグラウンド子プロセスが実行する）。mt 側の intent-to-add 再実装（`start.rs::mark_untracked_intent_to_add`）は削除された。
-- **証拠層**: mt-review-diff の `collect_context` は `git ls-files --others --exclude-standard` で列挙した untracked を `git diff --no-index /dev/null <file>` で diff.txt へ追記する（index には触れない）。旧「代替案」が難点としたヘッダの変則性・バイナリの自前判定は、`diffContainsUntrackedFile` が `diff --git` / `+++` 行の候補一致で存在だけを判定する方式（バイナリ・空ファイルでも見出し行は出る）で吸収する。target ありの収集では untracked を含めない（範囲の契約は ADR-0026「検証対象 diff.txt の提示範囲と完全性（target あり / なし）」を参照）。
+- **証拠層**: review-diff の `collect_context` は `git ls-files --others --exclude-standard` で列挙した untracked を `git diff --no-index /dev/null <file>` で diff.txt へ追記する（index には触れない）。旧「代替案」が難点としたヘッダの変則性・バイナリの自前判定は、`diffContainsUntrackedFile` が `diff --git` / `+++` 行の候補一致で存在だけを判定する方式（バイナリ・空ファイルでも見出し行は出る）で吸収する。target ありの収集では untracked を含めない（範囲の契約は ADR-0026「検証対象 diff.txt の提示範囲と完全性（target あり / なし）」を参照）。
 
 ### ハング前提の撤回
 

@@ -4,15 +4,15 @@
 
 Considered Options: 利用者側完結（他利用者との重複が残る）、install 継続所有（カスタム余地と更新の衝突）、ファイルレス `tado check`（新規実装が重い）。
 
-## 追記: mt-deep-research 移行済み確認 (2026-09-15)
+## 追記: deep-research 移行済み確認 (2026-09-15)
 
-`chezmoi/dot_tado/workflows/mt-deep-research/index.ts` が Section 型 (`buildStepPrompt`) へ移行済みであることを再確認した。既存コミット済みのため本差分には含まれない。
+`chezmoi/dot_tado/workflows/deep-research/index.ts` が Section 型 (`buildStepPrompt`) へ移行済みであることを再確認した。既存コミット済みのため本差分には含まれない。
 
 検証コマンドと結果 (2026-09-15 実施):
 
-- `grep -c "buildStepPrompt(" chezmoi/dot_tado/workflows/mt-deep-research/index.ts` → `12` (呼び出し12件。`import { buildStepPrompt }` 行は `buildStepPrompt(` を含まないため計数対象外)
-- `grep "^### " chezmoi/dot_tado/workflows/mt-deep-research/index.ts | wc -l` → `0` (手動 `###` 見出しなし。`###` は `Section` の `{title, content}` が depth3 から自動生成する)
-- `grep "## セッション情報" chezmoi/dot_tado/workflows/mt-deep-research/index.ts | wc -l` → `0` (旧 `## セッション情報` は撤去済み。セッション由来値は `input` の `セッションディレクトリ:` 行へ移行)
+- `grep -c "buildStepPrompt(" chezmoi/dot_tado/workflows/deep-research/index.ts` → `12` (呼び出し12件。`import { buildStepPrompt }` 行は `buildStepPrompt(` を含まないため計数対象外)
+- `grep "^### " chezmoi/dot_tado/workflows/deep-research/index.ts | wc -l` → `0` (手動 `###` 見出しなし。`###` は `Section` の `{title, content}` が depth3 から自動生成する)
+- `grep "## セッション情報" chezmoi/dot_tado/workflows/deep-research/index.ts | wc -l` → `0` (旧 `## セッション情報` は撤去済み。セッション由来値は `input` の `セッションディレクトリ:` 行へ移行)
 - 参考: `grep "## 手順" ... | wc -l` → `0`、`grep "## 成果物" ... | wc -l` → `0` (旧見出しは `## 方針` / `## 出力` へ正規化済み)
 
 ## スコープ境界 (2026-09-15)
@@ -20,11 +20,11 @@ Considered Options: 利用者側完結（他利用者との重複が残る）、
 本差分 (未コミット) に含まれるファイルは以下に限る:
 
 - `CONTEXT.md` (tado Section 移行の用語追加)
-- `chezmoi/dot_tado/workflows/mt-plan-create/index.ts`
-- `chezmoi/dot_tado/workflows/mt-plan-run/index.ts`
-- `chezmoi/dot_tado/workflows/mt-plan-update/index.ts` (差し戻し行の軽微修正のみ。`reworkFeedbackSection` の行頭 `##` 除去。`buildStepPrompt` 未使用の raw 文字列 prompt のため Section 化は不可)
-- `chezmoi/dot_tado/workflows/mt-propose-capabilities/index.ts`
-- `chezmoi/dot_tado/workflows/mt-propose-quality/index.ts`
+- `chezmoi/dot_tado/workflows/plan-create/index.ts`
+- `chezmoi/dot_tado/workflows/plan-run/index.ts`
+- `chezmoi/dot_tado/workflows/plan-update/index.ts` (差し戻し行の軽微修正のみ。`reworkFeedbackSection` の行頭 `##` 除去。`buildStepPrompt` 未使用の raw 文字列 prompt のため Section 化は不可)
+- `chezmoi/dot_tado/workflows/propose-capabilities/index.ts`
+- `chezmoi/dot_tado/workflows/propose-quality/index.ts`
 - `chezmoi/dot_tado/tsconfig.json` (新規。`extends: tado/tsconfig.base`)
 - `docs/adr/0028-tado-tsconfig-scaffold.md` (本ファイル。新規)
 - `docs/adr/0029-prompt-migration-render-note.md` (新規。grill ステップのレンダリング記録)

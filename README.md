@@ -100,7 +100,7 @@ cargo install --path .
 
 ### 複数設問化 (width / depth)
 
-- `mt-review-diff:resolve_effort` / `mt-plan-run:resolve_effort` / `mt-plan-create:review_gate` のみ 3設問化: Q1 `width` (single_choice: low/medium/high/xhigh/max) + Q2 `depth` (single_choice: low/medium/high/xhigh/max) + Q3 `decision` (choice_with_input)
+- `review-diff:resolve_effort` / `plan-run:resolve_effort` / `plan-create:review_gate` のみ 3設問化: Q1 `width` (single_choice: low/medium/high/xhigh/max) + Q2 `depth` (single_choice: low/medium/high/xhigh/max) + Q3 `decision` (choice_with_input)
 - `outcomeQuestionKey` は `decision` に統一、`presentArtifacts: ["effort.json"]`
 - その他 gate は単一設問 `decision` の `choice_with_input` 化に留める
 
