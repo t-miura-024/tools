@@ -1,0 +1,6 @@
+{
+  "dependencies": {
+    "@opencode/plugin": "latest",
+    "tado": "github:t-miura-024/tado"
+  }
+}

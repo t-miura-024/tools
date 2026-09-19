@@ -1,6 +1,6 @@
 import { describe, expect, mock, test } from "bun:test";
 
-mock.module("@opencode-ai/plugin", () => ({
+mock.module("@opencode/plugin", () => ({
   Plugin: { define: (plugin: unknown) => plugin },
 }));
 

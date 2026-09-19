@@ -1,44 +1,48 @@
 {
   "$schema": "https://opencode.ai/config.json",
   "shell": "zsh",
-  "agent": {
+  "agents": {
     "title": {
-      "disable": true
+      "disabled": true
+    },
+    "explore": {
+      "model": "opencode-go/muse-spark-1.3-contributor#high"
+    },
+    "general": {
+      "model": "opencode-go/muse-spark-1.3-contributor#high"
     }
   },
-  "permission": {
-    "external_directory": {
-      "*": "allow",
-      "~/Documents/**": "deny",
-      "~/Desktop/**": "deny",
-      "~/Downloads/**": "deny",
-      "~/Pictures/**": "deny",
-      "~/Library/**": "deny",
-      "~/.opencli/**": "deny",
-      "~/.ssh/**": "deny",
-      "~/.zshrc": "deny",
-      "~/.zsh_secrets.age": "deny",
-      "~/.config/gh/**": "deny",
-      "~/.mcp-auth/**": "deny",
-      "~/.copilot/**": "deny",
-      "~/.config/configstore/**": "deny",
-      "~/.local/share/opencode/auth.json": "deny",
-      "~/.local/share/opencode/account.json": "deny",
-      "~/.Trash/**": "deny",
-      "/etc/**": "deny",
-      "/System/**": "deny"
-    }
-  },
-  "provider": {
+  "permissions": [
+    { "action": "external_directory", "resource": "*", "effect": "allow" },
+    { "action": "external_directory", "resource": "~/Documents/**", "effect": "deny" },
+    { "action": "external_directory", "resource": "~/Desktop/**", "effect": "deny" },
+    { "action": "external_directory", "resource": "~/Downloads/**", "effect": "deny" },
+    { "action": "external_directory", "resource": "~/Pictures/**", "effect": "deny" },
+    { "action": "external_directory", "resource": "~/Library/**", "effect": "deny" },
+    { "action": "external_directory", "resource": "~/.opencli/**", "effect": "deny" },
+    { "action": "external_directory", "resource": "~/.ssh/**", "effect": "deny" },
+    { "action": "external_directory", "resource": "~/.zshrc", "effect": "deny" },
+    { "action": "external_directory", "resource": "~/.zsh_secrets.age", "effect": "deny" },
+    { "action": "external_directory", "resource": "~/.config/gh/**", "effect": "deny" },
+    { "action": "external_directory", "resource": "~/.mcp-auth/**", "effect": "deny" },
+    { "action": "external_directory", "resource": "~/.copilot/**", "effect": "deny" },
+    { "action": "external_directory", "resource": "~/.config/configstore/**", "effect": "deny" },
+    { "action": "external_directory", "resource": "~/.local/share/opencode/auth.json", "effect": "deny" },
+    { "action": "external_directory", "resource": "~/.local/share/opencode/account.json", "effect": "deny" },
+    { "action": "external_directory", "resource": "~/.Trash/**", "effect": "deny" },
+    { "action": "external_directory", "resource": "/etc/**", "effect": "deny" },
+    { "action": "external_directory", "resource": "/System/**", "effect": "deny" }
+  ],
+  "providers": {
     "opencode-go": {
       "models": {
         "deepseek-v4-pro": {
-          "options": {
+          "settings": {
             "reasoningEffort": "high"
           }
         },
         "deepseek-v4-flash": {
-          "options": {
+          "settings": {
             "reasoningEffort": "high"
           }
         }

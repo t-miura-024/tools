@@ -11,7 +11,7 @@
 // ロード全体が失敗する。
 import { spawnSync } from "node:child_process";
 import * as path from "node:path";
-import { Plugin } from "@opencode-ai/plugin";
+import { Plugin } from "@opencode/plugin";
 
 type HookDefinition = {
   command: string;
