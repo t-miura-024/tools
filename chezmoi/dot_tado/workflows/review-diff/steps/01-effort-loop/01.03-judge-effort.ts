@@ -3,7 +3,8 @@ import type { TaskStepDef } from "tado/types/workflow-def.ts";
 import { readGateDecision } from "../../helper/read-gate-decision.ts";
 import { judgeGateContinuation } from "../../helper/judge-gate-continuation.ts";
 import { EFFORT_LOOP_KEY } from "../../helper/effort-loop-key.ts";
-export const judgeEffortStep: TaskStepDef = // -------------------------------------------------------------------
+export const judgeEffortStep: TaskStepDef =
+  // -------------------------------------------------------------------
   // judge-effort: effort-loop 末尾の分岐判定（loop の check）。
   //   gateAnswers["resolve-effort"] を読む唯一の分岐点。request_changes →
   //   判定 continue で effort-loop 先頭（resolve-effort）へ巻き戻る。

@@ -4,7 +4,8 @@ import { readGateDecision } from "../helper/read-gate-decision.ts";
 import { FINDINGS_KEY } from "../../shared/review-helpers/findings-key";
 import { DIFIT_START_KEY } from "../../shared/review-helpers/difit-start-key";
 import { DIFIT_COMMENTS_KEY } from "../../shared/review-helpers/difit-comments-key";
-export const humanExhaustedGateStep: HumanGateStepDef = // -------------------------------------------------------------------
+export const humanExhaustedGateStep: HumanGateStepDef =
+  // -------------------------------------------------------------------
   // human-exhausted-gate: human-review-loop 枯渇時の人間判断（loop 外）。
   //   isHumanReworkRequested が request_changes のときだけ提示する
   //   （枯渇時のみ。常時提示しない）。loop 外のため選択肢は approve/abort のみ。
