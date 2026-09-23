@@ -28,10 +28,31 @@ export const agentVerdictStep: TaskStepDef = {
         ],
         criteria: [],
         approach: [
-          "1. セッションディレクトリの findings.json を読み、counts.must / counts.should と round を確認する",
-          `2. round < ${REVIEW_ROUND_LIMIT} で must>0 なら自律ループを継続し、apply-feedback へ戻る。`,
-          `3. round が上限 ${REVIEW_ROUND_LIMIT} に達したら、残 must / should / want を既存 difit 登録経路で提示し、追加確認なしで await-human-review へ渡す。`,
-          "4. must==0 の場合も difit 登録後に人間レビューへ進む。",
+          {
+            title: "1. findings.json の読み込み",
+            content: [
+              "セッションディレクトリの findings.json を読み、counts.must / counts.should と round を確認する",
+              "",
+            ],
+          },
+          {
+            title: "2. 自律ループの継続判定",
+            content: [
+              `round < ${REVIEW_ROUND_LIMIT} で must>0 なら自律ループを継続し、apply-feedback へ戻る。`,
+              "",
+            ],
+          },
+          {
+            title: "3. 上限到達時の引き継ぎ",
+            content: [
+              `round が上限 ${REVIEW_ROUND_LIMIT} に達したら、残 must / should / want を既存 difit 登録経路で提示し、追加確認なしで await-human-review へ渡す。`,
+              "",
+            ],
+          },
+          {
+            title: "4. must 解消時の移行",
+            content: ["must==0 の場合も difit 登録後に人間レビューへ進む。"],
+          },
         ],
         output: [],
         input: [`セッションディレクトリ: ${ctx.sessionDir}`],
