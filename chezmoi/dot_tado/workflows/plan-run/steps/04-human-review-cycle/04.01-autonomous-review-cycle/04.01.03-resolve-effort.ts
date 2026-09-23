@@ -27,10 +27,30 @@ export const resolveEffortPlanStep: TaskStepDef = {
         purpose: ["Issue body の effort コメントから検証強度を解決する。人手選択は行わない。"],
         criteria: [],
         approach: [
-          "1. セッションディレクトリの issue-body.md（または artifacts の issue-body.md）を読み、末尾の `<!-- effort: width=... depth=... -->` を確認する",
-          "2. コメントがあればその width/depth を報告する。なければ width=medium depth=medium を適用する旨を報告する",
-          "3. プロンプト記法 `width=... depth=...` による上書きは無視する",
-          "4. effort.json の生成は行わない（生成は run-reviewers.beforeStep が担う）。check は純粋判定のみ",
+          {
+            title: "1. issue-body.md の読み込みと effort コメント確認",
+            content: [
+              "セッションディレクトリの issue-body.md（または artifacts の issue-body.md）を読み、末尾の `<!-- effort: width=... depth=... -->` を確認する",
+              "",
+            ],
+          },
+          {
+            title: "2. width/depth の報告",
+            content: [
+              "コメントがあればその width/depth を報告する。なければ width=medium depth=medium を適用する旨を報告する",
+              "",
+            ],
+          },
+          {
+            title: "3. プロンプト記法の扱い",
+            content: ["プロンプト記法 `width=... depth=...` による上書きは無視する", ""],
+          },
+          {
+            title: "4. effort.json 生成範囲の明確化",
+            content: [
+              "effort.json の生成は行わない（生成は run-reviewers.beforeStep が担う）。check は純粋判定のみ",
+            ],
+          },
         ],
         output: [],
         input: [`セッションディレクトリ: ${ctx.sessionDir}`],
