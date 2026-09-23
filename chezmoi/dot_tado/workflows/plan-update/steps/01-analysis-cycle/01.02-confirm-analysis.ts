@@ -12,7 +12,7 @@ export const confirmAnalysisStep: HumanGateStepDef = {
   maxRetries: 1,
   onFail: { action: "abort" },
   humanGate: {
-    presentArtifacts: ["grill-map.md", "analysis.md", "evidence.json"],
+    presentArtifacts: ["analysis.md", "evidence.json"],
     outcomeQuestionKey: "decision",
     questions: [
       {
@@ -39,16 +39,13 @@ export const confirmAnalysisStep: HumanGateStepDef = {
   },
   check: (ctx: CheckCtx): CheckResult => {
     try {
-      const grillMap =
-        readSessionFile(ctx.sessionDir, "grill-map.md") ??
-        findArtifactText(ctx.artifacts, "grill-map.md", ctx.sessionDir);
       const analysis =
         readSessionFile(ctx.sessionDir, "analysis.md") ??
         findArtifactText(ctx.artifacts, "analysis.md", ctx.sessionDir);
       const evidence =
         readSessionFile(ctx.sessionDir, "evidence.json") ??
         findArtifactText(ctx.artifacts, "evidence.json", ctx.sessionDir);
-      if (!grillMap || !analysis || !evidence)
+      if (!analysis || !evidence)
         return {
           status: "fail",
           reasons: ["confirm-analysis: required artifacts missing"],

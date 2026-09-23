@@ -26,9 +26,9 @@ const def: WorkflowDef = {
         `mt-plan config not found: ${error instanceof Error ? error.message : String(error)}. Run 'mt-plan init' first.`,
       );
     }
-    const grillSkill = join(os.homedir(), ".cursor", "skills", "mt-grill-rounds", "SKILL.md");
+    const grillSkill = join(os.homedir(), ".cursor", "skills", "mt-grill", "SKILL.md");
     if (!fs.existsSync(grillSkill)) {
-      throw new Error(`mt-grill-rounds SKILL.md not found: ${grillSkill}`);
+      throw new Error(`mt-grill SKILL.md not found: ${grillSkill}`);
     }
   },
 

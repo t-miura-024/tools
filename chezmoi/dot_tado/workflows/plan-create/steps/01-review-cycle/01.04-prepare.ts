@@ -4,7 +4,6 @@ import { buildStepPrompt } from "../../../shared/prompt/build-step-prompt";
 import { requireStepArtifacts } from "../../../shared/artifact-check/require-step-artifacts";
 import { readRepoInfo } from "../../helper/read-repo-info.ts";
 
-const GRILL_MAP_KEY = "grill-map.md";
 const PREPARE_DECISION_KEY = "prepare-decision.json";
 
 // -----------------------------------------------------------------
@@ -52,7 +51,7 @@ export const prepareStep: TaskStepDef = {
           {
             title: "3. 分解要否の判定",
             content: [
-              `Grill Phase で確定した内容（ライブ地図 \`${GRILL_MAP_KEY}\`）を確認し、以下を判定する:`,
+              `Grill Phase で確定した内容（\`issue-body.md\`）を確認し、以下を判定する:`,
               "",
               '- 計画が複数の機能・領域を含み、単一 Issue では独立した完了条件と進捗を管理できない場合 → `mode: "decompose"`',
               '- それ以外 → `mode: "update"`',

@@ -45,7 +45,7 @@ export const updateIssueStep: TaskStepDef = {
         "",
         "### 1. 入力の読み込み",
         "",
-        "セッションディレクトリの `issue-body.md` と `grill-map.md`、`body-diff.md`, `evidence.json` を読み込む。",
+        "セッションディレクトリの `issue-body.md`、`body-diff.md`, `evidence.json` を読み込む。",
         "",
         "### 2. 楽観的ロック（logic-2:321 — codeでも検証）",
         "",
