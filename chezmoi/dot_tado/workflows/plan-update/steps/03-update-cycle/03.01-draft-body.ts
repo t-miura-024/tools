@@ -6,7 +6,7 @@ import { findArtifactText, readSessionFile } from "tado/artifacts";
 import { reworkFeedbackSection } from "../../helper/rework-feedback-section.ts";
 
 // -----------------------------------------------------------------
-// Step 2: 本文マッピング（grill-map → plan-format）
+// Step 2: 本文マッピング（grill合意 → plan-format）
 // -----------------------------------------------------------------
 export const draftBodyStep: TaskStepDef = {
   key: "draft-body",
@@ -36,7 +36,7 @@ export const draftBodyStep: TaskStepDef = {
         "",
         "### 1. 入力の読み込み",
         "",
-        "セッションディレクトリの `grill-map.md`（ライブ地図）と `analysis.md` を読み込む。",
+        "セッションディレクトリの `analysis.md` を読み込む。",
         "`gh issue view <number> --json body,state,labels --jq .` で既存Issueの現行本文と状態も取得する（差分生成とガードのため）。",
         "",
         "### 2. 最終本文の確定",
@@ -86,34 +86,6 @@ export const draftBodyStep: TaskStepDef = {
         readSessionFile(ctx.sessionDir, "body-diff.md") ??
         findArtifactText(ctx.artifacts, "body-diff.md", ctx.sessionDir);
       if (!diff) return { status: "fail", reasons: ["body-diff.md not found"] };
-      // 反映検証: 正規化後の全文照合・欠落許容0件（Blocker全件必須を含む。prefix照合や割合閾値は禁止）
-      const grillMap =
-        readSessionFile(ctx.sessionDir, "grill-map.md") ??
-        findArtifactText(ctx.artifacts, "grill-map.md", ctx.sessionDir);
-      if (grillMap) {
-        const grillLines = grillMap.match(/\[確定\].*/g) ?? [];
-        const normalizeDecision = (s: string): string =>
-          s
-            .normalize("NFKC")
-            .replace("[確定]", "")
-            .replace(/^\s*(?:#{1,6}\s+|[-*・]\s+|\d+[.)]\s+|>\s*)+/, "")
-            .trim()
-            .replace(/\s+/g, " ");
-        const normalizedBody = body.normalize("NFKC").replace(/\s+/g, " ");
-        const missing = grillLines
-          .map((line) => normalizeDecision(line))
-          .filter((text) => text.length > 0)
-          .filter((text) => !normalizedBody.includes(text));
-        if (missing.length > 0) {
-          const blockerMissing = missing.filter((text) => /blocker/i.test(text));
-          return {
-            status: "fail",
-            reasons: [
-              `issue-body.md: grillMapの確定事項に未反映あり（${missing.length}件）${blockerMissing.length > 0 ? `［Blocker未反映 ${blockerMissing.length}件を含む］` : ""}: ${missing.slice(0, 5).join(" / ")}${missing.length > 5 ? " ..." : ""}`,
-            ],
-          };
-        }
-      }
       return { status: "pass", reasons: ["draft-body artifacts verified"] };
     } catch (e) {
       return { status: "fail", reasons: [e instanceof Error ? e.message : String(e)] };

@@ -6,4 +6,4 @@ disable-model-invocation: true
 
 # mt-grill-with-docs
 
-[../mt-grill-rounds/SKILL.md](../mt-grill-rounds/SKILL.md) に従ってヒアリングを行い、[../mt-domain-modeling/SKILL.md](../mt-domain-modeling/SKILL.md) を使ってドメインモデルを維持する。
+[../mt-grill/SKILL.md](../mt-grill/SKILL.md) に従ってヒアリングを行い、[../mt-domain-modeling/SKILL.md](../mt-domain-modeling/SKILL.md) を使ってドメインモデルを維持する。

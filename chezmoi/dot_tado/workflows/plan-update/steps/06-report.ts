@@ -27,7 +27,7 @@ export const reportStep: TaskStepDef = {
         "",
         "### 1. レポート生成",
         "",
-        "セッションディレクトリの `grill-map.md`, `analysis.md`, `evidence.json`, `body-diff.md`, `issue-number.txt` をもとに、`report.md` を生成する。",
+        "セッションディレクトリの `analysis.md`, `evidence.json`, `body-diff.md`, `issue-number.txt` をもとに、`report.md` を生成する。",
         "",
         "レポートは以下の必須見出しを持つこと:",
         "- `## 走査サマリ`",

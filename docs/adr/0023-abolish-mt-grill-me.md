@@ -4,6 +4,8 @@ status: accepted
 
 # mt-grill-me の廃止
 
+> **Note:** 文中の `mt-grill-rounds` は `mt-grill` に改名された。以下は改名時の歴史的記録として残す。
+
 `mt-grill-me`（一問一答の手動専用ヒアリング、`disable-model-invocation: true`）を廃止し、汎用ヒアリングは `mt-grill-rounds` に一本化する。
 
 ## Context

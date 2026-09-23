@@ -6,7 +6,6 @@ import { requireStepArtifacts } from "../../../shared/artifact-check/require-ste
 import { requireChildReviewIfChildrenExist } from "../../helper/require-child-review-if-children-exist.ts";
 import { isTMiura024 } from "../../helper/is-tmiura024.ts";
 
-const GRILL_MAP_KEY = "grill-map.md";
 const ISSUE_BODY_KEY = "issue-body.md";
 const REVIEW_BODY_KEY = "review-body.md";
 const planFormatPath = join(import.meta.dir, "..", "..", "..", "shared", "plan-plan-format.md");
@@ -49,8 +48,8 @@ export const reviewBodyStep: TaskStepDef = {
 
       return buildStepPrompt({
         purpose: [
-          "draft-body で確定した Issue body を 6 観点で自己レビューし、指摘を重み付けして review-body.md に記録する。",
-          "SubAgent は使わず、このステップのエージェント自身がレビューする。起草者自身のレビューのため盲点が残り得るが、grill-map 確定事項との突合という機械的照合を中心とし、残存リスクは後段の review-gate で人間が must/should の有無を見て approve/request_changes を選ぶことで回収する。review-gate では人間が判断材料の件数だけでなく review-body.md 全文と grill-map 確定事項に対する body の反映差分を直接確認してから approve/request_changes を選ぶこと。body の修正は行わず、指摘の記録に専念する。must/should が残る場合は review-gate で人間が request_changes を選び grill に戻って再生成する（approve は must/should がゼロの場合のみ）。記録専用であるため軽微な指摘でも request_changes→grill→draft→review の全再生成という往復コストが発生するが、SubAgent 新設なし・差分最小の方針のため許容する。",
+          "draft-body で確定した Issue body を 5 観点で自己レビューし、指摘を重み付けして review-body.md に記録する。",
+          "SubAgent は使わず、このステップのエージェント自身がレビューする。起草者自身のレビューのため盲点が残り得るが、残存リスクは後段の review-gate で人間が must/should の有無を見て approve/request_changes を選ぶことで回収する。review-gate では人間が判断材料の件数だけでなく review-body.md 全文を直接確認してから approve/request_changes を選ぶこと。body の修正は行わず、指摘の記録に専念する。must/should が残る場合は review-gate で人間が request_changes を選び grill に戻って再生成する（approve は must/should がゼロの場合のみ）。記録専用であるため軽微な指摘でも request_changes→grill→draft→review の全再生成という往復コストが発生するが、SubAgent 新設なし・差分最小の方針のため許容する。",
         ],
         criteria: [
           "`review-body.md` に `## レビュー結果` / `## 指摘一覧` が記録され、各指摘が must/should/want に重み付けされている（指摘0件時は `指摘なし` 明記）",
@@ -60,19 +59,19 @@ export const reviewBodyStep: TaskStepDef = {
           {
             title: "1. 入力の読み込み",
             content: [
-              `セッションディレクトリの \`${GRILL_MAP_KEY}\`（ライブ地図）と \`${ISSUE_BODY_KEY}\`（親 body）を読み込む。`,
+              `セッションディレクトリの \`${ISSUE_BODY_KEY}\`（親 body）を読み込む。`,
               "分解モード（子 body `issue-body-<n>.md` が存在する場合）は `ls issue-body-*.md` で全件検出してすべて読み込み、全件を必須レビュー対象とする。子への指摘は `対象` 欄に `issue-body-<n>.md` を明記する。通常モード（子 body が存在しない場合）のレビュー対象は親 body のみとする。",
               `判定基準として plan-format.md（${planFormatPath}）を参照する。`,
             ],
           },
           {
-            title: "2. 6観点レビュー",
-            content: ["以下の 6 観点で本文をレビューする:"],
+            title: "2. 5観点レビュー",
+            content: ["以下の 5 観点で本文をレビューする:"],
           },
           {
             title: "A: 追加すり合わせ候補",
             content: [
-              "Grill で聞き漏らした曖昧さ・未決事項がないか洗い出す。背景・完了条件・方針の各記述が検証可能な粒度になっているか確認する。",
+              "Grill で聞き漏らした曖昧さ・未決事項がないか洗い出す。背景・完了条件・方針の各記述が検証可能な粒度になっているか確認する。from-Issue フローの場合は既存 Issue 内容の取り込み漏れも確認する。",
             ],
           },
           {
@@ -83,20 +82,13 @@ export const reviewBodyStep: TaskStepDef = {
           },
           ...perspectiveC,
           {
-            title: "D: grill-map反映完全性",
-            content: [
-              `ライブ地図（\`${GRILL_MAP_KEY}\`）の \`[確定]\` 事項が body に過不足なく反映されているか確認する。`,
-              "from-Issue フローの場合は既存 Issue 内容の取り込み漏れも確認する。",
-            ],
-          },
-          {
-            title: "E: plan-format準拠性",
+            title: "D: plan-format準拠性",
             content: [
               "必須セクションの有無、ミッション定義（スコープ重複なし・完了条件カバー）、effort コメントの形式（`<!-- effort: width=... depth=... -->`）、Issue title と body の役割分担（body に `# 計画タイトル` を含めない）を確認する。",
             ],
           },
           {
-            title: "F: 実行可能性・検証可能性",
+            title: "E: 実行可能性・検証可能性",
             content: [
               "完了条件が Yes/No で判定可能な状態として書かれているか確認する。分解する場合は各ミッションが縦に貫く tracer bullet になっており、Wave 配置が依存順になっているか確認する。",
             ],
@@ -106,7 +98,7 @@ export const reviewBodyStep: TaskStepDef = {
             content: [
               "各指摘を create 用の判定基準で must/should/want に重み付けする（ラベル定義は plan-run と一致）:",
               "",
-              "- 🚨 must: 完了条件の充足を阻害する欠陥。ニーズ充足の漏れ、実行不能を招く決定間矛盾、必須セクション・effort コメントの欠落、grill-map 確定事項の反映漏れなど。review-gate の decision で人間が対応可否を判断する（must が残る場合は request_changes を選び grill に戻る。approve は選択不可）。",
+              "- 🚨 must: 完了条件の充足を阻害する欠陥。ニーズ充足の漏れ、実行不能を招く決定間矛盾、必須セクション・effort コメントの欠落など。review-gate の decision で人間が対応可否を判断する（must が残る場合は request_changes を選び grill に戻る。approve は選択不可）。",
               "- ⚠️ should: 実行は可能だが品質・明確性を著しく損なう問題。完了条件の検証可能性が低い表現、スコープ境界の曖昧さ、ミッション分割の不備の疑いなど。review-gate の decision で人間が対応可否を判断する（should が残る場合も request_changes 推奨。approve は人間が対応不要と判断した場合のみ）。",
               "- 💡 want: 対応任意の改善提案・軽微な追加すり合わせ候補。review-gate をブロックしない（approve 可）。",
             ],
@@ -138,7 +130,6 @@ export const reviewBodyStep: TaskStepDef = {
     // 前提成果物の存在も要求する（欠落時の捏造レビューを fail に倒す）。
     // 分解モードの子レビューは子ファイル実在ベースで要求する（子未レビューのまま refined 化させない）。
     const result = requireStepArtifacts(ctx, [
-      { key: GRILL_MAP_KEY, form: "markdown" },
       { key: ISSUE_BODY_KEY, form: "markdown" },
       {
         key: REVIEW_BODY_KEY,

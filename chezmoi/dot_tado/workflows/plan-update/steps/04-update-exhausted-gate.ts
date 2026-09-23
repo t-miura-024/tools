@@ -20,7 +20,7 @@ export const updateExhaustedGateStep: HumanGateStepDef = {
   // StepDef 型を満たすための no-op。現行 engine は human_gate の check を実行しない。
   check: (_ctx: CheckCtx): CheckResult => ({ status: "pass", reasons: [] }),
   humanGate: {
-    presentArtifacts: ["issue-body.md", "body-diff.md", "grill-map.md"],
+    presentArtifacts: ["issue-body.md", "body-diff.md"],
     outcomeQuestionKey: "decision",
     questions: [
       {

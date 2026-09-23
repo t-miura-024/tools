@@ -4,8 +4,9 @@ import { buildStepPrompt } from "../../../shared/prompt/build-step-prompt";
 import { join } from "node:path";
 import { requireStepArtifacts } from "../../../shared/artifact-check/require-step-artifacts";
 import { isTMiura024 } from "../../helper/is-tmiura024.ts";
+import { gateDecisionValue } from "../../helper/gate-decision-value.ts";
+import { gateDecisionInput } from "../../helper/gate-decision-input.ts";
 
-const GRILL_MAP_KEY = "grill-map.md";
 const ISSUE_BODY_KEY = "issue-body.md";
 const EFFORT_PATTERN =
   /<!--\s*effort:\s*width=(low|medium|high|xhigh|max)\s+depth=(low|medium|high|xhigh|max)\s*-->/;
@@ -39,7 +40,7 @@ export const draftBodyStep: TaskStepDef = {
           {
             title: "1. ヒアリング結果の読み込み",
             content: [
-              `セッションディレクトリの \`${GRILL_MAP_KEY}\`（ライブ地図）を読み込む。`,
+              "初回は白紙から生成する。2周目以降は前回 `issue-body.md`（分解時は `issue-body-<n>.md` 全件）と `前回の差し戻し` の差戻し文を読み、差分だけ直す。",
               "from-Issue フローの場合は既存 Issue の内容も合わせて参照する。",
             ],
           },
@@ -48,7 +49,7 @@ export const draftBodyStep: TaskStepDef = {
                 {
                   title: "2. ドキュメントの整形・埋め込み",
                   content: [
-                    `Grill Phase で \`${GRILL_MAP_KEY}\` の \`## 確定用語\` / \`## ADR 案\` セクションに記録された確定用語・ADR 案は確定済みとして扱う。要否の再判断はしない。`,
+                    `Grill Phase で確定した用語・ADR 案は確定済みとして扱う。要否の再判断はしない。`,
                     "",
                     "以下を行い、plan-format.md の `## 📄 ドキュメント` セクションに埋め込む:",
                     `- CONTEXT は ${join(mtDomainModelingDir, "CONTEXT-FORMAT.md")} に従い本文を整形する`,
@@ -93,7 +94,25 @@ export const draftBodyStep: TaskStepDef = {
           `{"key": "${ISSUE_BODY_KEY}", "path": "${join(ctx.sessionDir, ISSUE_BODY_KEY)}"}`,
           "```",
         ],
-        input: [`セッションディレクトリ: ${ctx.sessionDir}`],
+        input: [
+          {
+            title: "前回の差し戻し",
+            content: (() => {
+              const gateKey = "review-gate";
+              const value = gateDecisionValue(ctx.gateAnswers, gateKey);
+              const input = gateDecisionInput(ctx.gateAnswers, gateKey);
+              if (value === "request_changes" && input !== undefined && input.trim() !== "") {
+                return [
+                  `前回の差し戻し (gate:${gateKey}。loop 再実行時はこの指摘を反映する):`,
+                  `- ${gateKey}: ${input.trim()}`,
+                  "",
+                ];
+              }
+              return [`前回の差し戻し (gate:${gateKey}):`, "- (なし。初回実行)", ""];
+            })(),
+          },
+          `セッションディレクトリ: ${ctx.sessionDir}`,
+        ],
       });
     },
   },

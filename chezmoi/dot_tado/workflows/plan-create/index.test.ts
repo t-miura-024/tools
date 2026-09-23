@@ -106,7 +106,6 @@ describe("plan-create workflow structure", () => {
   }
 
   function reviewBodyCtx(): CheckCtx {
-    const grillMap = writeSessionFile("grill-map.md", "# ライブ地図\n\n- [確定] 項目\n");
     const issueBody = writeSessionFile(
       "issue-body.md",
       "## ✅ 完了条件\n\n- 条件\n\n## 🧭 方針\n\n方針\n",
@@ -117,7 +116,6 @@ describe("plan-create workflow structure", () => {
     );
     return makeCtx({
       artifacts: [
-        artifactRecord("grill-map.md", grillMap),
         artifactRecord("issue-body.md", issueBody),
         artifactRecord("review-body.md", reviewBody),
       ],
@@ -167,7 +165,7 @@ describe("plan-create workflow structure", () => {
     expect(abort?.desc ?? "").toContain("Issue を作成せず");
   });
 
-  it("review-body の buildPrompt は 6 観点と must/should/want 重み付けを指示する", () => {
+  it("review-body の buildPrompt は 5 観点と must/should/want 重み付けを指示する", () => {
     const repoInfoPath = path.join(sessionDir, "repo-info.json");
     fs.writeFileSync(
       repoInfoPath,
@@ -177,7 +175,7 @@ describe("plan-create workflow structure", () => {
     const prompt = step.task.buildPrompt(
       makePromptCtx({ artifacts: [artifactRecord("repo-info.json", repoInfoPath)] }),
     );
-    for (const perspective of ["A:", "B:", "C:", "D:", "E:", "F:"]) {
+    for (const perspective of ["A:", "B:", "C:", "D:", "E:"]) {
       expect(prompt).toContain(perspective);
     }
     expect(prompt).toContain("🚨 must");
@@ -198,7 +196,7 @@ describe("plan-create workflow structure", () => {
     expect(result.status).toBe("fail");
   });
 
-  it("review-body の check は前提ファイル（grill-map.md / issue-body.md）欠落で fail", () => {
+  it("review-body の check は前提ファイル（issue-body.md）欠落で fail", () => {
     const reviewBody = writeSessionFile(
       "review-body.md",
       "## レビュー結果\n\n概要\n\n## 指摘一覧\n\n指摘なし\n",
@@ -207,7 +205,7 @@ describe("plan-create workflow structure", () => {
       makeCtx({ artifacts: [artifactRecord("review-body.md", reviewBody)] }),
     );
     expect(result.status).toBe("fail");
-    expect(result.reasons.join("\n")).toContain("grill-map.md");
+    expect(result.reasons.join("\n")).toContain("issue-body.md");
   });
 
   it("review-body の buildPrompt は自己レビューの限界と must 残存時の request_changes 経路を明示する", () => {
@@ -432,7 +430,7 @@ describe("plan-create workflow structure", () => {
     expect(result.reasons.join("\n")).toContain("子レビュー");
   });
 
-  it("review-body の buildPrompt は review-gate での全文・差分の直接確認を指示する", () => {
+  it("review-body の buildPrompt は review-gate での全文の直接確認を指示する", () => {
     const repoInfoPath = path.join(sessionDir, "repo-info.json");
     fs.writeFileSync(
       repoInfoPath,
@@ -443,7 +441,7 @@ describe("plan-create workflow structure", () => {
       makePromptCtx({ artifacts: [artifactRecord("repo-info.json", repoInfoPath)] }),
     );
     expect(prompt).toContain("review-body.md 全文");
-    expect(prompt).toContain("grill-map");
+    expect(prompt).not.toContain("grill-map");
   });
 
   it("create-refined の buildPrompt は effort 検証の grep に対象ファイルを指定する", () => {

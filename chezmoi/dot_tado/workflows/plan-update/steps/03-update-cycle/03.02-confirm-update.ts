@@ -12,7 +12,7 @@ export const confirmUpdateStep: HumanGateStepDef = {
   maxRetries: 1,
   onFail: { action: "abort" },
   humanGate: {
-    presentArtifacts: ["issue-body.md", "body-diff.md", "grill-map.md"],
+    presentArtifacts: ["issue-body.md", "body-diff.md"],
     outcomeQuestionKey: "decision",
     questions: [
       {
@@ -45,10 +45,7 @@ export const confirmUpdateStep: HumanGateStepDef = {
       const diff =
         readSessionFile(ctx.sessionDir, "body-diff.md") ??
         findArtifactText(ctx.artifacts, "body-diff.md", ctx.sessionDir);
-      const grillMap =
-        readSessionFile(ctx.sessionDir, "grill-map.md") ??
-        findArtifactText(ctx.artifacts, "grill-map.md", ctx.sessionDir);
-      if (!body || !diff || !grillMap)
+      if (!body || !diff)
         return { status: "fail", reasons: ["confirm-update: required artifacts missing"] };
       return { status: "pass", reasons: [] };
     } catch (e) {
