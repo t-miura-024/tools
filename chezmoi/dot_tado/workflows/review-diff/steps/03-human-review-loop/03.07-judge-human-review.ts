@@ -3,7 +3,8 @@ import type { TaskStepDef } from "tado/types/workflow-def.ts";
 import { readGateDecision } from "../../helper/read-gate-decision.ts";
 import { judgeGateContinuation } from "../../helper/judge-gate-continuation.ts";
 import { HUMAN_REVIEW_LOOP_KEY } from "../../helper/human-review-loop-key.ts";
-export const judgeHumanReviewStep: TaskStepDef = // -------------------------------------------------------------------
+export const judgeHumanReviewStep: TaskStepDef =
+  // -------------------------------------------------------------------
   // judge-human-review: human-review-loop 末尾の分岐判定（loop の check）。
   //   gateAnswers["await-human-review"] を読む唯一の分岐点。request_changes →
   //   判定 continue で human-review-loop 先頭（verify-fix）へ巻き戻る。
