@@ -20,11 +20,11 @@ export function createSnapshotSessionDir(prefix = "prompt-snap-"): string {
 }
 
 export function normalizePrompt(prompt: string, sessionDir: string): string {
+  const repoRoot = path.resolve(import.meta.dir, "../../../../..");
   let out = prompt.replaceAll(sessionDir, "<SESSION>");
-  out = out.replaceAll("/Users/mt/src/tools-wt-1", "<REPO>");
+  out = out.replaceAll(repoRoot, "<REPO>");
   const home = os.homedir();
   if (home) out = out.replaceAll(home, "<HOME>");
-  out = out.replaceAll("<HOME>/src/tools-wt-1", "<REPO>");
   out = out.replaceAll("/test/research.db", "<RESEARCH_DB>");
   return out;
 }
