@@ -641,7 +641,9 @@ describe("plan-create workflow structure", () => {
     };
     for (const key of ["grill", "draft-body", "review-body"]) {
       expect(buildPrompt(key, "t-miura-024")).toContain("mt-domain-modeling");
+      expect(buildPrompt(key, "t-miura-024")).toContain("GHERKIN-FORMAT");
       expect(buildPrompt(key, "someone")).not.toContain("mt-domain-modeling");
+      expect(buildPrompt(key, "someone")).not.toContain("GHERKIN-FORMAT");
     }
   });
 

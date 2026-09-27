@@ -36,8 +36,9 @@ export const grillStep: TaskStepDef = {
                 "",
                 `加えて mt-domain-modeling スキル（${join(mtDomainModelingDir, "SKILL.md")}）を参照し、その規律をすべて適用する。`,
                 "",
-                "確定した用語・ADR 案は次段 draft-body で `## 📄 ドキュメント` に埋め込む前提で確定させること。",
-                `フォーマットは ${join(mtDomainModelingDir, "CONTEXT-FORMAT.md")} / ${join(mtDomainModelingDir, "ADR-FORMAT.md")} に従う。`,
+                "確定した用語・ADR 案・Gherkin シナリオ案は次段 draft-body で `## 📄 ドキュメント` に埋め込む前提で確定させること（このフェーズでは repo へ書き込まない）。",
+                "Gherkin シナリオは既存の `.feature` とステップ定義を読んだうえで確定し、draft-body がファイル全文を再構成できる状態にする。",
+                `フォーマットは ${join(mtDomainModelingDir, "CONTEXT-FORMAT.md")} / ${join(mtDomainModelingDir, "ADR-FORMAT.md")} / ${join(mtDomainModelingDir, "GHERKIN-FORMAT.md")} に従う。`,
               ],
             },
           ]
@@ -90,7 +91,7 @@ export const grillStep: TaskStepDef = {
         ],
         policy: withDocs
           ? [
-              "repo へのファイル書き込み（CONTEXT.md の更新、ADR ファイルの作成）は禁止する。確定した用語・ADR 案の issue-body への反映は次段 draft-body で行う。",
+              "repo へのファイル書き込み（CONTEXT.md の更新、ADR ファイルの作成、features/ への .feature の作成）は禁止する。確定した用語・ADR 案・Gherkin シナリオ案の issue-body への反映は次段 draft-body で行う。",
             ]
           : [],
         input: [

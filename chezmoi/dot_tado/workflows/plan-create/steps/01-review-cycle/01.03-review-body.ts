@@ -9,6 +9,7 @@ import { isTMiura024 } from "../../helper/is-tmiura024.ts";
 const ISSUE_BODY_KEY = "issue-body.md";
 const REVIEW_BODY_KEY = "review-body.md";
 const planFormatPath = join(import.meta.dir, "..", "..", "..", "shared", "plan-plan-format.md");
+const mtDomainModelingDir = join(import.meta.dir, "..", "..", "..", "mt-domain-modeling");
 
 // -----------------------------------------------------------------
 // Step 3: 本文レビュー
@@ -33,7 +34,8 @@ export const reviewBodyStep: TaskStepDef = {
               title: "C: 思想・ポリシー違反＋ADR記載明記",
               content: [
                 "プロジェクト思想・ポリシー（mt-domain-modeling の規律）への違反がないか確認する。",
-                "確定した用語・ADR 案が plan-format.md の `## 📄 ドキュメント` セクションに `### <リポジトリ相対パス>` + コードフェンス全文の形式で明記されているか確認する。",
+                "確定した用語・ADR 案・Gherkin シナリオ案が plan-format.md の `## 📄 ドキュメント` セクションに `### <リポジトリ相対パス>` + コードフェンス全文の形式で明記されているか確認する。",
+                `Gherkin シナリオは ${join(mtDomainModelingDir, "GHERKIN-FORMAT.md")} の形式に従っているか確認する。`,
               ],
             },
           ]

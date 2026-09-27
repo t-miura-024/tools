@@ -49,11 +49,12 @@ export const draftBodyStep: TaskStepDef = {
                 {
                   title: "2. ドキュメントの整形・埋め込み",
                   content: [
-                    `Grill Phase で確定した用語・ADR 案は確定済みとして扱う。要否の再判断はしない。`,
+                    `Grill Phase で確定した用語・ADR 案・Gherkin シナリオ案は確定済みとして扱う。要否の再判断はしない。`,
                     "",
                     "以下を行い、plan-format.md の `## 📄 ドキュメント` セクションに埋め込む:",
                     `- CONTEXT は ${join(mtDomainModelingDir, "CONTEXT-FORMAT.md")} に従い本文を整形する`,
                     `- ADR は ${join(mtDomainModelingDir, "ADR-FORMAT.md")} に従い本文を整形する`,
+                    `- Gherkin シナリオは ${join(mtDomainModelingDir, "GHERKIN-FORMAT.md")} に従い、既存シナリオを含む \`features/<name>.feature\` のファイル全文を整形する`,
                     "- ADR 連番は対象 repo の `docs/adr/` を確認して次番号を確定する",
                     "- セクション形式: `### <リポジトリ相対パス>` + コードフェンス全文",
                   ],
