@@ -196,3 +196,35 @@
       comment: "387字・接続詞3種相違・短文混在・禁句回避・二十四時間漢字表記で違和感なしと判断した。"
   total: 9.8
   notes: "基本・Confusion・敬語・結束性は完璧、直訳のみだけでなくに軽微な癖"
+- run_at: "2026-10-09T07:44:19+09:00"
+  model: "opencode-go/step-5-preview-free"
+  variant: "unknown"
+  temperature: "unknown"
+  tasks_version: "v1"
+  scores:
+    q01:
+      aspect: "基本理解"
+      score: 10
+      comment: "要約48字で範囲内、主張・根拠2点とも正確。違和感なしと判断した。"
+    q02:
+      aspect: "基本生成"
+      score: 10
+      comment: "187字で範囲内、ですます統一で2種の日常例えも適切。説明の飛躍なく違和感なし。"
+    q03:
+      aspect: "Language Confusion耐性"
+      score: 10
+      comment: "英語混入0でイシュー表記徹底。3ステップ各1文・ですます適合で違和感なし。"
+    q04:
+      aspect: "直訳調・干渉回避"
+      score: 9
+      comment: "訳文3行のみ・英語残存なしだが「増加をけん引」の語感がやや硬く-1。"
+    q05:
+      aspect: "敬語・文体"
+      score: 9
+      comment: "156字で範囲内、二重敬語・させていただく・である混在なし。「残業を割く」の語合わせに軽微な癖があり-1。"
+    q06:
+      aspect: "長文結束性"
+      score: 9
+      comment: "437字・接続詞3種相違・禁句回避は良好だが「24」の半角数字残存2箇所で-1。"
+  total: 9.5
+  notes: "基本・生成・Confusionは完璧、直訳・敬語・結束性に軽微な癖各1"
