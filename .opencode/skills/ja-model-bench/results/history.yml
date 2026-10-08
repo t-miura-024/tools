@@ -164,3 +164,35 @@
       comment: "398字・接続詞連打なし・禁句なしは達成だが「節奏」の不自然さと短文のメリハリ不足で-3。"
   total: 8.7
   notes: "理解・Confusionは良好、生成は誤記と例え不足、直訳・敬語は軽微、結束性は節奏と文長変化不足"
+- run_at: "2026-10-08T21:46:10+09:00"
+  model: "opencode/fledge-alpha-free"
+  variant: "unknown"
+  temperature: "unknown"
+  tasks_version: "v1"
+  scores:
+    q01:
+      aspect: "基本理解"
+      score: 10
+      comment: "要約44字で範囲内、主張・根拠2点とも正確。違和感なしと判断した。"
+    q02:
+      aspect: "基本生成"
+      score: 10
+      comment: "193字で範囲内、ですます統一で3種の日常例えも適切。説明の飛躍なく違和感なし。"
+    q03:
+      aspect: "Language Confusion耐性"
+      score: 10
+      comment: "英語混入0でイシュー表記徹底。3行各1文・ですます適合で違和感なし。"
+    q04:
+      aspect: "直訳調・干渉回避"
+      score: 9
+      comment: "無生物主語・ship→リリース回避は良好だが「長いだけでなく」が構文カルク気味で-1。"
+    q05:
+      aspect: "敬語・文体"
+      score: 10
+      comment: "159字で範囲内、二重敬語・させていただく・である混在なし。尊謙の使い分けも正確で違和感なし。"
+    q06:
+      aspect: "長文結束性"
+      score: 10
+      comment: "387字・接続詞3種相違・短文混在・禁句回避・二十四時間漢字表記で違和感なしと判断した。"
+  total: 9.8
+  notes: "基本・Confusion・敬語・結束性は完璧、直訳のみだけでなくに軽微な癖"
