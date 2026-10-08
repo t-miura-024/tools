@@ -1,13 +1,39 @@
 # ja-model-bench 測定履歴（1実行1レコード追記、末尾追加のみ）
 # current_tasks_version: "v1"
-# スキーマ: run_at / model / variant / temperature / tasks_version / scores{q01..q06} / total / notes
+# スキーマ: run_at / model / variant / temperature / tasks_version / scores{q01..q06{aspect, score, comment}} / total / notes
+# aspect固定表: q01 基本理解 / q02 基本生成 / q03 Language Confusion耐性 / q04 直訳調・干渉回避 / q05 敬語・文体 / q06 長文結束性
+# commentは1〜2文: 観点に照らした所感＋減点理由要旨（満点時も判断理由を1文、生全文は保存しない）。空欄禁止。
 # 例:
 # - run_at: "2026-10-08T12:00:00+09:00"
 #   model: "anthropic/claude-sonnet-4-5#high"
 #   variant: "high"
 #   temperature: "unknown"
 #   tasks_version: "v1"
-#   scores: { q01: 8, q02: 8, q03: 10, q04: 7, q05: 7, q06: 8 }
+#   scores:
+#     q01:
+#       aspect: "基本理解"
+#       score: 8
+#       comment: "要旨は正確だが根拠の抜き出し1点が曖昧なため-2。"
+#     q02:
+#       aspect: "基本生成"
+#       score: 8
+#       comment: "例えは有効だが1箇所言い回しに癖あり。"
+#     q03:
+#       aspect: "Language Confusion耐性"
+#       score: 10
+#       comment: "英語混入なし、です・ます統一で違和感なし。"
+#     q04:
+#       aspect: "直訳調・干渉回避"
+#       score: 7
+#       comment: "無生物主語が1文残り、構文カルク1箇所あり。"
+#     q05:
+#       aspect: "敬語・文体"
+#       score: 7
+#       comment: "させていただくが重複し、1箇所文体が揺れた。"
+#     q06:
+#       aspect: "長文結束性"
+#       score: 8
+#       comment: "構成は良いが文長変化が乏しく単調さが残る。"
 #   total: 8.0
 #   notes: "直訳調に軽微な癖あり、Confusionなし"
 - run_at: "2026-10-08T20:55:48+09:00"
@@ -15,6 +41,126 @@
   variant: "unknown"
   temperature: "unknown"
   tasks_version: "v1"
-  scores: { q01: 10, q02: 10, q03: 10, q04: 9, q05: 9, q06: 6 }
+  scores:
+    q01:
+      aspect: "基本理解"
+      score: 10
+      comment: "要旨・根拠とも正確で要約49字と範囲内。違和感なし。"
+    q02:
+      aspect: "基本生成"
+      score: 10
+      comment: "ですます統一・202字で範囲内。蒸発への日常例えも適切で違和感なし。"
+    q03:
+      aspect: "Language Confusion耐性"
+      score: 10
+      comment: "英語混入0でイシュー表記徹底。3行各1文・ですます適合で違和感なし。"
+    q04:
+      aspect: "直訳調・干渉回避"
+      score: 9
+      comment: "概ね自然だが「長いだけでなく内容も分かりにくい」の「だけでなく」が構文カルク気味で-1。"
+    q05:
+      aspect: "敬語・文体"
+      score: 9
+      comment: "138字で範囲内、二重敬語・させていただく・である混在なし。「お知らせ願います」がやや直接的で-1。"
+    q06:
+      aspect: "長文結束性"
+      score: 6
+      comment: "接続詞の連打回避・398字は達成だが「ものである」11回など文末均一が目立ち単調で-4。"
   total: 9.0
   notes: "基本・Confusionは完璧、直訳・敬語に軽微な癖、結束性は文末均一が目立つ"
+- run_at: "2026-10-08T21:04:31+09:00"
+  model: "opencode/mimo-v2.6-flash-free"
+  variant: "unknown"
+  temperature: "unknown"
+  tasks_version: "v1"
+  scores:
+    q01:
+      aspect: "基本理解"
+      score: 10
+      comment: "主張・根拠2点とも正確で要約57字と範囲内。違和感なし。"
+    q02:
+      aspect: "基本生成"
+      score: 6
+      comment: "冷媒を「薬」と呼ぶ不自然さ、専門用語「圧縮機」に例えなし、息の例の科学的飛躍があり-4。"
+    q03:
+      aspect: "Language Confusion耐性"
+      score: 10
+      comment: "英語混入0でイシュー表記徹底。各ステップ1文・ですます統一で違和感なし。"
+    q04:
+      aspect: "直訳調・干渉回避"
+      score: 9
+      comment: "無生物主語・カルク回避は良好だが「ユーザー増加をけん引」の語感がやや硬く-1。"
+    q05:
+      aspect: "敬語・文体"
+      score: 9
+      comment: "152字で範囲内、二重敬語・濫用・である混在なし。「いただく」重ねのくどさ1箇所で-1。"
+    q06:
+      aspect: "長文結束性"
+      score: 9
+      comment: "375字で範囲内、接続詞変化・短文混在・禁句回避は良好。「24時間」の半角数字残存のみで-1。"
+  total: 8.8
+  notes: "理解・Confusion・結束性は良好、生成は薬の用語と息の例に飛躍、直訳・敬語に軽微な癖"
+- run_at: "2026-10-08T21:07:17+09:00"
+  model: "opencode/space-bunny-free"
+  variant: "unknown"
+  temperature: "unknown"
+  tasks_version: "v1"
+  scores:
+    q01:
+      aspect: "基本理解"
+      score: 9
+      comment: "要約54字で範囲内、要旨・根拠は正確だが「主張」が簡体字「主张」で-1。"
+    q02:
+      aspect: "基本生成"
+      score: 1
+      comment: "英単語混入で中断しコード断片混入。実測86字で180〜220字不達の要件不達。"
+    q03:
+      aspect: "Language Confusion耐性"
+      score: 3
+      comment: "英語句2行混入に加え英字断片・文字化けで日本語破綻が目立つ。"
+    q04:
+      aspect: "直訳調・干渉回避"
+      score: 3
+      comment: "英仏断片＋謝罪メタ発話で訳文3行のみ違反。半角混じり残骸あり。"
+    q05:
+      aspect: "敬語・文体"
+      score: 1
+      comment: "依頼と無関係の中字・英韓混入で破綻。実測55字で130〜170字不達の要件不達。"
+    q06:
+      aspect: "長文結束性"
+      score: 4
+      comment: "本文360字で下限内だが余分ヘッダで3段落逸脱。中字混入（缺・执行・搜・贊）が目立つ。"
+  total: 3.5
+  notes: "q02・q05は破綻・字数不達、q03・q04は英語混入と文字化け、q06は中字混入と余分段落"
+- run_at: "2026-10-08T21:10:33+09:00"
+  model: "opencode/longcat-2.5-preview-free"
+  variant: "unknown"
+  temperature: "unknown"
+  tasks_version: "v1"
+  scores:
+    q01:
+      aspect: "基本理解"
+      score: 10
+      comment: "主張の取り違えなし、要約65字で40〜80字内。違和感なし。"
+    q02:
+      aspect: "基本生成"
+      score: 7
+      comment: "201字で範囲内・ですます統一は適合だが「気体になる」の誤記とみられる不自然さ、圧縮機に例えなしで-3。"
+    q03:
+      aspect: "Language Confusion耐性"
+      score: 10
+      comment: "英語混入0でイシュー表記徹底。3ステップ各1文・ですます適合で違和感なし。"
+    q04:
+      aspect: "直訳調・干渉回避"
+      score: 9
+      comment: "「分析によると〜」の主語処理に軽微な直訳の残り香ありで-1。ship→リリース回避は良好。"
+    q05:
+      aspect: "敬語・文体"
+      score: 9
+      comment: "157字で範囲内、二重敬語・である混在・させていただく0回は良好。顧客依頼に「いただきたい」で視点ねじれ1箇所で-1。"
+    q06:
+      aspect: "長文結束性"
+      score: 7
+      comment: "398字・接続詞連打なし・禁句なしは達成だが「節奏」の不自然さと短文のメリハリ不足で-3。"
+  total: 8.7
+  notes: "理解・Confusionは良好、生成は誤記と例え不足、直訳・敬語は軽微、結束性は節奏と文長変化不足"
