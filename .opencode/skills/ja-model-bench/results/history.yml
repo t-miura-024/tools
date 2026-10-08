@@ -1,0 +1,13 @@
+# ja-model-bench 測定履歴（1実行1レコード追記、末尾追加のみ）
+# current_tasks_version: "v1"
+# スキーマ: run_at / model / variant / temperature / tasks_version / scores{q01..q06} / total / notes
+# 例:
+# - run_at: "2026-10-08T12:00:00+09:00"
+#   model: "anthropic/claude-sonnet-4-5#high"
+#   variant: "high"
+#   temperature: "unknown"
+#   tasks_version: "v1"
+#   scores: { q01: 8, q02: 8, q03: 10, q04: 7, q05: 7, q06: 8 }
+#   total: 8.0
+#   notes: "直訳調に軽微な癖あり、Confusionなし"
+[]
