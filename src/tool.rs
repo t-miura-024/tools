@@ -2,6 +2,7 @@ use clap::Subcommand;
 
 mod brew;
 mod bun;
+mod cask;
 mod install;
 mod mise;
 pub(crate) mod shared;

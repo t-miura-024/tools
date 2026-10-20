@@ -1,5 +1,6 @@
 use std::collections::BTreeSet;
 use std::fs;
+use std::io::IsTerminal;
 use std::path::Path;
 
 use anyhow::Context;
@@ -7,6 +8,7 @@ use dialoguer::Confirm;
 use regex::Regex;
 
 use crate::cli::style;
+use crate::tool::cask::broken_brewfile_casks;
 use crate::tool::shared::{
     BunGlobalPackage, Manifests, ToolCommandSpec, command_output_spec, ensure_command,
     ensure_mise_trusted, mise_exec_prefix, parse_bun_pm_ls_output, read_bun_global_packages,
@@ -24,6 +26,7 @@ pub(super) fn install() -> anyhow::Result<()> {
     let bun_packages = read_bun_global_packages(&manifests.bun_global)?;
 
     ensure_brew_taps_trusted(&manifests.brewfile, &manifests.root)?;
+    repair_broken_casks(&manifests)?;
     run_tool_command(
         &brew_bundle_install_command(&manifests.brewfile),
         &manifests.root,
@@ -47,6 +50,37 @@ pub(super) fn install() -> anyhow::Result<()> {
 
     style::outro("✅ ツールのインストールが完了しました");
     Ok(())
+}
+
+/// Brewfile の cask のうち実体が欠けているものを再インストールする。
+///
+/// `brew bundle install` は Caskroom のメタデータだけを見て「インストール済み」と
+/// 判定するため、アプリ本体が Homebrew を経由せずに消えると何もしない。
+fn repair_broken_casks(manifests: &Manifests) -> anyhow::Result<()> {
+    style::info("Brewfile の cask の実体を確認します");
+    let broken = broken_brewfile_casks(&manifests.brewfile)?;
+
+    if broken.is_empty() {
+        style::success("実体が欠けている cask はありません");
+        return Ok(());
+    }
+
+    for cask in &broken {
+        style::warn(&format!(
+            "{} の実体が欠けています: {}",
+            cask.spec,
+            cask.dangling_display()
+        ));
+    }
+
+    let specs: Vec<String> = broken.into_iter().map(|cask| cask.spec).collect();
+    run_tool_command(&brew_reinstall_casks_command(&specs), &manifests.root)
+}
+
+fn brew_reinstall_casks_command(casks: &[String]) -> ToolCommandSpec {
+    let mut args = vec!["reinstall".to_string(), "--cask".to_string()];
+    args.extend(casks.iter().cloned());
+    ToolCommandSpec::new("brew", args)
 }
 
 fn cleanup_after_install(
@@ -88,18 +122,30 @@ fn run_cleanup_preview(
         anyhow::bail!("{label} の削除候補確認に失敗しました");
     }
 
-    let cleanup = Confirm::new()
-        .with_prompt(format!("{label} の削除候補があります。削除しますか？"))
-        .default(false)
-        .interact()?;
-
-    if cleanup {
-        run_tool_command(force_command, current_dir)?;
-    } else {
-        style::info(&format!("{label} の削除はスキップしました"));
+    match confirm_cleanup(&format!("{label} の削除候補があります。削除しますか？"))?
+    {
+        Some(true) => run_tool_command(force_command, current_dir)?,
+        Some(false) => style::info(&format!("{label} の削除はスキップしました")),
+        None => style::info(&format!(
+            "{label} の削除はスキップしました（非対話環境のため確認できません）"
+        )),
     }
 
     Ok(())
+}
+
+/// 削除確認を行う。非 TTY（ログへのリダイレクト等）では確認できないため `None` を返す。
+fn confirm_cleanup(prompt: &str) -> anyhow::Result<Option<bool>> {
+    if !std::io::stdin().is_terminal() || !std::io::stdout().is_terminal() {
+        return Ok(None);
+    }
+
+    Ok(Some(
+        Confirm::new()
+            .with_prompt(prompt)
+            .default(false)
+            .interact()?,
+    ))
 }
 
 fn cleanup_bun_globals(
@@ -124,22 +170,21 @@ fn cleanup_bun_globals(
         style::info(&format!("削除候補: bun global {}", package));
     }
 
-    let cleanup = Confirm::new()
-        .with_prompt("bun global の削除候補があります。削除しますか？")
-        .default(false)
-        .interact()?;
-
-    if cleanup {
-        run_tool_command(
-            &bun_global_uninstall_command(&manifests.manifest_dir, &removable),
-            &manifests.root,
-        )?;
-        run_tool_command(
-            &mise_reshim_command(&manifests.manifest_dir),
-            &manifests.root,
-        )?;
-    } else {
-        style::info("bun global の削除はスキップしました");
+    match confirm_cleanup("bun global の削除候補があります。削除しますか？")? {
+        Some(true) => {
+            run_tool_command(
+                &bun_global_uninstall_command(&manifests.manifest_dir, &removable),
+                &manifests.root,
+            )?;
+            run_tool_command(
+                &mise_reshim_command(&manifests.manifest_dir),
+                &manifests.root,
+            )?;
+        }
+        Some(false) => style::info("bun global の削除はスキップしました"),
+        None => {
+            style::info("bun global の削除はスキップしました（非対話環境のため確認できません）")
+        }
     }
 
     Ok(())

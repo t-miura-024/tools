@@ -228,3 +228,67 @@
       comment: "437字・接続詞3種相違・禁句回避は良好だが「24」の半角数字残存2箇所で-1。"
   total: 9.5
   notes: "基本・生成・Confusionは完璧、直訳・敬語・結束性に軽微な癖各1"
+- run_at: "2026-10-15T15:37:31+09:00"
+  model: "opencode-go/cat-jam-free"
+  variant: "unknown"
+  temperature: "unknown"
+  tasks_version: "v1"
+  scores:
+    q01:
+      aspect: "基本理解"
+      score: 10
+      comment: "要約40字で範囲内、主張・根拠2点とも正確。違和感なしと判断した。"
+    q02:
+      aspect: "基本生成"
+      score: 9
+      comment: "181字で範囲内、ですます統一・汗の例えも適切だが最終文の主語が曖昧で-1。"
+    q03:
+      aspect: "Language Confusion耐性"
+      score: 7
+      comment: "英語混入0でイシュー表記徹底は良好だが3ステップが常体止めでですます不適合のため-3。"
+    q04:
+      aspect: "直訳調・干渉回避"
+      score: 7
+      comment: "訳文3行のみは適合だが分析によればの残り香と牽引の硬さ、だけでなくカルクで-3。"
+    q05:
+      aspect: "敬語・文体"
+      score: 10
+      comment: "136字で範囲内、二重敬語・させていただく・である混在なし。尊謙の使い分けも正確で違和感なし。"
+    q06:
+      aspect: "長文結束性"
+      score: 4
+      comment: "368字・接続詞3種相違は達成だがである1文のみの常体止めと24の半角残存で-6。"
+  total: 7.8
+  notes: "理解・敬語は完璧、生成は軽微、Confusionは文体不備、直訳に癖、結束性はである不履行が致命的"
+- run_at: "2026-10-15T15:41:14+09:00"
+  model: "opencode-go/deepseek-v4.1-flash"
+  variant: "unknown"
+  temperature: "unknown"
+  tasks_version: "v1"
+  scores:
+    q01:
+      aspect: "基本理解"
+      score: 10
+      comment: "要約44字で範囲内、主張・根拠2点とも正確。違和感なしと判断した。"
+    q02:
+      aspect: "基本生成"
+      score: 10
+      comment: "215字で範囲内、ですます統一でうちわの例えも適切。説明の飛躍なく違和感なし。"
+    q03:
+      aspect: "Language Confusion耐性"
+      score: 9
+      comment: "英語混入0でイシュー表記徹底だが導入文1行が余分で3行構成を逸脱したため-1。"
+    q04:
+      aspect: "直訳調・干渉回避"
+      score: 9
+      comment: "訳文3行のみ・リリース化は良好だが1行目の分析で示されたに受動態の残り香があり-1。"
+    q05:
+      aspect: "敬語・文体"
+      score: 10
+      comment: "147字で範囲内、二重敬語・させていただく・である混在なし。尊謙の使い分けも正確で違和感なし。"
+    q06:
+      aspect: "長文結束性"
+      score: 10
+      comment: "391字・接続詞3種相違・短長混在・禁句回避・二十四時間表記で違和感なしと判断した。"
+  total: 9.7
+  notes: "基本・生成・敬語・結束性は完璧、Confusionは導入文余分、直訳に軽微な残り香のみ"

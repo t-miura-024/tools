@@ -33,3 +33,7 @@ run = "bunx oxfmt --check chezmoi/**/*.ts"
 [tasks.ts-fmt]
 description = "TS format を oxfmt で実行"
 run = "bunx oxfmt chezmoi/**/*.ts"
+
+[tasks.bench-history]
+description = "ja-model-bench 履歴をブラウザで表示 (Bun.serve + auto open、タブを閉じると終了)"
+run = "bun .opencode/skills/ja-model-bench/tools/serve.ts"

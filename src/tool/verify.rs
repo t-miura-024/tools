@@ -1,6 +1,7 @@
 use std::path::Path;
 
 use crate::cli::style;
+use crate::tool::cask::broken_brewfile_casks;
 use crate::tool::shared::{
     BunGlobalPackage, Manifests, ToolCommandSpec, command_output_spec, ensure_command,
     ensure_mise_trusted, mise_exec_prefix, parse_bun_pm_ls_output, read_bun_global_packages,
@@ -24,6 +25,7 @@ pub fn verify() -> anyhow::Result<()> {
         &brew_bundle_check_command(&manifests.brewfile),
         &manifests.root,
     )?;
+    verify_cask_artifacts(&manifests)?;
     run_tool_command(
         &mise_verify_command(&manifests.manifest_dir),
         &manifests.root,
@@ -49,6 +51,28 @@ fn brew_bundle_check_command(brewfile: &Path) -> ToolCommandSpec {
         ],
     )
     .with_env("HOMEBREW_NO_AUTO_UPDATE", "1")
+}
+
+/// Brewfile の cask の実体が揃っているかを検証する。
+///
+/// `brew bundle check` は Caskroom のメタデータしか見ないため、アプリ本体が
+/// Homebrew を経由せずに削除された drift をここで検出する。
+fn verify_cask_artifacts(manifests: &Manifests) -> anyhow::Result<()> {
+    let broken = broken_brewfile_casks(&manifests.brewfile)?;
+
+    if broken.is_empty() {
+        style::success("Brewfile の cask はすべて実体が揃っています");
+        return Ok(());
+    }
+
+    let details: Vec<String> = broken
+        .iter()
+        .map(|cask| format!("{} ({})", cask.spec, cask.dangling_display()))
+        .collect();
+    anyhow::bail!(
+        "実体が欠けている cask があります: {}。`mt tool install` で再インストールしてください",
+        details.join(", ")
+    )
 }
 
 fn mise_verify_command(manifest_dir: &Path) -> ToolCommandSpec {
