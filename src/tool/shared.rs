@@ -252,7 +252,7 @@ pub(super) fn run_tool_command_status(
         .with_context(|| format!("{} の実行に失敗しました", command.program))
 }
 
-fn command_output(command: &str, args: &[&str]) -> anyhow::Result<String> {
+pub(super) fn command_output(command: &str, args: &[&str]) -> anyhow::Result<String> {
     let output = Command::new(command)
         .args(args)
         .output()

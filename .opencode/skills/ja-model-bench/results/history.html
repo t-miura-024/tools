@@ -1,0 +1,405 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>ja-model-bench 履歴</title>
+<script src="https://cdn.jsdelivr.net/npm/js-yaml@4.1.0/dist/js-yaml.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.8/dist/chart.umd.min.js"></script>
+<style>
+:root { --bg:#0b0e14; --card:#151821; --card-2:#1b1f2a; --border:#232730; --border-2:#2d3340; --text:#e6e8eb; --muted:#8b92a3; --accent:#60a5fa; --accent-2:#3b82f6; }
+*{box-sizing:border-box}
+body{font-family: ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,"Noto Sans JP",sans-serif; margin:0; background:var(--bg); color:var(--text); line-height:1.5}
+header{position:sticky; top:0; z-index:10; background:rgba(21,24,33,.92); backdrop-filter: blur(8px); border-bottom:1px solid var(--border); padding:14px 20px; display:flex; flex-wrap:wrap; gap:12px; align-items:center; justify-content:space-between}
+h1{margin:0; font-size:18px; font-weight:700; letter-spacing:.02em; color:var(--text)}
+h1 span{font-weight:400; color:var(--muted); font-size:13px; margin-left:8px}
+.controls{display:flex; flex-wrap:wrap; gap:10px; align-items:center}
+.controls input{border:1px solid var(--border-2); border-radius:8px; padding:8px 10px; font-size:13px; min-width:220px; background:#0f121a; color:var(--text)}
+.controls input::placeholder{color:var(--muted)}
+.badge{font-size:11px; color:var(--muted); background:#0f121a; border:1px solid var(--border); padding:4px 8px; border-radius:999px}
+main{max-width:1400px; margin:0 auto; padding:18px 20px 40px}
+.card{background:var(--card); border:1px solid var(--border); border-radius:12px; padding:16px; margin-bottom:16px; box-shadow:0 1px 8px rgba(0,0,0,.35)}
+.card h2{margin:0 0 10px; font-size:14px; font-weight:700; color:var(--text)}
+.chart-card{padding:18px 16px 12px}
+.chart-wrap{max-width:720px; margin:0 auto; height:460px; display:flex; flex-direction:column}
+.chart-wrap canvas{flex:1; width:100% !important; height:100% !important}
+.table-wrap{overflow:auto; border:1px solid var(--border); border-radius:10px; background:var(--card)}
+table{border-collapse:collapse; width:100%; font-size:12.5px; background:var(--card); color:var(--text)}
+th,td{border-bottom:1px solid var(--border); padding:7px 8px; text-align:left; white-space:nowrap}
+th{background:#1e232e; cursor:pointer; user-select:none; position:sticky; top:0; font-weight:600; font-size:12px; color:#cbd5e1; border-bottom:1px solid var(--border-2)}
+th:hover{background:#252d3a; color:var(--text)}
+td{border-bottom:1px solid rgba(255,255,255,.06)}
+tr:nth-child(even){background:rgba(255,255,255,.02)}
+tr:hover{background:rgba(255,255,255,.04)}
+td.model{max-width:280px; overflow:hidden; text-overflow:ellipsis}
+td.comment{white-space:normal; min-width:220px; font-size:11.5px; color:var(--muted)}
+tr.detail-row td{background:#1a2030; white-space:normal; font-size:11.5px; border-bottom:2px solid #334155; color:var(--text)}
+tr.selected{outline:2px solid var(--accent-2); outline-offset:-2px; background:rgba(59,130,246,.08) !important}
+.sort-ind{margin-left:4px; color:var(--accent); font-size:11px}
+.max{background:rgba(34,197,94,.18) !important; font-weight:700; color:#bbf7d0}
+.min{background:rgba(239,68,68,.18) !important; color:#fecaca}
+.rank{ display:inline-flex; align-items:center; justify-content:center; width:22px; height:22px; border-radius:999px; background:#334155; color:#fff; font-size:11px; font-weight:700}
+.rank-1{background:#d97706}
+.rank-2{background:#64748b}
+.rank-3{background:#92400e}
+.btn{border:1px solid var(--border-2); background:#1e232e; color:var(--text); border-radius:8px; padding:6px 10px; font-size:12px; cursor:pointer}
+.btn:hover{background:#252d3a; border-color:#3a4152}
+.btn-primary{background:var(--accent-2); color:#fff; border-color:var(--accent-2)}
+.btn-primary:hover{background:#2563eb}
+.muted{color:var(--muted); font-size:12px}
+.error{ background:#2a1a1a; border:1px solid #7f1d1d; color:#fecaca; padding:12px; border-radius:8px; margin:12px 0}
+canvas{max-width:100%}
+.legend{font-size:11px; color:var(--muted)}
+code{background:#0f121a; border:1px solid var(--border); padding:1px 5px; border-radius:4px; font-size:12px}
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <h1>ja-model-bench 履歴 <span id="subtitle"></span></h1>
+    <div class="muted" id="meta"></div>
+  </div>
+  <div class="controls">
+    <input id="filterModel" placeholder="モデル名でフィルタ (例: mimo)" />
+    <span class="badge" id="countBadge">0件</span>
+    <button class="btn" id="btnReload">再読込</button>
+    <button class="btn" id="btnClearSel">選択クリア</button>
+    <button class="btn btn-primary" id="btnSelectTop3">上位3件を選択</button>
+  </div>
+</header>
+<main>
+  <div id="errorBox"></div>
+
+  <div class="card chart-card">
+    <h2>レーダーチャート <span class="muted" style="font-weight:400">— 選択モデルの6観点比較（表のチェックで選択）</span></h2>
+    <div class="chart-wrap">
+      <canvas id="radar"></canvas>
+    </div>
+    <div class="muted" id="radarHint" style="margin-top:10px; text-align:center"></div>
+  </div>
+
+  <div class="card">
+    <h2>一覧 <span class="muted" style="font-weight:400">— ヘッダクリックでソート / 行クリックで詳細 / チェックでレーダー選択</span></h2>
+    <div class="table-wrap">
+      <table id="tbl">
+        <thead>
+          <tr>
+            <th data-k="__sel" style="cursor:default">✓</th>
+            <th data-k="__rank" style="cursor:default">#</th>
+            <th data-k="run_at">実行日時<span class="sort-ind" id="ind_run_at"></span></th>
+            <th data-k="model">model<span class="sort-ind" id="ind_model"></span></th>
+            <th data-k="total">total<span class="sort-ind" id="ind_total"></span></th>
+            <th data-k="q01">q01<span class="sort-ind" id="ind_q01"></span><div class="legend">基本理解</div></th>
+            <th data-k="q02">q02<div class="legend">基本生成</div></th>
+            <th data-k="q03">q03<div class="legend">Confusion</div></th>
+            <th data-k="q04">q04<div class="legend">直訳回避</div></th>
+            <th data-k="q05">q05<div class="legend">敬語</div></th>
+            <th data-k="q06">q06<div class="legend">結束性</div></th>
+            <th data-k="notes" style="cursor:default">notes</th>
+          </tr>
+        </thead>
+        <tbody id="tbody"></tbody>
+      </table>
+    </div>
+    <div class="muted" style="margin-top:8px">totalは6問平均(小数第1位)。q別の<span style="background:rgba(34,197,94,.18); color:#bbf7d0; padding:1px 4px; border-radius:4px">緑</span>が最高値、<span style="background:rgba(239,68,68,.18); color:#fecaca; padding:1px 4px; border-radius:4px">赤</span>が最低値。変種・温度・tasks_versionは詳細行に表示。</div>
+  </div>
+
+  <div class="card">
+    <h2>使い方</h2>
+    <div class="muted" style="font-size:13px; line-height:1.7">
+      推奨起動: <code>bun .opencode/skills/ja-model-bench/tools/serve.ts</code> → ブラウザが自動で開きます。タブを閉じるとサーバも自動終了します。<br/>
+      手動HTTP: <code>cd .opencode/skills/ja-model-bench && python3 -m http.server 8000</code> → <code>http://localhost:8000/results/history.html</code><br/>
+      直接 <code>open results/history.html</code> (file://) では <code>history.yml</code> の <code>fetch</code> がブロックされるため、本HTMLは http 経由での閲覧を前提としています。
+    </div>
+  </div>
+</main>
+
+<script>
+const ASPECT = { q01:"基本理解", q02:"基本生成", q03:"Language Confusion耐性", q04:"直訳調・干渉回避", q05:"敬語・文体", q06:"長文結束性" };
+const QKEYS = ["q01","q02","q03","q04","q05","q06"];
+const COLORS = ["#3b82f6","#ef4444","#10b981","#f59e0b","#8b5cf6","#ec4899","#06b6d4","#84cc16","#f97316","#6366f1"];
+let raw = [];
+let sortKey = "total";
+let sortDir = "desc";
+let filterText = "";
+let selected = new Set();
+let chart = null;
+let maxMin = null;
+
+const tbody = document.getElementById("tbody");
+const filterInput = document.getElementById("filterModel");
+const countBadge = document.getElementById("countBadge");
+const subtitle = document.getElementById("subtitle");
+const meta = document.getElementById("meta");
+const errorBox = document.getElementById("errorBox");
+const radarHint = document.getElementById("radarHint");
+
+function fmtRunAt(s){ return s ? s.replace("T"," ").replace("+09:00","") : ""; }
+
+function computeMaxMin(list){
+  const mm = {};
+  for(const k of [...QKEYS,"total"]){
+    const vals = list.map(r => k==="total" ? r.total : (r.scores?.[k]?.score));
+    const nums = vals.filter(v=>typeof v==="number");
+    if(nums.length){ mm[k]={max:Math.max(...nums), min:Math.min(...nums)}; }
+  }
+  return mm;
+}
+
+function getSortedFiltered(){
+  let list = raw.slice();
+  if(filterText){
+    const t = filterText.toLowerCase();
+    list = list.filter(r => (r.model||"").toLowerCase().includes(t) || (r.notes||"").toLowerCase().includes(t));
+  }
+  list.sort((a,b)=>{
+    let av, bv;
+    if(sortKey==="run_at" || sortKey==="model"){
+      av = a[sortKey]||""; bv = b[sortKey]||"";
+      const c = String(av).localeCompare(String(bv));
+      return sortDir==="asc"?c:-c;
+    } else if(sortKey==="total"){
+      av = a.total; bv = b.total;
+    } else if(QKEYS.includes(sortKey)){
+      av = a.scores?.[sortKey]?.score ?? -1;
+      bv = b.scores?.[sortKey]?.score ?? -1;
+    } else return 0;
+    if(av===bv) return String(a.run_at).localeCompare(String(b.run_at));
+    return sortDir==="asc" ? av-bv : bv-av;
+  });
+  return list;
+}
+
+function renderTable(){
+  const list = getSortedFiltered();
+  maxMin = computeMaxMin(list.length?list:raw);
+  tbody.innerHTML = "";
+  list.forEach((r, idx)=>{
+    const tr = document.createElement("tr");
+    if(selected.has(r._idx)) tr.classList.add("selected");
+    const rank = idx+1;
+    const rankCls = rank===1?"rank rank-1": rank===2?"rank rank-2": rank===3?"rank rank-3":"rank";
+    // checkbox
+    const tdSel = document.createElement("td");
+    const cb = document.createElement("input");
+    cb.type="checkbox"; cb.checked = selected.has(r._idx);
+    cb.addEventListener("click", (e)=>{ e.stopPropagation(); toggleSel(r._idx); });
+    tdSel.appendChild(cb);
+    tr.appendChild(tdSel);
+    // rank
+    const tdRank = document.createElement("td");
+    tdRank.innerHTML = `<span class="${rankCls}">${rank}</span>`;
+    tr.appendChild(tdRank);
+    // run_at
+    const tdRun = document.createElement("td");
+    tdRun.textContent = fmtRunAt(r.run_at);
+    tdRun.title = r.run_at||"";
+    tr.appendChild(tdRun);
+    // model
+    const tdModel = document.createElement("td");
+    tdModel.className="model";
+    tdModel.textContent = r.model||"";
+    tdModel.title = r.model||"";
+    tr.appendChild(tdModel);
+    // total
+    const tdTotal = document.createElement("td");
+    tdTotal.textContent = (r.total!=null? r.total.toFixed(1): "");
+    if(maxMin.total){
+      if(r.total===maxMin.total.max) tdTotal.classList.add("max");
+      if(r.total===maxMin.total.min) tdTotal.classList.add("min");
+    }
+    tr.appendChild(tdTotal);
+    // q01..q06
+    for(const q of QKEYS){
+      const td = document.createElement("td");
+      const sc = r.scores?.[q]?.score;
+      td.textContent = sc!=null? String(sc): "";
+      const mm = maxMin[q];
+      if(mm && sc!=null){
+        if(sc===mm.max) td.classList.add("max");
+        if(sc===mm.min) td.classList.add("min");
+      }
+      tr.appendChild(td);
+    }
+    // notes
+    const tdNotes = document.createElement("td");
+    tdNotes.style.whiteSpace="normal";
+    tdNotes.style.maxWidth="240px";
+    tdNotes.style.fontSize="11px";
+    tdNotes.textContent = r.notes||"";
+    tdNotes.title = r.notes||"";
+    tr.appendChild(tdNotes);
+
+    tr.style.cursor="pointer";
+    tr.addEventListener("click", ()=> toggleDetail(r._idx));
+    tbody.appendChild(tr);
+
+    // detail row
+    const trD = document.createElement("tr");
+    trD.className="detail-row";
+    trD.id = `detail-${r._idx}`;
+    trD.style.display="none";
+    const tdD = document.createElement("td");
+    tdD.colSpan = 12;
+    const scores = r.scores||{};
+    let html = `<div style="display:flex; flex-wrap:wrap; gap:12px; margin-bottom:6px"><span>variant: <b>${r.variant||""}</b></span><span>temperature: <b>${r.temperature||""}</b></span><span>tasks_version: <b>${r.tasks_version||""}</b></span><span>run_at: ${r.run_at||""}</span></div>`;
+    html += `<div style="display:grid; grid-template-columns: repeat(auto-fit,minmax(260px,1fr)); gap:8px">`;
+    for(const q of QKEYS){
+      const s = scores[q];
+      if(!s) continue;
+      html += `<div style="border:1px solid #2d3340; background:#0f121a; border-radius:8px; padding:8px"><div style="font-weight:700; color:#e2e8f0">${q} ${s.aspect||ASPECT[q]} — ${s.score}点</div><div style="margin-top:4px; color:#9ca3af">${escapeHtml(s.comment||"")}</div></div>`;
+    }
+    html += `</div>`;
+    if(r.notes) html += `<div style="margin-top:8px"><b>notes:</b> ${escapeHtml(r.notes)}</div>`;
+    tdD.innerHTML = html;
+    trD.appendChild(tdD);
+    tbody.appendChild(trD);
+  });
+  countBadge.textContent = `${list.length}件 / 全${raw.length}件`;
+  updateSortIndicators();
+  updateRadar();
+}
+
+function escapeHtml(s){ return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;"); }
+
+function toggleDetail(idx){
+  const el = document.getElementById(`detail-${idx}`);
+  if(!el) return;
+  el.style.display = el.style.display==="none" ? "" : "none";
+}
+function toggleSel(idx){
+  if(selected.has(idx)) selected.delete(idx);
+  else selected.add(idx);
+  renderTable();
+}
+function updateSortIndicators(){
+  for(const k of ["run_at","model","total",...QKEYS]){
+    const el = document.getElementById(`ind_${k}`);
+    if(!el) continue;
+    if(k===sortKey) el.textContent = sortDir==="asc" ? "▲" : "▼";
+    else el.textContent = "";
+  }
+}
+
+function updateRadar(){
+  const list = raw.filter(r=> selected.has(r._idx));
+  // if none selected, hint
+  if(list.length===0){
+    radarHint.textContent = "表のチェックボックスでモデルを選択すると、ここにレーダーが表示されます。『上位3件を選択』で開始するのがおすすめです。";
+    if(chart){ chart.data.datasets=[]; chart.update(); }
+    return;
+  }
+  radarHint.textContent = `${list.length}件を選択中 — 6観点のバランスで特性を比較できます。`;
+  const labels = QKEYS.map(k=> `${k} ${ASPECT[k]}`);
+  const datasets = list.map((r,i)=>{
+    const color = COLORS[i % COLORS.length];
+    const data = QKEYS.map(k=> r.scores?.[k]?.score ?? 0);
+    // shorten model label
+    const short = r.model.length>36 ? r.model.slice(0,36)+"…" : r.model;
+    return {
+      label: `${short} (${r.total.toFixed(1)})`,
+      data,
+      borderColor: color,
+      backgroundColor: color + "33",
+      pointBackgroundColor: color,
+      fill: true,
+      borderWidth: 2,
+    };
+  });
+  if(!chart){
+    const ctx = document.getElementById("radar");
+    chart = new Chart(ctx, {
+      type:"radar",
+      data:{ labels, datasets },
+      options:{
+        responsive:true, maintainAspectRatio:false,
+        scales:{ r:{
+          min:0, max:10,
+          ticks:{ stepSize:2, color:"#8b92a3", backdropColor:"transparent" },
+          pointLabels:{ font:{ size:12, weight:"600" }, color:"#e2e8f0" },
+          grid:{ color:"rgba(255,255,255,.08)" },
+          angleLines:{ color:"rgba(255,255,255,.12)" }
+        } },
+        plugins:{ legend:{ position:"bottom", labels:{ boxWidth:12, font:{size:11}, usePointStyle:true, color:"#cbd5e1" } } }
+      }
+    });
+  } else {
+    chart.data.labels = labels;
+    chart.data.datasets = datasets;
+    chart.update();
+  }
+}
+
+// sort header clicks
+document.querySelectorAll("th[data-k]").forEach(th=>{
+  const k = th.getAttribute("data-k");
+  if(k==="__sel"||k==="__rank"||k==="notes") return;
+  th.addEventListener("click", ()=>{
+    if(sortKey===k) sortDir = sortDir==="asc"?"desc":"asc";
+    else { sortKey=k; sortDir = (k==="run_at"||k==="model")?"asc":"desc"; }
+    renderTable();
+  });
+});
+filterInput.addEventListener("input", (e)=>{ filterText = e.target.value.trim(); renderTable(); });
+document.getElementById("btnReload").addEventListener("click", ()=> load());
+document.getElementById("btnClearSel").addEventListener("click", ()=>{ selected.clear(); renderTable(); });
+document.getElementById("btnSelectTop3").addEventListener("click", ()=>{
+  const sorted = getSortedFiltered();
+  selected.clear();
+  sorted.slice(0,3).forEach(r=> selected.add(r._idx));
+  renderTable();
+});
+
+async function load(){
+  errorBox.innerHTML="";
+  try{
+    const res = await fetch("./history.yml", {cache:"no-store"});
+    if(!res.ok) throw new Error(`HTTP ${res.status}`);
+    const text = await res.text();
+    const data = jsyaml.load(text);
+    // js-yaml may return null if empty
+    let arr = [];
+    if(Array.isArray(data)) arr = data;
+    else if(data==null) arr = [];
+    else if(typeof data==="object") arr = [data];
+    // filter out non-record (comments produce null?)
+    arr = arr.filter(x=> x && typeof x==="object" && "model" in x);
+    arr.forEach((r,i)=> r._idx=i);
+    raw = arr;
+    // default selection: top3 by total desc
+    const sorted = [...raw].sort((a,b)=> (b.total??0)-(a.total??0));
+    selected.clear();
+    sorted.slice(0,3).forEach(r=> selected.add(r._idx));
+    // meta
+    const versions = [...new Set(raw.map(r=>r.tasks_version))].join(", ");
+    const last = raw.length ? raw[raw.length-1].run_at : "";
+    subtitle.textContent = raw.length ? `${raw.length}件` : "0件";
+    meta.textContent = raw.length ? `tasks_version: ${versions || "unknown"} / 最終実行: ${fmtRunAt(last)} / totalは6問平均` : "history.yml が空です。benchを実行するとここに表示されます。";
+    renderTable();
+  }catch(e){
+    console.error(e);
+    errorBox.innerHTML = `<div class="error"><b>history.yml を読み込めませんでした</b><br/>${escapeHtml(e.message||String(e))}<br/><br/>推奨起動: <code>bun .opencode/skills/ja-model-bench/tools/serve.ts</code> で開いてください。<br/>手動HTTP: <code>cd .opencode/skills/ja-model-bench && python3 -m http.server 8000</code> → <code>http://localhost:8000/results/history.html</code><br/>file:// 直開きでは fetch がブロックされます。</div>`;
+    subtitle.textContent = "読込失敗";
+    meta.textContent = "";
+  }
+}
+load();
+
+// WebSocket: connect to server for auto-close on tab close
+(function(){
+  try{
+    if(location.protocol==="file:") return;
+    const proto = location.protocol==="https:" ? "wss:" : "ws:";
+    const ws = new WebSocket(`${proto}//${location.host}/__ws`);
+    ws.addEventListener("open", ()=> console.log("[ws] connected"));
+    ws.addEventListener("close", ()=> console.log("[ws] closed"));
+    ws.addEventListener("error", ()=> console.log("[ws] error"));
+    window.addEventListener("pagehide", ()=> { try{ ws.close(); }catch{} });
+    window.addEventListener("beforeunload", ()=> { try{ ws.close(); }catch{} });
+    // keep alive ping
+    setInterval(()=>{ if(ws.readyState===1) try{ ws.send("ping"); }catch{} }, 15000);
+  }catch(e){ console.log("ws init failed", e); }
+})();
+</script>
+</body>
+</html>
