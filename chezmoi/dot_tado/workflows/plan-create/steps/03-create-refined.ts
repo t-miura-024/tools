@@ -7,21 +7,19 @@ import { requireStepArtifacts } from "../../shared/artifact-check/require-step-a
 import { verifyIssueOpen } from "../../shared/gh-issue-verify/verify-issue-open";
 import { requireChildReviewIfChildrenExist } from "../helper/require-child-review-if-children-exist.ts";
 import { isLoopExhausted } from "../helper/is-loop-exhausted.ts";
+import { readPlanReviewFindings } from "../helper/review-findings.ts";
+import {
+  REVIEW_CYCLE_EXHAUSTED_MARKER,
+  REVIEW_CYCLE_MAX_ITERATIONS,
+} from "../helper/review-limits.ts";
 
 const PREPARE_DECISION_KEY = "prepare-decision.json";
 const ISSUE_BODY_KEY = "issue-body.md";
 const REVIEW_BODY_KEY = "review-body.md";
 const ISSUE_NUMBER_KEY = "issue-number.txt";
-const REVIEW_EXHAUSTED_GATE_KEY = "review-exhausted";
+const REVIEW_GATE_KEY = "review-gate";
 const REVIEW_CYCLE_LOOP_KEY = "review-cycle";
-const REVIEW_CYCLE_EXHAUSTED_KEY = "review-cycle-exhausted.json";
-// review-body.md 内の must 残存マーカー。全角英数・全角スペース・漢数字を半角正規化後に判定する。
-// 🚨 の存在（直後に なし/無し/ナシ/ゼロ/0 が続く否定文を除く）は全文を対象に残存とみなす。
-// `must` と 1 以上の数値の組み合わせは概要セクション（## レビュー結果〜## 指摘一覧の手前）のみを
-// 判定対象とする。本文中の通常英文・コード片の must+数字を残存扱いにしないため。
-// （`must 0` / `指摘なし` は残存とみなさない）。
-// 件数申告の正規形（概要の must n / should n / want n）は厳密パースして数値>0でfailにする。
-const MUST_RESIDUAL_PATTERNS = [/🚨/, /\bm\s*u\s*s\s*t\W*[1-9]/i];
+const REVIEW_CYCLE_EXHAUSTED_KEY = REVIEW_CYCLE_EXHAUSTED_MARKER;
 
 const planTransitionPlanPath = join(
   import.meta.dir,
@@ -58,11 +56,11 @@ export const createRefinedStep: TaskStepDef = {
           {
             title: "1. 入力情報の読み込み",
             content: [
-              "分解モードで子 body（`issue-body-<n>.md`）が存在するのに `review-body.md` に子への言及（`issue-body-<n>.md` の記載）がない場合は子未レビューのため GitHub 操作へ進むな。escalate し、失敗報告のみ行うこと。",
+              "分解モードで子 body（`issue-body-<n>.md`）が存在するのに `review-findings.json` の reviewedTargets に含まれていない場合は子未レビューのため GitHub 操作へ進むな。escalate し、失敗報告のみ行うこと。",
               `セッションディレクトリの \`${ISSUE_BODY_KEY}\` と \`${PREPARE_DECISION_KEY}\` と \`${REVIEW_BODY_KEY}\` を読み込む。`,
               "分解モードの場合は `issue-body-<n>.md` も `ls issue-body-*.md` で全件検出して読み込む。",
               "prepare-decision.json から mode / fromIssue / issueNumber / repo を確認する。",
-              "review-body.md の 🚨 must 有無を確認する。must が残るまま本ステップに到達した場合は判断漏れのため GitHub 操作へ進まず escalate する（create-refined の check が must 残存で fail し onFail escalate となる。tado 上で review-gate の request_changes を選び grill に戻って再生成すること）。ただし review-cycle-exhausted.json の valid マーカーがある枯渇経由（review-exhausted の approve）の場合は警告として記録し作成へ進む（check が警告付きで後続へ進む）。body の再生成はしない（修正は request_changes→grill 経由の再生成に一本化）。",
+              "review-findings.json の must 件数を確認する。must が残るまま本ステップに到達した場合は判断漏れのため GitHub 操作へ進まず escalate する（create-refined の check が must 残存で fail し onFail escalate となる。review-gate は must=0 の場合のみ到達する）。body の再生成はしない（修正は grill→draft-body 経由に一本化）。",
             ],
           },
           {
@@ -152,7 +150,7 @@ export const createRefinedStep: TaskStepDef = {
           "```",
         ],
         policy: [
-          "未レビュー子の refined 化を禁止する。分解モードで子 body が存在するのに review-body.md に子への言及（`issue-body-<n>.md` の記載）がない場合は子未レビューのため GitHub 操作を行うな。escalate し、失敗報告のみ行うこと",
+          "未レビュー子の refined 化を禁止する。分解モードで子 body が存在するのに review-findings.json の reviewedTargets に含まれていない場合は子未レビューのため GitHub 操作を行うな。escalate し、失敗報告のみ行うこと",
         ],
         input: [`セッションディレクトリ: ${ctx.sessionDir}`],
       });
@@ -160,11 +158,8 @@ export const createRefinedStep: TaskStepDef = {
   },
   check: (ctx: CheckCtx): CheckResult => {
     // review-body.md を必須化する（未申告・欠落時は GitHub 照合の前に fail）。
-    // must 残存時の approve 抑止は review-gate が human_gate のため機械化できず、
-    // 人間が誤って approve した場合の最終防壁としてここで must 否定検査を行う（fail-closed）。
-    // ただし枯渇経由（review-cycle-exhausted.json の valid マーカーあり＋
-    // review-exhausted の approve）の場合はゲートの約束どおり未反映のまま
-    // 作成へ進むため、must 残存は fail ではなく警告として記録し後続へ進む。
+    // must は review-findings.json の counts を SoT として検査する。枯渇マーカーに
+    // よる must 残存の例外は廃止した（内側 loop が must=0 を保証する）。
     const result = requireStepArtifacts(ctx, [
       { key: ISSUE_NUMBER_KEY, form: "text", pattern: /^[0-9]+$/ },
       {
@@ -175,12 +170,33 @@ export const createRefinedStep: TaskStepDef = {
       },
     ]);
     if (result.status !== "pass") return result;
+
+    const findings = readPlanReviewFindings(ctx.sessionDir, ctx.artifacts);
+    if (!findings.valid || !findings.parsed) {
+      return {
+        status: "error",
+        reasons: [
+          `review-findings.json を検証できないため must 残存を確認できません: ${findings.error ?? "invalid findings"}`,
+        ],
+      };
+    }
+    if (findings.parsed.counts.must > 0) {
+      return {
+        status: "fail",
+        reasons: [
+          `review-findings.json: must が ${findings.parsed.counts.must} 件残存している（approve 不可。review-gate は must=0 の場合のみ到達する）`,
+        ],
+      };
+    }
+
     let exhausted = false;
     try {
       exhausted = isLoopExhausted(
         ctx.sessionDir,
         REVIEW_CYCLE_EXHAUSTED_KEY,
         REVIEW_CYCLE_LOOP_KEY,
+        REVIEW_GATE_KEY,
+        REVIEW_CYCLE_MAX_ITERATIONS,
       );
     } catch (error) {
       return {
@@ -190,40 +206,11 @@ export const createRefinedStep: TaskStepDef = {
         ],
       };
     }
-    const reviewBody = findArtifactText(ctx.artifacts, REVIEW_BODY_KEY, ctx.sessionDir) ?? "";
-    let exhaustedWarning: string | null = null;
-    // must 残存の二重照合: 概要セクション（## レビュー結果〜## 指摘一覧の手前）の
-    // 厳密パース（数値>0で残存）と概要内 must+数値パターンのいずれかで残存とみなす。
-    // 🚨 は全文を対象に、否定直後（なし/無し/ナシ/ゼロ/0）を除いて残存とみなす。
-    const hasMustResidual = (() => {
-      const text = reviewBody;
-      const start = text.indexOf("## レビュー結果");
-      const end = start === -1 ? -1 : text.indexOf("## 指摘一覧", start);
-      const summary = start === -1 ? text : end === -1 ? text.slice(start) : text.slice(start, end);
-      const normalizedSummary = normalizeMustText(summary);
-      const declaredMatch = normalizedSummary.match(/\bm\s*u\s*s\s*t\W*([0-9]+)/i);
-      const declared = declaredMatch ? Number.parseInt(declaredMatch[1], 10) : null;
-      if (declared !== null && declared > 0) return true;
-      const normalizedFull = normalizeMustText(text);
-      const withoutNegatedEmoji = normalizedFull.replace(/🚨\s*(なし|無し|ナシ|ゼロ|0)\s*/g, "");
-      if (MUST_RESIDUAL_PATTERNS[0].test(withoutNegatedEmoji)) return true;
-      if (MUST_RESIDUAL_PATTERNS[1].test(normalizedSummary)) return true;
-      return false;
-    })();
-    if (hasMustResidual) {
-      if (exhausted) {
-        exhaustedWarning = `${REVIEW_BODY_KEY}: must が残存しているが、枯渇経由の承認（${REVIEW_EXHAUSTED_GATE_KEY} approve）のため警告として記録し作成へ進む`;
-      } else {
-        return {
-          status: "fail",
-          reasons: [
-            `${REVIEW_BODY_KEY}: must が残存している（approve 不可。request_changes で grill に戻ること）`,
-          ],
-        };
-      }
-    }
+    const exhaustedWarning = exhausted
+      ? `${REVIEW_CYCLE_EXHAUSTED_KEY}: 人間差し戻しが上限に達しました。未反映のフィードバックが残っている可能性があります（must はゼロ）`
+      : null;
+
     // 分解モードの子未レビューを GitHub 照合の前に fail に倒す。
-    // 子未レビューは枯渇経由でも免除しない（構造欠落のため）。
     const childResult = requireChildReviewIfChildrenExist(ctx);
     if (childResult.status !== "pass") return childResult;
     // 副作用実照合: 起票・更新した Issue が GitHub 上に OPEN で存在するか
@@ -239,39 +226,3 @@ export const createRefinedStep: TaskStepDef = {
         };
   },
 };
-
-function normalizeMustText(text: string): string {
-  const halfWidth = text.replace(/[Ａ-Ｚａ-ｚ０-９]/g, (c) =>
-    String.fromCharCode(c.charCodeAt(0) - 0xfee0),
-  );
-  const halfSpace = halfWidth.replace(/　/g, " ");
-  return halfSpace.replace(/[一二三四五六七八九〇零十]/g, (c) => {
-    switch (c) {
-      case "一":
-        return "1";
-      case "二":
-        return "2";
-      case "三":
-        return "3";
-      case "四":
-        return "4";
-      case "五":
-        return "5";
-      case "六":
-        return "6";
-      case "七":
-        return "7";
-      case "八":
-        return "8";
-      case "九":
-        return "9";
-      case "〇":
-      case "零":
-        return "0";
-      case "十":
-        return "10";
-      default:
-        return c;
-    }
-  });
-}

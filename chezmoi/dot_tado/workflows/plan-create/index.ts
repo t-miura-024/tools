@@ -9,7 +9,7 @@ import { finalizeStep } from "./steps/04-finalize.ts";
 const def: WorkflowDef = {
   id: "plan-create",
   description:
-    "GitHub Issueとして計画を新規作成・リファインメントするワークフロー。from-Issue取り込みとGrillヒアリングを経て本文レビューを行い、承認後にRefined Issueを直接作成する。",
+    "GitHub Issueとして計画を新規作成・リファインメントするワークフロー。from-Issue取り込みとGrillヒアリングを経て、独立レビュアーによる本文レビューとmust解消ループを行い、承認後にRefined Issueを直接作成する。",
 
   beforeInit,
   afterInit,

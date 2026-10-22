@@ -6,6 +6,8 @@ import { requireStepArtifacts } from "../../../shared/artifact-check/require-ste
 import { isTMiura024 } from "../../helper/is-tmiura024.ts";
 import { gateDecisionValue } from "../../helper/gate-decision-value.ts";
 import { gateDecisionInput } from "../../helper/gate-decision-input.ts";
+import { existsSync } from "node:fs";
+import { REVIEW_DECISIONS_KEY, REVIEW_FINDINGS_KEY } from "../../helper/review-limits.ts";
 
 const ISSUE_BODY_KEY = "issue-body.md";
 const EFFORT_PATTERN =
@@ -27,14 +29,20 @@ export const draftBodyStep: TaskStepDef = {
     buildPrompt: (ctx: PromptCtx) => {
       const withDocs = isTMiura024(ctx.artifacts, ctx.sessionDir);
 
+      const hasDecisions = existsSync(join(ctx.sessionDir, REVIEW_DECISIONS_KEY));
+      const hasFindings = existsSync(join(ctx.sessionDir, REVIEW_FINDINGS_KEY));
+      const retryInput = gateDecisionInput(ctx.gateAnswers, "review-fix-exhausted");
+
       return buildStepPrompt({
         purpose: [
           "ヒアリングで集まった情報を plan-format.md のテンプレートにマッピングし、Issue body の最終本文を確定する。",
           "分解モードの場合は子 Issue の body もすべてこのステップで生成する。",
+          "レビュー指摘への対応では、`review-decisions.md` に記録されたユーザーの決定だけを反映する。AI が新しい意思決定をしない。",
         ],
         criteria: [
           "Issue body 最終本文が `issue-body.md`（分解時は `issue-body-<n>.md` 全件）に書き出されている",
           "各 body 末尾に `<!-- effort: width=... depth=... -->` コメントが形式どおり付与されている",
+          "`review-decisions.md` がある場合、最新セクションの決定が本文に反映されている（reject は変更しない）",
         ],
         approach: [
           {
@@ -44,6 +52,27 @@ export const draftBodyStep: TaskStepDef = {
               "from-Issue フローの場合は既存 Issue の内容も合わせて参照する。",
             ],
           },
+          ...(hasDecisions
+            ? [
+                {
+                  title: "1b. レビュー指摘への対応（ユーザー決定の反映）",
+                  content: [
+                    `\`${REVIEW_DECISIONS_KEY}\` を読み、最新セクション（\`## レビュー R<n>\` または \`## 人間差し戻し\`）の決定だけを反映する:`,
+                    "- `adopt`: 決定内容を本文に反映する",
+                    "- `modify`: 決定内容に従って修正する",
+                    "- `reject`: 本文を変更しない",
+                    "",
+                    "決定にない変更をしない。決定が曖昧で解釈が必要な場合は escalate する（勝手に決めない）。",
+                    ...(hasFindings
+                      ? [
+                          `\`${REVIEW_FINDINGS_KEY}\` の該当指摘（evidence / target）を読み、対象箇所を特定する。`,
+                        ]
+                      : []),
+                    "親子の body を更新する場合も、ユーザーの決定の範囲内に留める。",
+                  ],
+                },
+              ]
+            : []),
           ...(withDocs
             ? [
                 {
@@ -112,6 +141,15 @@ export const draftBodyStep: TaskStepDef = {
               return [`前回の差し戻し (gate:${gateKey}):`, "- (なし。初回実行)", ""];
             })(),
           },
+          ...(retryInput !== undefined && retryInput.trim() !== ""
+            ? [`追加ラウンド指示 (gate:review-fix-exhausted): ${retryInput.trim()}`, ""]
+            : []),
+          ...(hasDecisions
+            ? [`レビュー決定: ${join(ctx.sessionDir, REVIEW_DECISIONS_KEY)}`, ""]
+            : []),
+          ...(hasFindings
+            ? [`レビュー結果: ${join(ctx.sessionDir, REVIEW_FINDINGS_KEY)}`, ""]
+            : []),
           `セッションディレクトリ: ${ctx.sessionDir}`,
         ],
       });

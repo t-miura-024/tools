@@ -1,6 +1,8 @@
 import { describe, it, beforeEach, afterEach } from "bun:test";
 import * as fs from "node:fs";
 import * as path from "node:path";
+import type { PromptCtx } from "tado";
+import type { TaskStepDef } from "tado/types/workflow-def.ts";
 import * as mod from "./01.03-review-body.ts";
 import {
   makeSnapshotCtx,
@@ -10,15 +12,15 @@ import {
   snapMdPath,
 } from "../../../shared/prompt-snapshot/helper.ts";
 
-function findTaskBuildPrompt(): ((ctx: never) => string) | null {
+function findTaskBuildPrompt(): ((ctx: PromptCtx) => string) | null {
   for (const v of Object.values(mod)) {
     if (
       typeof v === "object" &&
       v !== null &&
       "task" in v &&
-      typeof (v as { task?: { buildPrompt?: unknown } }).task?.buildPrompt === "function"
+      typeof (v as TaskStepDef).task?.buildPrompt === "function"
     ) {
-      return (v as { task: { buildPrompt: (ctx: never) => string } }).task.buildPrompt;
+      return (v as TaskStepDef).task.buildPrompt;
     }
   }
   return null;
@@ -34,6 +36,10 @@ describe("01.03-review-body prompt snapshot", () => {
   });
 
   it("snapshot", () => {
+    fs.writeFileSync(
+      path.join(sessionDir, "issue-body.md"),
+      "## ✅ 完了条件\n\n- 条件\n\n## 🧭 方針\n\n方針\n",
+    );
     const repoInfoPath = path.join(sessionDir, "repo-info.json");
     fs.writeFileSync(
       repoInfoPath,

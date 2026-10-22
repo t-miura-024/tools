@@ -13,11 +13,11 @@ Project への追加と refined 遷移が完了している
 
 ### 1. 入力情報の読み込み
 
-分解モードで子 body（`issue-body-<n>.md`）が存在するのに `review-body.md` に子への言及（`issue-body-<n>.md` の記載）がない場合は子未レビューのため GitHub 操作へ進むな。escalate し、失敗報告のみ行うこと。
+分解モードで子 body（`issue-body-<n>.md`）が存在するのに `review-findings.json` の reviewedTargets に含まれていない場合は子未レビューのため GitHub 操作へ進むな。escalate し、失敗報告のみ行うこと。
 セッションディレクトリの `issue-body.md` と `prepare-decision.json` と `review-body.md` を読み込む。
 分解モードの場合は `issue-body-<n>.md` も `ls issue-body-*.md` で全件検出して読み込む。
 prepare-decision.json から mode / fromIssue / issueNumber / repo を確認する。
-review-body.md の 🚨 must 有無を確認する。must が残るまま本ステップに到達した場合は判断漏れのため GitHub 操作へ進まず escalate する（create-refined の check が must 残存で fail し onFail escalate となる。tado 上で review-gate の request_changes を選び grill に戻って再生成すること）。ただし review-cycle-exhausted.json の valid マーカーがある枯渇経由（review-exhausted の approve）の場合は警告として記録し作成へ進む（check が警告付きで後続へ進む）。body の再生成はしない（修正は request_changes→grill 経由の再生成に一本化）。
+review-findings.json の must 件数を確認する。must が残るまま本ステップに到達した場合は判断漏れのため GitHub 操作へ進まず escalate する（create-refined の check が must 残存で fail し onFail escalate となる。review-gate は must=0 の場合のみ到達する）。body の再生成はしない（修正は grill→draft-body 経由に一本化）。
 ### 2. effort コメントの確定
 
 各ファイル末尾の `<!-- effort: width=... depth=... -->` コメント（draft-body が書き出した初期値を決定値とする）を維持し、形式検証のみ行う。各ファイルで既存 `<!-- effort:.*?-->` を `/<!-- effort:.*?-->/` で置換せず、そのまま残す。コメントが欠落している場合のみ末尾に追記する（冪等）。分解モードでは `ls issue-body-*.md 2>/dev/null` で全件検出し各ファイルで同様に確認する。新規作成フローでは Issue 作成前のため `gh issue edit` は不要だが、from-Issue フロー・リトライ更新パスでは後段 §3 の `gh issue edit` で effort 反映済み body を更新すること。
@@ -86,7 +86,7 @@ report 時の `artifacts` に以下を含める:
 
 ## 注意事項
 
-未レビュー子の refined 化を禁止する。分解モードで子 body が存在するのに review-body.md に子への言及（`issue-body-<n>.md` の記載）がない場合は子未レビューのため GitHub 操作を行うな。escalate し、失敗報告のみ行うこと
+未レビュー子の refined 化を禁止する。分解モードで子 body が存在するのに review-findings.json の reviewedTargets に含まれていない場合は子未レビューのため GitHub 操作を行うな。escalate し、失敗報告のみ行うこと
 
 ## インプット
 
