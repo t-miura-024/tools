@@ -1,5 +1,7 @@
 import { describe, it, beforeEach, afterEach } from "bun:test";
 import * as fs from "node:fs";
+import type { PromptCtx } from "tado";
+import type { TaskStepDef } from "tado/types/workflow-def.ts";
 import * as mod from "./04-finalize.ts";
 import {
   makeSnapshotCtx,
@@ -9,15 +11,15 @@ import {
   snapMdPath,
 } from "../../shared/prompt-snapshot/helper.ts";
 
-function findTaskBuildPrompt(): ((ctx: never) => string) | null {
+function findTaskBuildPrompt(): ((ctx: PromptCtx) => string) | null {
   for (const v of Object.values(mod)) {
     if (
       typeof v === "object" &&
       v !== null &&
       "task" in v &&
-      typeof (v as { task?: { buildPrompt?: unknown } }).task?.buildPrompt === "function"
+      typeof (v as TaskStepDef).task?.buildPrompt === "function"
     ) {
-      return (v as { task: { buildPrompt: (ctx: never) => string } }).task.buildPrompt;
+      return (v as TaskStepDef).task.buildPrompt;
     }
   }
   return null;

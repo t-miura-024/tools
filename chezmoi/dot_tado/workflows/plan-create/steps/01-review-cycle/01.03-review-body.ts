@@ -1,138 +1,188 @@
-import type { CheckCtx, CheckResult, PromptCtx } from "tado";
+import type { CheckCtx, CheckResult, PromptCtx, StepCtx } from "tado";
+import type { ArtifactInput } from "tado/types/artifact.ts";
 import type { TaskStepDef } from "tado/types/workflow-def.ts";
 import { buildStepPrompt } from "../../../shared/prompt/build-step-prompt";
 import { join } from "node:path";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { requireStepArtifacts } from "../../../shared/artifact-check/require-step-artifacts";
-import { requireChildReviewIfChildrenExist } from "../../helper/require-child-review-if-children-exist.ts";
 import { isTMiura024 } from "../../helper/is-tmiura024.ts";
+import { listReviewTargets } from "../../helper/list-review-targets.ts";
+import {
+  normalizeReviewFindings,
+  parseRawReviewFindings,
+  readPlanReviewFindings,
+  validatePlanReviewFindings,
+} from "../../helper/review-findings.ts";
+import { renderReviewBody } from "../../helper/render-review-body.ts";
+import { readReviewRound, writeReviewRound } from "../../helper/review-round.ts";
+import {
+  FROM_ISSUE_KEY,
+  REVIEW_BODY_KEY,
+  REVIEW_DECISIONS_KEY,
+  REVIEW_FINDINGS_KEY,
+} from "../../helper/review-limits.ts";
+import { requireChildReviewIfChildrenExist } from "../../helper/require-child-review-if-children-exist.ts";
 
 const ISSUE_BODY_KEY = "issue-body.md";
-const REVIEW_BODY_KEY = "review-body.md";
 const planFormatPath = join(import.meta.dir, "..", "..", "..", "shared", "plan-plan-format.md");
 const mtDomainModelingDir = join(import.meta.dir, "..", "..", "..", "mt-domain-modeling");
 
 // -----------------------------------------------------------------
-// Step 3: 本文レビュー
+// Step 3: 独立レビュー
+//   起草者から独立した mt-plan-reviewer にレビューさせ、review-findings.json を
+//   機械可読な契約として保存する。review-body.md は afterStep が findings から
+//   決定論的に生成する（LLM に Markdown を書かせない）。
 // -----------------------------------------------------------------
 export const reviewBodyStep: TaskStepDef = {
   key: "review-body",
-  phase: "本文レビュー",
+  phase: "独立レビュー",
   type: "task",
   maxRetries: 3,
   onFail: { action: "escalate" },
   task: {
     action: "orchestrate",
     buildPrompt: (ctx: PromptCtx) => {
-      // NOTE: owner 分岐（withDocs）は grill / draft-body / review-body の3箇所に分散する。
-      // shared への抽出は最小差分方針のため見送る（条件変更時は3箇所を同時更新すること）。
-      // NOTE(arch-2): buildStepPrompt は shared/prompt.ts 経由に集約済み（純粋フォーマッターであり ADR-0019 の StepDef 限定と競合しない）。
       const withDocs = isTMiura024(ctx.artifacts, ctx.sessionDir);
+      const targetList = listReviewTargets(ctx.sessionDir);
+      if (targetList.error) {
+        throw new Error(`レビュー対象の列挙に失敗しました: ${targetList.error}`);
+      }
 
-      const perspectiveC = withDocs
-        ? [
-            {
-              title: "C: 思想・ポリシー違反＋ADR記載明記",
-              content: [
-                "プロジェクト思想・ポリシー（mt-domain-modeling の規律）への違反がないか確認する。",
-                "確定した用語・ADR 案・Gherkin シナリオ案が plan-format.md の `## 📄 ドキュメント` セクションに `### <リポジトリ相対パス>` + コードフェンス全文の形式で明記されているか確認する。",
-                `Gherkin シナリオは ${join(mtDomainModelingDir, "GHERKIN-FORMAT.md")} の形式に従っているか確認する。`,
-              ],
-            },
-          ]
-        : [
-            {
-              title: "C: 思想・ポリシー違反＋ADR記載明記（本 repo ではスキップ）",
-              content: [
-                "owner が t-miura-024 の場合のみ適用する観点のため、本 repo ではレビュー対象外とする。",
-              ],
-            },
-          ];
+      const decisionsPath = join(ctx.sessionDir, REVIEW_DECISIONS_KEY);
+      const fromIssuePath = join(ctx.sessionDir, FROM_ISSUE_KEY);
+      const findingsPath = join(ctx.sessionDir, REVIEW_FINDINGS_KEY);
 
       return buildStepPrompt({
         purpose: [
-          "draft-body で確定した Issue body を 5 観点で自己レビューし、指摘を重み付けして review-body.md に記録する。",
-          "SubAgent は使わず、このステップのエージェント自身がレビューする。起草者自身のレビューのため盲点が残り得るが、残存リスクは後段の review-gate で人間が must/should の有無を見て approve/request_changes を選ぶことで回収する。review-gate では人間が判断材料の件数だけでなく review-body.md 全文を直接確認してから approve/request_changes を選ぶこと。body の修正は行わず、指摘の記録に専念する。must/should が残る場合は review-gate で人間が request_changes を選び grill に戻って再生成する（approve は must/should がゼロの場合のみ）。記録専用であるため軽微な指摘でも request_changes→grill→draft→review の全再生成という往復コストが発生するが、SubAgent 新設なし・差分最小の方針のため許容する。",
+          "起草者から独立したレビュアー SubAgent `mt-plan-reviewer` に Issue body をレビューさせ、機械可読な review-findings.json を生成する。",
+          "このステップのエージェント自身はレビューしない。指摘の取捨選択・修正もしない。",
         ],
         criteria: [
-          "`review-body.md` に `## レビュー結果` / `## 指摘一覧` が記録され、各指摘が must/should/want に重み付けされている（指摘0件時は `指摘なし` 明記）",
-          "分解モード時は子 body 全件への指摘が `対象` 欄に `issue-body-<n>.md` 付きで明記されている",
+          "`review-findings.json` がレビュアーの JSON 出力をそのまま保存している",
+          "`reviewedTargets` に issue-body.md と全子 body が含まれている",
+          "レビュアーの指摘に evidence が付いている",
         ],
         approach: [
           {
-            title: "1. 入力の読み込み",
+            title: "1. 入力の確認",
             content: [
-              `セッションディレクトリの \`${ISSUE_BODY_KEY}\`（親 body）を読み込む。`,
-              "分解モード（子 body `issue-body-<n>.md` が存在する場合）は `ls issue-body-*.md` で全件検出してすべて読み込み、全件を必須レビュー対象とする。子への指摘は `対象` 欄に `issue-body-<n>.md` を明記する。通常モード（子 body が存在しない場合）のレビュー対象は親 body のみとする。",
+              `セッションディレクトリの \`${ISSUE_BODY_KEY}\`（親 body）を確認する。`,
+              "分解モード（子 body `issue-body-<n>.md` が存在する場合）は全件を必須レビュー対象とする。",
               `判定基準として plan-format.md（${planFormatPath}）を参照する。`,
+              ...(existsSync(decisionsPath)
+                ? [`ユーザーの確定決定: ${decisionsPath}（レビュアーに渡す）`]
+                : []),
+              ...(existsSync(fromIssuePath)
+                ? [`元 Issue: ${fromIssuePath}（from-Issue フローの取り込み漏れ確認に使う）`]
+                : []),
             ],
           },
           {
-            title: "2. 5観点レビュー",
-            content: ["以下の 5 観点で本文をレビューする:"],
-          },
-          {
-            title: "A: 追加すり合わせ候補",
+            title: "2. 独立レビュアーの起動",
             content: [
-              "Grill で聞き漏らした曖昧さ・未決事項がないか洗い出す。背景・完了条件・方針の各記述が検証可能な粒度になっているか確認する。from-Issue フローの場合は既存 Issue 内容の取り込み漏れも確認する。",
-            ],
-          },
-          {
-            title: "B: 決定間矛盾",
-            content: [
-              "完了条件・方針・アウトプット・ミッション間の矛盾がないか確認する。ミッションのスコープと完了条件番号の対応に漏れ・重複がないか確認する。",
-            ],
-          },
-          ...perspectiveC,
-          {
-            title: "D: plan-format準拠性",
-            content: [
-              "必須セクションの有無、ミッション定義（スコープ重複なし・完了条件カバー）、effort コメントの形式（`<!-- effort: width=... depth=... -->`）、Issue title と body の役割分担（body に `# 計画タイトル` を含めない）を確認する。",
-            ],
-          },
-          {
-            title: "E: 実行可能性・検証可能性",
-            content: [
-              "完了条件が Yes/No で判定可能な状態として書かれているか確認する。分解する場合は各ミッションが縦に貫く tracer bullet になっており、Wave 配置が依存順になっているか確認する。",
-            ],
-          },
-          {
-            title: "3. 指摘の重み付け",
-            content: [
-              "各指摘を create 用の判定基準で must/should/want に重み付けする（ラベル定義は plan-run と一致）:",
+              'Task ツールで `subagent_type = "mt-plan-reviewer"` を 1 回だけ起動する。',
               "",
-              "- 🚨 must: 完了条件の充足を阻害する欠陥。ニーズ充足の漏れ、実行不能を招く決定間矛盾、必須セクション・effort コメントの欠落など。review-gate の decision で人間が対応可否を判断する（must が残る場合は request_changes を選び grill に戻る。approve は選択不可）。",
-              "- ⚠️ should: 実行は可能だが品質・明確性を著しく損なう問題。完了条件の検証可能性が低い表現、スコープ境界の曖昧さ、ミッション分割の不備の疑いなど。review-gate の decision で人間が対応可否を判断する（should が残る場合も request_changes 推奨。approve は人間が対応不要と判断した場合のみ）。",
-              "- 💡 want: 対応任意の改善提案・軽微な追加すり合わせ候補。review-gate をブロックしない（approve 可）。",
+              "SubAgent には以下を渡す:",
+              `- セッションディレクトリ: ${ctx.sessionDir}`,
+              `- 対象ファイル（すべて読む）: ${targetList.targets.join(", ")}`,
+              `- plan-format.md: ${planFormatPath}`,
+              ...(existsSync(decisionsPath)
+                ? [`- ユーザーの確定決定: ${decisionsPath}`]
+                : ["- ユーザーの確定決定: なし（初回レビュー）"]),
+              ...(existsSync(fromIssuePath) ? [`- 元 Issue: ${fromIssuePath}`] : []),
+              ...(withDocs
+                ? [
+                    `- mt-domain-modeling: ${mtDomainModelingDir}（C 観点を適用する）`,
+                    `- Gherkin フォーマット: ${join(mtDomainModelingDir, "GHERKIN-FORMAT.md")}`,
+                  ]
+                : ["- C 観点（思想・ポリシー＋ADR）: 本 repo ではスキップする"]),
+              "- 今回のレビューは独立レビュー。起草者の会話・意図・自己評価を推測せず、成果物とユーザー決定だけを根拠にする",
+              "- 指摘には必ず evidence（本文の引用または正確な位置）を付ける。根拠のない must は禁止",
+              "- must は計画の実行・品質を阻害する欠陥に限定する",
+              "- ユーザーが reject した指摘を再指摘しない（決定と矛盾する場合・新しい問題を除く）",
+              "- ファイルを編集しない。意思決定をしない",
+              "- `reviewedTargets` には issue-body.md と子 body のみを列挙する（plan-format.md / from-issue.md / review-decisions.md は含めない）",
+              "- 指摘は findings 配列の JSON で返す（形式は `mt-plan-reviewer` の定義に従う）",
+              "",
+              "レビュアーの指摘を自分で評価・取捨選択・修正しない。",
             ],
           },
           {
-            title: "4. レビュー結果の書き出し",
+            title: "3. 出力の保存",
             content: [
-              `レビュー結果を ${ctx.sessionDir}/${REVIEW_BODY_KEY} に書き出す。形式:`,
-              "",
-              // 例示ブロック全体をコードフェンス文字列に隔離する（先頭が ``` のため
-              // PromptString の行頭#検査に触れない。連結ハックは使わない）。
-              "```markdown\n## レビュー結果\n\n概要（指摘件数: must n / should n / want n、総合判断）を書く。\n\n## 指摘一覧\n\n### 1. <指摘タイトル>\n\n| 項目 | 内容 |\n|------|------|\n| 優先度 | 🚨 must |\n| 観点 | A: 追加すり合わせ候補 |\n| 対象 | issue-body-1.md の§X |\n\n<指摘内容の詳細。理由と対応案を書く。>\n```",
-              "",
-              "指摘が 0 件の場合は `## 指摘一覧` に `指摘なし` と明記する。",
+              `SubAgent の出力から JSON オブジェクトだけを取り出し、\`${findingsPath}\` にそのまま保存する。`,
+              "要約・取捨選択・並べ替え・追記をしない。コードフェンスを含めない。",
+              `\`${REVIEW_BODY_KEY}\` は afterStep が review-findings.json から決定論的に生成するため、このステップでは作成しない。`,
             ],
           },
         ],
         output: [
-          "report 時の `artifacts` に以下を含める:",
+          "report 時の `artifacts` に review-findings.json を含める:",
           "```json",
-          `{"key": "${REVIEW_BODY_KEY}", "path": "${join(ctx.sessionDir, REVIEW_BODY_KEY)}"}`,
+          `{"key": "${REVIEW_FINDINGS_KEY}", "path": "${findingsPath}"}`,
           "```",
         ],
-        input: [`セッションディレクトリ: ${ctx.sessionDir}`],
+        policy: [
+          "レビュアーの指摘を自分で評価・修正しない",
+          "issue-body.md / 子 body を編集しない（修正は draft-body が行う）",
+          "review-findings.json はレビュアーの出力をそのまま保存する",
+          "workflow.db のループ制御に触れない",
+        ],
+        input: [
+          `セッションディレクトリ: ${ctx.sessionDir}`,
+          `対象ファイル: ${targetList.targets.join(", ")}`,
+        ],
       });
     },
   },
+  afterStep: async (ctx: StepCtx): Promise<ArtifactInput[]> => {
+    const findingsPath = join(ctx.sessionDir, REVIEW_FINDINGS_KEY);
+    let raw: string;
+    try {
+      raw = readFileSync(findingsPath, "utf-8");
+    } catch (error) {
+      throw new Error(
+        `review-findings.json の読み取りに失敗しました: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+    const parsed = parseRawReviewFindings(raw);
+    if (!parsed.valid || !parsed.parsed) {
+      throw new Error(
+        `レビュアー出力の検証に失敗しました: ${parsed.error ?? "invalid review findings"}`,
+      );
+    }
+    const round = readReviewRound(ctx.sessionDir) + 1;
+    const cycleRound = ctx.loop?.iteration ?? 1;
+    const normalized = normalizeReviewFindings(parsed.parsed, round, cycleRound);
+    const validation = validatePlanReviewFindings(JSON.stringify(normalized));
+    if (!validation.valid || !validation.parsed) {
+      throw new Error(
+        `正規化した review-findings.json の検証に失敗しました: ${validation.error ?? "invalid review findings"}`,
+      );
+    }
+
+    writeFileSync(findingsPath, `${JSON.stringify(validation.parsed, null, 2)}\n`, "utf-8");
+    writeReviewRound(ctx.sessionDir, round);
+    const reviewBodyPath = join(ctx.sessionDir, REVIEW_BODY_KEY);
+    writeFileSync(reviewBodyPath, renderReviewBody(validation.parsed), "utf-8");
+
+    return [
+      { key: REVIEW_FINDINGS_KEY, path: findingsPath },
+      { key: REVIEW_BODY_KEY, path: reviewBodyPath },
+    ];
+  },
   check: (ctx: CheckCtx): CheckResult => {
-    // 前提成果物の存在も要求する（欠落時の捏造レビューを fail に倒す）。
-    // 分解モードの子レビューは子ファイル実在ベースで要求する（子未レビューのまま refined 化させない）。
-    const result = requireStepArtifacts(ctx, [
-      { key: ISSUE_BODY_KEY, form: "markdown" },
+    const base = requireStepArtifacts(ctx, [
+      {
+        key: ISSUE_BODY_KEY,
+        form: "markdown",
+        sections: ["## ✅ 完了条件", "## 🧭 方針"],
+      },
+      {
+        key: REVIEW_FINDINGS_KEY,
+        form: "json",
+        keys: ["reviewer", "round", "cycleRound", "reviewedTargets", "findings", "counts"],
+      },
       {
         key: REVIEW_BODY_KEY,
         form: "markdown",
@@ -140,7 +190,60 @@ export const reviewBodyStep: TaskStepDef = {
         patterns: [/(🚨 must|⚠️ should|💡 want|指摘なし)/],
       },
     ]);
-    if (result.status !== "pass") return result;
+    if (base.status !== "pass") return base;
+
+    const findings = readPlanReviewFindings(ctx.sessionDir, ctx.artifacts);
+    const parsed = findings.parsed;
+    if (!findings.valid || parsed === undefined) {
+      return {
+        status: "fail",
+        reasons: [
+          `review-findings.json の検証に失敗しました: ${findings.error ?? "invalid findings"}`,
+        ],
+      };
+    }
+    const withDocs = isTMiura024(ctx.artifacts, ctx.sessionDir);
+    if (!withDocs && parsed.findings.some((finding) => finding.perspective === "C")) {
+      return {
+        status: "fail",
+        reasons: [
+          "review-findings.json: C 観点（思想・ポリシー＋ADR）は t-miura-024 以外ではスキップする必要があります",
+        ],
+      };
+    }
+    const targetList = listReviewTargets(ctx.sessionDir);
+    if (targetList.error) {
+      return { status: "fail", reasons: [targetList.error] };
+    }
+    const missing = targetList.targets.filter((target) => !parsed.reviewedTargets.includes(target));
+    if (missing.length > 0) {
+      return {
+        status: "fail",
+        reasons: [
+          `review-findings.json: reviewedTargets に対象ファイル（${missing.join(", ")}）が含まれていません`,
+        ],
+      };
+    }
+    const unexpected = parsed.reviewedTargets.filter(
+      (target) => !targetList.targets.includes(target),
+    );
+    if (unexpected.length > 0) {
+      return {
+        status: "fail",
+        reasons: [
+          `review-findings.json: reviewedTargets に存在しないファイル（${unexpected.join(", ")}）が含まれています`,
+        ],
+      };
+    }
+    const cycleRound = ctx.loop?.iteration ?? 1;
+    if (parsed.cycleRound !== cycleRound) {
+      return {
+        status: "fail",
+        reasons: [
+          `review-findings.json の cycleRound=${parsed.cycleRound} が内側ループ iteration=${cycleRound} と一致しません`,
+        ],
+      };
+    }
     return requireChildReviewIfChildrenExist(ctx);
   },
 };
