@@ -244,6 +244,52 @@ fn test_add_changed_files_rename_uses_new_path() {
 }
 
 #[test]
+fn test_add_changed_files_renamed_and_modified_stages_worktree_content() {
+    let (_tmp, path) = make_temp_git_repo("main");
+    run_git(&path, &["mv", "README.md", "RENAMED.md"]);
+    std::fs::write(path.join("RENAMED.md"), "renamed and changed\n").unwrap();
+
+    let added = add_changed_files_in(&path).expect("add が成功するはず");
+    assert!(
+        added.contains(&"RENAMED.md".to_string()),
+        "rename の NEW 側が含まれるべき: {added:?}"
+    );
+
+    // rename 後の内容変更も stage され、worktree 側の未 stage 差分が残らないこと。
+    let unstaged = command_output_in(&path, "git", &["diff", "--name-only"]).expect("diff 取得");
+    assert!(
+        !unstaged.contains("RENAMED.md"),
+        "rename 後の内容変更も staged されるべき: {unstaged:?}"
+    );
+    let staged = command_output_in(&path, "git", &["diff", "--cached", "--name-status"])
+        .expect("cached diff 取得");
+    assert!(
+        staged.contains("RENAMED.md"),
+        "rename と内容変更が staged されるべき: {staged:?}"
+    );
+}
+
+#[test]
+fn test_add_changed_files_added_then_modified_stages_latest_content() {
+    let (_tmp, path) = make_temp_git_repo("main");
+    std::fs::write(path.join("added.txt"), "first\n").unwrap();
+    run_git(&path, &["add", "added.txt"]);
+    std::fs::write(path.join("added.txt"), "second\n").unwrap();
+
+    let added = add_changed_files_in(&path).expect("add が成功するはず");
+    assert!(
+        added.contains(&"added.txt".to_string()),
+        "追加済みファイルが含まれるべき: {added:?}"
+    );
+
+    let unstaged = command_output_in(&path, "git", &["diff", "--name-only"]).expect("diff 取得");
+    assert!(
+        !unstaged.contains("added.txt"),
+        "追加後の内容変更も staged されるべき: {unstaged:?}"
+    );
+}
+
+#[test]
 fn test_add_changed_files_clean_repo_returns_empty() {
     let (_tmp, path) = make_temp_git_repo("main");
     let added = add_changed_files_in(&path).expect("add が成功するはず");
