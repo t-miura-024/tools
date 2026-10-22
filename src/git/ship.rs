@@ -262,12 +262,17 @@ fn add_changed_files_in(cwd: &Path) -> anyhow::Result<Vec<String>> {
     let status = command_output_in(cwd, "git", &["status", "--porcelain", "-z"])?;
     let mut added = Vec::new();
     for (index_status, path) in parse_status_lines(&status) {
-        if matches!(index_status, 'M' | 'A' | 'D' | 'R' | 'C' | 'T') {
-            added.push(path);
-            continue;
+        // index に stage 済みでも worktree 側に追加変更がある場合（例: `RM` の
+        // rename + 内容変更、`AM` の追加 + 内容変更）があるため、常に add -A で
+        // 最新の worktree 内容を index に反映する。stage 済みという理由で skip すると
+        // 内容変更が取り残される。
+        //
+        // ただし index に stage 済みの削除（`D `）は worktree に path が存在せず、
+        // `git add -A -- <path>` が pathspec エラーになるため skip する。
+        if index_status != 'D' {
+            command_output_in(cwd, "git", &["add", "-A", "--", &path])
+                .with_context(|| format!("git add {path} に失敗"))?;
         }
-        command_output_in(cwd, "git", &["add", "--", &path])
-            .with_context(|| format!("git add {path} に失敗"))?;
         added.push(path);
     }
     Ok(added)
