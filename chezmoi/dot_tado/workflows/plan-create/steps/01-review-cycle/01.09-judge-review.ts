@@ -6,20 +6,22 @@ import { writeFileSync, unlinkSync } from "node:fs";
 import { isRecord } from "../../../shared/review-helpers/is-record";
 import { gateDecisionValue } from "../../helper/gate-decision-value.ts";
 import { gateDecisionInput } from "../../helper/gate-decision-input.ts";
+import { REVIEW_CYCLE_EXHAUSTED_MARKER } from "../../helper/review-limits.ts";
 
 const GATE_KEY = "review-gate";
 const LOOP_KEY = "review-cycle";
-const HEAD_KEY = "grill";
-const MARKER_KEY = "review-cycle-exhausted.json";
+const HEAD_KEY = "review-fix-cycle";
+const MARKER_KEY = REVIEW_CYCLE_EXHAUSTED_MARKER;
 const EXHAUSTED_KEY = "review-exhausted";
 
 // -----------------------------------------------------------------
-// Step 5b: 差し戻し判定（loop 末尾）
-//   review-gate の gateAnswers を読んで分岐する loop の check。
-//   request_changes → 判定 `continue` で loop 先頭（grill）へ巻き戻る。
+// Step 9: 人間差し戻し判定（外側 loop 末尾）
+//   review-gate の gateAnswers を読んで分岐する外側 loop の check。
+//   request_changes → 判定 `continue` で外側 loop 先頭（review-fix-cycle）へ
+//   巻き戻る。内側 loop の反復状態はエンジンにより初期化される。
 //   上限到達時は枯渇マーカーを残して pass で脱出し、loop 外の
-//   review-exhausted へ渡す。ゲート skip 時は発生しない（loop 内ゲートは
-//   無条件のため毎反復実行される）。4分岐に pass フォールバックは設けない。
+//   review-exhausted へ渡す。ゲート skip 時は発生しない。
+//   4分岐に pass フォールバックは設けない。
 // -----------------------------------------------------------------
 export const judgeReviewStep: TaskStepDef = {
   key: "judge-review",

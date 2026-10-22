@@ -3,6 +3,7 @@ import type { TaskStepDef } from "tado/types/workflow-def.ts";
 import { buildStepPrompt } from "../../../shared/prompt/build-step-prompt";
 import { requireStepArtifacts } from "../../../shared/artifact-check/require-step-artifacts";
 import { readRepoInfo } from "../../helper/read-repo-info.ts";
+import { readPlanReviewFindings } from "../../helper/review-findings.ts";
 
 const PREPARE_DECISION_KEY = "prepare-decision.json";
 
@@ -23,6 +24,7 @@ export const prepareStep: TaskStepDef = {
       return buildStepPrompt({
         purpose: [
           "起票に必要な環境整備（label 確認）を行い、分解要否の判定材料を artifact に書き出す。",
+          "このステップは must=0 が機械検証された後にのみ実行される。must が残っている場合は check が fail し、最終レビューへ進まない。",
         ],
         criteria: [
           "`prepare-decision.json` に mode / fromIssue / issueNumber / repo が書き出されている",
@@ -94,12 +96,32 @@ export const prepareStep: TaskStepDef = {
     },
   },
   check: (ctx: CheckCtx): CheckResult => {
-    return requireStepArtifacts(ctx, [
+    const base = requireStepArtifacts(ctx, [
       {
         key: PREPARE_DECISION_KEY,
         form: "json",
         keys: ["mode", "fromIssue", "issueNumber", "repo"],
       },
     ]);
+    if (base.status !== "pass") return base;
+
+    const findings = readPlanReviewFindings(ctx.sessionDir, ctx.artifacts);
+    if (!findings.valid || !findings.parsed) {
+      return {
+        status: "fail",
+        reasons: [
+          `review-findings.json を検証できないため最終レビューへ進めません: ${findings.error ?? "invalid findings"}`,
+        ],
+      };
+    }
+    if (findings.parsed.counts.must > 0) {
+      return {
+        status: "fail",
+        reasons: [
+          `review-findings.json: must が ${findings.parsed.counts.must} 件残っているため最終レビューへ進めません`,
+        ],
+      };
+    }
+    return { status: "pass", reasons: [] };
   },
 };
