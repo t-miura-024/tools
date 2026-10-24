@@ -59,6 +59,7 @@ cask "font-udev-gothic-hs"
 cask "font-udev-gothic-nf"
 cask "azookey"
 cask "ghostty"
+cask "zen"
 
 mas "Kindle", id: 302584613
 mas "LINE", id: 539883307
