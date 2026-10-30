@@ -39,19 +39,15 @@ brew "lefthook"
 brew "duckdb"
 
 cask "docker-desktop"
-cask "font-fira-code"
 cask "google-chrome"
 cask "karabiner-elements"
 cask "ngrok"
 cask "obsidian"
-cask "opencode-desktop"
 cask "raycast"
 cask "slack"
 cask "t3-code"
 cask "temurin@8"
 cask "visual-studio-code"
-cask "warp"
-cask "cmux"
 cask "displaylink"
 cask "font-symbols-only-nerd-font"
 cask "font-udev-gothic-hs"
@@ -62,7 +58,6 @@ cask "zen"
 
 mas "Kindle", id: 302584613
 mas "LINE", id: 539883307
-mas "Remote Mouse", id: 403195710
 
 vscode "catppuccin.catppuccin-vsc"
 vscode "catppuccin.catppuccin-vsc-icons"
