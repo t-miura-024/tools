@@ -1,6 +1,7 @@
 tap "adoptopenjdk/openjdk"
 tap "anomalyco/tap"
 tap "openclaw/tap"
+tap "penso/tap"
 tap "sst/tap"
 tap "steipete/tap"
 tap "yakitrak/yakitrak"
@@ -55,6 +56,7 @@ cask "font-udev-gothic-nf"
 cask "azookey"
 cask "ghostty"
 cask "zen"
+cask "herdr-gpui"
 
 mas "Kindle", id: 302584613
 mas "LINE", id: 539883307
