@@ -324,3 +324,35 @@
       comment: "384字3段落・接続詞3種相違・禁句回避は達成だが「ものである」「状態である」の文末反復と短文不足、24の半角数字残存で-3。"
   total: 8.3
   notes: "理解は完璧、生成は例え不足、Confusionは導入文余分、直訳にカルク残存、敬語は結びの冗長、結束性は文末反復"
+- run_at: "2026-11-02T23:47:18+09:00"
+  model: "opencode-go/iceman-contributor-free"
+  variant: "unknown"
+  temperature: "unknown"
+  tasks_version: "v1"
+  scores:
+    q01:
+      aspect: "基本理解"
+      score: 10
+      comment: "要約54字で範囲内、主張・根拠2点とも正確。違和感なしと判断した。"
+    q02:
+      aspect: "基本生成"
+      score: 2
+      comment: "例えは豊富でですます統一も適合だが実測266字で180〜220字を超過し要件不達。"
+    q03:
+      aspect: "Language Confusion耐性"
+      score: 6
+      comment: "3ステップ各1文・ですます適合は良好だが「issue」を2行で英語表記のまま残し混入2箇所。"
+    q04:
+      aspect: "直訳調・干渉回避"
+      score: 7
+      comment: "訳文3行のみ・ship→リリース化は良好だが「分析によると」の直訳残り香と「長いだけでなく」の構文カルクで-3。"
+    q05:
+      aspect: "敬語・文体"
+      score: 2
+      comment: "ですます統一・である混在なしは適合だが実測125字で130〜170字に不足し要件不達。加えて「ご依頼いただきました」「ご理解いただけます」が二重敬語。"
+    q06:
+      aspect: "長文結束性"
+      score: 7
+      comment: "413字・接続詞3種相違・である統一・禁句回避は達成だが「なのである」5回の文末反復と「24」の半角数字残存で-3。"
+  total: 5.7
+  notes: "理解は完璧、生成と敬語は字数不達で要件不達、Confusionはissue残存、直訳・結束性は軽微な癖"
