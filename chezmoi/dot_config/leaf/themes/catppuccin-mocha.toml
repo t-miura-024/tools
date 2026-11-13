@@ -1,0 +1,179 @@
+# Catppuccin Mocha theme for leaf (leaf-markdown-viewer)
+#
+# 継承元: 組み込みの暗色テーマ "ocean"
+# キー一覧は RivoLink/leaf の gruvbox.toml（全キー例）に準拠。
+#
+# Catppuccin Mocha パレット ↔ leaf キーのマッピング
+#   base #1e1e2e / mantle #181825 / crust #11111b
+#   text #cdd6f4 / subtext1 #bac2de / subtext0 #a6adc8
+#   overlay2 #9399b2 / overlay1 #7f849c / overlay0 #6c7086
+#   surface2 #585b70 / surface1 #45475a / surface0 #313244
+#   blue #89b4fa / lavender #b4befe / sapphire #74c7ec / sky #89dceb
+#   teal #94e2d5 / green #a6e3a1 / yellow #f9e2af / peach #fab387
+#   maroon #eba0ac / red #f38ba8 / mauve #cba6f7 / pink #f5c2e7
+#   flamingo #f2cdcd / rosewater #f5e0dc
+#
+# キー別割り当て（[ui]）
+#   toc_bg                     -> mantle      (サイドバー背景)
+#   toc_border                 -> surface1    (境界線)
+#   content_bg                 -> base        (本文背景)
+#   scrollbar_hover            -> lavender    (スクロールバー強調)
+#   status_bg                  -> mantle      (ステータスバー背景)
+#   status_separator           -> surface2    (区切り)
+#   status_brand_fg / _bg      -> crust / mauve
+#   status_filename_fg / _bg   -> text / surface0
+#   status_watch_fg / _bg      -> green / surface0
+#   status_reloaded_fg / _bg   -> crust / green
+#   status_search_fg / _bg     -> yellow / surface0
+#   status_success_fg / _bg    -> green / surface0
+#   status_warning_fg          -> yellow
+#   status_error_fg / _bg      -> red / surface0
+#   status_shortcut_fg         -> overlay0
+#   status_percent_fg          -> blue
+#   status_dot_fg              -> overlay0
+#   toc_hover_fg               -> text
+#   toc_header_fg              -> overlay1
+#   toc_active_bg              -> surface0
+#   toc_inactive_bg            -> mantle
+#   toc_accent                 -> mauve
+#   toc_index_inactive         -> overlay0
+#   toc_primary_active         -> text
+#   toc_primary_inactive       -> subtext0
+#   toc_secondary_inactive     -> overlay0
+#   toc_secondary_text_active  -> subtext1
+#   toc_secondary_text_inactive-> overlay1
+base = "ocean"
+syntax = "base16-ocean.dark"
+
+[ui]
+toc_bg = "#181825"        # mantle
+toc_border = "#45475a"    # surface1
+content_bg = "#1e1e2e"    # base
+scrollbar_hover = "#b4befe" # lavender
+status_bg = "#181825"     # mantle
+status_separator = "#585b70" # surface2
+status_brand_fg = "#11111b" # crust
+status_brand_bg = "#cba6f7" # mauve
+status_filename_fg = "#cdd6f4" # text
+status_filename_bg = "#313244" # surface0
+status_watch_fg = "#a6e3a1" # green
+status_watch_bg = "#313244" # surface0
+status_reloaded_fg = "#11111b" # crust
+status_reloaded_bg = "#a6e3a1" # green
+status_search_fg = "#f9e2af" # yellow
+status_search_bg = "#313244" # surface0
+status_success_fg = "#a6e3a1" # green
+status_success_bg = "#313244" # surface0
+status_warning_fg = "#f9e2af" # yellow
+status_error_fg = "#f38ba8" # red
+status_error_bg = "#313244" # surface0
+status_shortcut_fg = "#6c7086" # overlay0
+status_percent_fg = "#89b4fa" # blue
+status_dot_fg = "#6c7086" # overlay0
+toc_hover_fg = "#cdd6f4" # text
+toc_header_fg = "#7f849c" # overlay1
+toc_active_bg = "#313244" # surface0
+toc_inactive_bg = "#181825" # mantle
+toc_accent = "#cba6f7"   # mauve
+toc_index_inactive = "#6c7086" # overlay0
+toc_primary_active = "#cdd6f4" # text
+toc_primary_inactive = "#a6adc8" # subtext0
+toc_secondary_inactive = "#6c7086" # overlay0
+toc_secondary_text_active = "#bac2de" # subtext1
+toc_secondary_text_inactive = "#7f849c" # overlay1
+
+[markdown]
+# キー別割り当て（[markdown]）
+#   search_highlight_bg -> surface1  / search_match_bg -> yellow
+#   code_gutter         -> overlay0  / code_frame -> surface1 / code_label -> overlay1
+#   blockquote_marker   -> mauve     / blockquote_text -> subtext1
+#   list_level_1..3     -> green / sapphire / pink / ordered_list -> peach
+#   table_border        -> surface2  / table_separator -> surface1
+#   table_header        -> blue      / table_cell -> text
+#   heading_1..4        -> mauve / blue / sapphire / teal, heading_other -> lavender
+#   heading_underline   -> surface1
+#   inline_code_fg/_bg  -> peach / surface0
+#   rule                -> surface1
+#   link_icon -> sky / link_text -> blue / link_hover -> lavender
+#   text -> text / strong_text -> rosewater
+#   latex_inline_fg/_bg -> mauve / surface0, latex_block_fg -> mauve
+#   mermaid_keyword -> mauve / mermaid_arrow -> blue / mermaid_label -> green
+#   mermaid_block_fg -> text
+#   mark_fg/_bg          -> base / yellow
+#   task_checked         -> green     / task_unchecked -> overlay0
+#   alert_note -> blue / alert_tip -> teal / alert_important -> mauve
+#   alert_warning -> yellow / alert_caution -> red
+#   footnote_ref -> sky / footnote_text -> subtext1
+search_highlight_bg = "#45475a" # surface1
+search_match_bg = "#f9e2af" # yellow
+code_gutter = "#6c7086"   # overlay0
+blockquote_marker = "#cba6f7" # mauve
+list_level_1 = "#a6e3a1"  # green
+list_level_2 = "#74c7ec"  # sapphire
+list_level_3 = "#f5c2e7"  # pink
+ordered_list = "#fab387"  # peach
+table_border = "#585b70"  # surface2
+table_separator = "#45475a" # surface1
+table_header = "#89b4fa"  # blue
+table_cell = "#cdd6f4"    # text
+heading_1 = "#cba6f7"     # mauve
+heading_2 = "#89b4fa"     # blue
+heading_3 = "#74c7ec"     # sapphire
+heading_4 = "#94e2d5"     # teal
+heading_other = "#b4befe" # lavender
+heading_underline = "#45475a" # surface1
+code_frame = "#45475a"    # surface1
+code_label = "#7f849c"    # overlay1
+inline_code_fg = "#fab387" # peach
+inline_code_bg = "#313244" # surface0
+rule = "#45475a"          # surface1
+link_icon = "#89dceb"     # sky
+link_text = "#89b4fa"     # blue
+link_hover = "#b4befe"    # lavender
+blockquote_text = "#bac2de" # subtext1
+text = "#cdd6f4"          # text
+strong_text = "#f5e0dc"   # rosewater
+latex_inline_fg = "#cba6f7" # mauve
+latex_inline_bg = "#313244" # surface0
+latex_block_fg = "#cba6f7" # mauve
+mermaid_keyword = "#cba6f7" # mauve
+mermaid_arrow = "#89b4fa" # blue
+mermaid_label = "#a6e3a1" # green
+mermaid_block_fg = "#cdd6f4" # text
+mark_fg = "#1e1e2e"       # base
+mark_bg = "#f9e2af"       # yellow
+task_checked = "#a6e3a1"  # green
+task_unchecked = "#6c7086" # overlay0
+alert_note = "#89b4fa"    # blue
+alert_tip = "#94e2d5"     # teal
+alert_important = "#cba6f7" # mauve
+alert_warning = "#f9e2af" # yellow
+alert_caution = "#f38ba8" # red
+footnote_ref = "#89dceb"  # sky
+footnote_text = "#bac2de" # subtext1
+
+[diff]
+# キー別割り当て（[diff]）
+#   add_fg -> green / add_bg -> surface0 / intra_add -> green
+#   del_fg -> red   / del_bg -> surface0 / intra_del -> red
+#   context_fg -> overlay1 / hunk_header_fg -> blue / filename_fg -> text
+#   frame_fg -> surface2 / tree_active -> mauve
+#   meta_note_fg -> yellow / meta_note_bg -> surface0 / meta_note_sigil_fg -> peach
+#   file_separator_fg -> text / tree_tag_change -> peach / tree_tag_renamed -> blue
+add_fg = "#a6e3a1"        # green
+add_bg = "#313244"        # surface0
+del_fg = "#f38ba8"        # red
+del_bg = "#313244"        # surface0
+context_fg = "#7f849c"    # overlay1
+hunk_header_fg = "#89b4fa" # blue
+filename_fg = "#cdd6f4"   # text
+frame_fg = "#585b70"      # surface2
+tree_active = "#cba6f7"   # mauve
+intra_add = "#a6e3a1"     # green
+intra_del = "#f38ba8"     # red
+meta_note_fg = "#f9e2af"  # yellow
+meta_note_bg = "#313244"  # surface0
+meta_note_sigil_fg = "#fab387" # peach
+file_separator_fg = "#cdd6f4" # text
+tree_tag_change = "#fab387" # peach
+tree_tag_renamed = "#89b4fa" # blue
